@@ -1,0 +1,33 @@
+# секреты
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# данные кейса — не в репозитории; для проверки есть data/demo/
+data/raw/
+
+# зависимости и сборка
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# логи и системное
+*.log
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# редакторы
+.idea/
+.vscode/*
+!.vscode/extensions.json
