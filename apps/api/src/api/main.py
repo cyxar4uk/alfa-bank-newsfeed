@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -5,6 +6,8 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from psycopg_pool import ConnectionPool
 
+from api.agent.routes import router as agent_router
+from api.agent.service import build_service
 from api.config import get_settings
 from api.contract import CompanyProfile, CompanySummary, Health, Persona
 from api.db import connect, ensure_schema
@@ -12,6 +15,8 @@ from api.okved import sector_for
 from api.personas import make_personas
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
+
+logger = logging.getLogger("api")
 
 
 @asynccontextmanager
@@ -23,6 +28,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # короткое ожидание соединения: /api/health должен быстро ответить 503, а не висеть
     pool = ConnectionPool(settings.database_url, min_size=1, max_size=10, timeout=5, open=True)
     app.state.repo = PgCompanyRepo(pool)
+    # модуль поиска, если подключён, кладёт свой SearchRepo в app.state.search — агент берёт его
+    try:
+        app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
+    except Exception:
+        # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
+        logger.exception("агент не запустился")
+        app.state.agent = None
     try:
         yield
     finally:
@@ -31,13 +43,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Новостная аналитика для бизнес-решений",
-    description="API сервиса: профиль компании по данным банка, тестовые пользователи, контракт инсайта.",
+    description=(
+        "API сервиса: профиль компании по данным банка, тестовые пользователи, инсайты агента, трассы и "
+        "отзывы."
+    ),
     version="0.1.0",
     openapi_url="/api/openapi.json",
     docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,
 )
+
+
+app.include_router(agent_router)
 
 
 def get_repo(request: Request) -> CompanyRepo:
