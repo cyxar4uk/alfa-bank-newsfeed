@@ -21,13 +21,26 @@
 
 | Источник | Адрес | Условия |
 |---|---|---|
-| | | |
+| Банк России — пресс-релизы, события | https://www.cbr.ru/rss/RssPress, https://www.cbr.ru/rss/eventrss | воспроизведение с указанием источника и ссылкой на страницу (cbr.ru/about) |
+| Интерфакс | https://www.interfax.ru/rss.asp | цитирование в информационных целях со ссылкой на interfax.ru (interfax.ru/license) |
+| Коммерсантъ — «Экономика», «Бизнес» | https://www.kommersant.ru/RSS/section-economics.xml, …/section-business.xml | до 30 % материала без переработки, с автором и ссылкой (kommersant.ru/copyright) |
+| РИА Новости | https://ria.ru/export/rss2/archive/index.xml | с указанием источника и гиперссылкой (ria.ru/docs/about/copyright.html) |
+| Forbes | https://www.forbes.ru/newrss.xml | в информационных целях с автором, датой и активной ссылкой |
+
+Храним только заголовок, лид дословно (до 500 знаков), ссылку, издателя и дату; полный текст и иллюстрации не храним,
+в интерфейсе ведём на первоисточник. ТАСС, РБК, Ведомости и Финмаркет есть в `apps/ingest/src/ingest/news/sources.toml`,
+но выключены: их условия запрещают автоматическое извлечение без разрешения или не найдены.
 
 ## Библиотеки
 
 | Компонент | Версия | Лицензия |
 |---|---|---|
-| | | |
+| Tesseract OCR (+ языковые модели rus, eng) | 5.3.0 (пакет Debian bookworm) | Apache-2.0 |
+| feedparser | 6.0.14 | BSD-2-Clause |
+| HTTPX | 0.28.1 | BSD-3-Clause |
+| Pydantic | 2.14.1 | MIT |
+| pypdfium2 (PDFium) | 5.14.0 | Apache-2.0 / BSD-3-Clause |
+| Pillow | 13.0.0 | MIT-CMU |
 
 ## Смоделированные интеграции
 

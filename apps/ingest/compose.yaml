@@ -1,0 +1,9 @@
+# Сбор новостей и распознавание аналитики одной командой из корня репозитория:
+#   docker compose -f apps/ingest/compose.yaml run --rm ingest
+# Читает data/raw/alfa_analytics, пишет data/raw/derived и data/demo/news_snapshot.jsonl.
+services:
+  ingest:
+    build: .
+    image: alfa-newsfeed-ingest
+    volumes:
+      - ../../data:/data
