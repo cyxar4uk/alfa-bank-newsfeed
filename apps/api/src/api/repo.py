@@ -23,6 +23,8 @@ class CompanyRepo(Protocol):
 
     def flows(self, company_id: str) -> list[Flow]: ...
 
+    def group_records(self, group_id: str, exclude: str) -> list[CompanyRecord]: ...
+
     def industry(self, company: CompanyRecord) -> IndustryPosition | None: ...
 
     def imported_files(self) -> list[ImportedFile]: ...
@@ -59,6 +61,15 @@ class PgCompanyRepo:
                 (group_id, exclude, limit),
             ).fetchall()
         return size, [m[0] for m in members]
+
+    def group_records(self, group_id: str, exclude: str) -> list[CompanyRecord]:
+        """Все другие компании группы — для сигналов группы в карте чувствительности."""
+        query = f"""
+            SELECT {_COLUMNS} FROM companies WHERE group_id = %s AND id <> %s
+            ORDER BY revenue DESC NULLS LAST, id
+        """
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return [CompanyRecord(**row) for row in cur.execute(query, (group_id, exclude)).fetchall()]
 
     def flows(self, company_id: str) -> list[Flow]:
         query = f"""

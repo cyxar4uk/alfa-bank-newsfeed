@@ -160,6 +160,121 @@ class IndustryPosition(BaseModel):
     percentile: float = Field(ge=0, le=1, description="доля компаний с тем же кодом и меньшей выручкой")
 
 
+# --- Карта чувствительности -----------------------------------------------------------------
+
+ExposureLevel = Literal["high", "medium", "low", "none", "no_data"]
+ChannelKind = Literal["direct", "buyers", "suppliers", "group"]
+
+
+class Evidence(BaseModel):
+    """Доказательство силы фактора: признак компании или число из данных."""
+
+    ref: str = Field(description="feat:… — признак профиля, payments — платежи, group — данные группы")
+    label: str
+    value: str
+
+
+class ExposureChannel(BaseModel):
+    kind: ChannelKind = Field(
+        description="direct — сама компания, buyers — через покупателей, suppliers — через поставщиков,"
+        " group — через компании группы"
+    )
+    text: str = Field(description="канал человеческим текстом")
+
+
+class FactorExposure(BaseModel):
+    """Чувствительность компании к одному фактору."""
+
+    id: str = Field(examples=["exp:rate"], description="ссылка на фактор в refs: exp:<code>")
+    code: str = Field(examples=["rate", "demand_56"])
+    label: str = Field(examples=["Стоимость заёмных денег"])
+    strength: float | None = Field(ge=0, le=1, description="0–1; null — нет данных")
+    level: ExposureLevel = Field(description="high ≥ 0,6 · medium ≥ 0,3 · low > 0 · none — сигналов нет")
+    channel: ExposureChannel | None = None
+    evidence: list[Evidence] = Field(default_factory=list)
+    estimate: bool = Field(
+        default=False, description="вывод — оценка по отрасли, а не данные (например, направление ВЭД)"
+    )
+    coverage: float | None = Field(
+        default=None, ge=0, le=1, description="для спроса и поставок: доля суммы стороны с известной отраслью"
+    )
+    okved: str | None = Field(default=None, description="для спроса и поставок: класс ОКВЭД контрагентов")
+    notes: list[str] = Field(default_factory=list)
+
+
+class ExposureMap(BaseModel):
+    """Карта чувствительности: к чему уязвима компания и через что. Факторы — по убыванию силы."""
+
+    company_id: str
+    factors: list[FactorExposure]
+    warnings: list[str] = Field(default_factory=list)
+    catalog_version: str
+
+
+# --- Цепочка влияния -------------------------------------------------------------------------------
+
+
+class ChainNode(BaseModel):
+    """Контрагент или компания группы в цепочке «событие → отрасль → контрагенты → вы»."""
+
+    id: str
+    display_name: str
+    in_dataset: bool
+    okved: str | None = None
+    sector: str | None = None
+    region: str | None = None
+    amount: float | None = Field(
+        default=None, description="платежи с компанией, ₽; у компании группы без платежей — null"
+    )
+    share: float | None = Field(
+        default=None, ge=0, le=1, description="доля в стороне оборота канала (у группы — в выручке группы)"
+    )
+    revenue: float | None = Field(default=None, description="выручка — для компаний группы")
+    intra_group: bool = False
+
+
+class ChainChannel(BaseModel):
+    """Один путь, которым событие в отрасли доходит до компании."""
+
+    kind: ChannelKind
+    okved: str = Field(description="двузначный класс ОКВЭД события", examples=["56"])
+    sector: str | None = None
+    share: float = Field(
+        ge=0,
+        le=1,
+        description="direct — 1; buyers/suppliers — доля внешних поступлений или платежей;"
+        " group — доля выручки группы",
+    )
+    weight: float = Field(
+        ge=0, le=1, description="сила связи события с отраслью (из разметки, по умолчанию 1)"
+    )
+    strength: float = Field(ge=0, le=1, description="share × weight")
+    coverage: float | None = Field(
+        default=None, ge=0, le=1, description="для buyers/suppliers: покрытие отраслей стороны"
+    )
+    text: str = Field(description="цепочка человеческим текстом")
+    counterparties: int = Field(description="сколько компаний в канале")
+    nodes: list[ChainNode] = Field(default_factory=list, description="крупнейшие — не больше пяти")
+    refs: list[str] = Field(
+        default_factory=list, description="feat:… профиля и exp:… карты, на которых держится канал"
+    )
+    notes: list[str] = Field(default_factory=list)
+
+
+class InfluenceChain(BaseModel):
+    """Через кого событие с разметкой отраслей задевает компанию. Каналы — по убыванию силы."""
+
+    company_id: str
+    event_okved: list[str] = Field(description="двузначные классы ОКВЭД события")
+    channels: list[ChainChannel] = Field(default_factory=list)
+    strength_max: float = Field(ge=0, le=1, description="сила сильнейшего канала")
+    strength_sum: float = Field(ge=0, le=1, description="сумма сил каналов, не больше 1")
+    gaps: list[str] = Field(
+        default_factory=list, description="чего не хватает: нет платежей, низкое покрытие"
+    )
+    reason: str | None = Field(default=None, description="почему каналов нет")
+
+
 class CompanyProfile(BaseModel):
     id: str = Field(examples=["U_1595"])
     display_name: str = Field(examples=["Компания №1595 · торговля розничная лекарственными средствами"])

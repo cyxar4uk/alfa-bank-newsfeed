@@ -9,12 +9,13 @@ from psycopg_pool import ConnectionPool
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
 from api.config import get_settings
-from api.contract import CompanyProfile, CompanySummary, Health, Persona
+from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
 from api.db import connect, ensure_schema
 from api.okved import sector_for
 from api.personas import make_personas
-from api.profile import GROUP_MEMBERS_SHOWN, build_profile, display_name
+from api.profile import display_name
 from api.repo import CompanyRepo, PgCompanyRepo
+from api.service import company_chain, company_exposure, company_profile
 
 logger = logging.getLogger("api")
 
@@ -98,19 +99,37 @@ def list_companies(
 
 @app.get("/api/companies/{company_id}", response_model=CompanyProfile, tags=["компании"])
 def get_company(company_id: str, repo: Repo) -> CompanyProfile:
-    company = repo.get_company(company_id)
-    if company is None:
+    profile = company_profile(repo, company_id)
+    if profile is None:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
-    size, members = 1, []
-    if company.group_id:
-        size, members = repo.group(company.group_id, exclude=company.id, limit=GROUP_MEMBERS_SHOWN)
-    return build_profile(
-        company,
-        repo.flows(company.id),
-        group_size=size,
-        group_members=members,
-        industry=repo.industry(company),
-    )
+    return profile
+
+
+@app.get("/api/companies/{company_id}/exposure", response_model=ExposureMap, tags=["компании"])
+def get_exposure(company_id: str, repo: Repo) -> ExposureMap:
+    """Карта чувствительности: к чему уязвима компания, сила, канал и доказательства каждого фактора."""
+    exposure = company_exposure(repo, company_id)
+    if exposure is None:
+        raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
+    return exposure
+
+
+@app.get("/api/companies/{company_id}/chain", response_model=InfluenceChain, tags=["компании"])
+def get_chain(
+    company_id: str,
+    repo: Repo,
+    okved: Annotated[list[str], Query(description="классы ОКВЭД события, например 56 или 46.71")],
+) -> InfluenceChain:
+    """Цепочка влияния: через кого событие в этих отраслях задевает компанию.
+
+    Каналы — напрямую, через покупателей, поставщиков и группу.
+    """
+    # коды можно передать и повтором параметра, и через запятую: okved=56&okved=10 или okved=56,10
+    codes = [code for value in okved for code in value.split(",") if code.strip()]
+    chain = company_chain(repo, company_id, codes)
+    if chain is None:
+        raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
+    return chain
 
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
