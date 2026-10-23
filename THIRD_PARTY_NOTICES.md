@@ -34,14 +34,31 @@
 
 ## Библиотеки
 
+Точные версии зависимостей, включая транзитивные, — `apps/api/uv.lock` и `apps/ingest/uv.lock`.
+
 | Компонент | Версия | Лицензия |
 |---|---|---|
-| Tesseract OCR (+ языковые модели rus, eng) | 5.3.0 (пакет Debian bookworm) | Apache-2.0 |
-| feedparser | 6.0.14 | BSD-2-Clause |
-| HTTPX | 0.28.1 | BSD-3-Clause |
+| FastAPI | 0.161.1 | MIT |
+| Uvicorn | 0.54.0 | BSD-3-Clause |
 | Pydantic | 2.14.1 | MIT |
+| pydantic-settings | 2.16.1 | MIT |
+| psycopg, psycopg-binary | 3.3.6 | LGPL-3.0 |
+| psycopg-pool | 3.3.3 | LGPL-3.0 |
+| HTTPX (парсер; в API — для тестов) | 0.28.1 | BSD-3-Clause |
+| feedparser | 6.0.14 | BSD-2-Clause |
 | pypdfium2 (PDFium) | 5.14.0 | Apache-2.0 / BSD-3-Clause |
 | Pillow | 13.0.0 | MIT-CMU |
+| pytest (разработка) | 9.1.1 | MIT |
+| Ruff (разработка) | 0.17.2 | MIT |
+
+## Образы и инструменты сборки
+
+| Компонент | Версия | Лицензия |
+|---|---|---|
+| PostgreSQL (образ `postgres`) | 17, alpine | PostgreSQL License |
+| Python (образ `python`) | 3.12, slim | PSF License |
+| uv | 0.13.5 | MIT / Apache-2.0 |
+| Tesseract OCR (+ языковые модели rus, eng) | 5.3.0 (пакет Debian bookworm) | Apache-2.0 |
 
 ## Смоделированные интеграции
 

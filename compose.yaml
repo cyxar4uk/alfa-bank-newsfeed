@@ -1,0 +1,57 @@
+name: alfa-bank-newsfeed
+
+x-api-env: &api-env
+  DATABASE_URL: postgresql://${POSTGRES_USER:-newsfeed}:${POSTGRES_PASSWORD:-newsfeed}@db:5432/${POSTGRES_DB:-newsfeed}
+
+services:
+  db:
+    image: postgres:17-alpine
+    # без репликации: загрузка TRUNCATE + COPY в одной транзакции не пишет журнал — импорт в разы быстрее
+    command: ["postgres", "-c", "wal_level=minimal", "-c", "max_wal_senders=0"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-newsfeed}
+      POSTGRES_USER: ${POSTGRES_USER:-newsfeed}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-newsfeed}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  # загрузка CSV кейса в БД; уже загруженные файлы пропускает
+  import:
+    build: ./apps/api
+    command: ["python", "-m", "api.importer"]
+    environment:
+      <<: *api-env
+      DATA_DIR: /data
+      IMPORT_FORCE: ${IMPORT_FORCE:-false}
+    volumes:
+      - ${DATA_DIR:-./data/raw}:/data:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: ./apps/api
+    environment:
+      <<: *api-env
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      import:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+volumes:
+  pgdata:
