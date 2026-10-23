@@ -1,0 +1,207 @@
+# Каталог факторов карты чувствительности.
+#
+# Фактор = код, подпись и сигналы. Сила фактора — максимум сработавших сигналов (0–1), канал и «оценка или данные» —
+# от самого сильного, доказательства — от всех сработавших. Новый фактор из уже известных видов сигналов
+# добавляется сюда без правки кода. Виды сигналов (поля — в api/exposure.py, модель SignalConfig):
+#
+#   always         срабатывает у любой компании (базовый уровень фактора)
+#   flag           признак компании да/нет (field — поле записи: credit, leasing, deposit, guarantee, factoring,
+#                  salary_project, rko, fts_flag)
+#   own_okved      свой код ОКВЭД начинается с одного из codes («46.2» — все 46.2x)
+#   workers        градация сотрудников ФНС из values
+#   fts            есть ВЭД; only — все страны из списка, unless_only — не все из списка (оба — только если
+#                  страны известны), countries_unknown — ВЭД есть, а стран нет, with_okved — и свой код из списка; в тексте {countries} и {direction} (направление — оценка по отрасли, см. [fx_direction])
+#   region         регион из regions (пусто — любой известный); в тексте {region} и {city}
+#   side_share     доля внешних поступлений (side = "customers") или платежей (side = "suppliers") от контрагентов
+#                  с классом ОКВЭД из okved; сила — по thresholds [[доля, сила], …] от большей доли к меньшей
+#   group_okved    компании группы (без самой компании) с кодом из codes дают не меньше min_revenue_share
+#                  выручки группы
+#   group_flag     у компаний группы признак field — не меньше чем у min_count
+#   group_suppliers_fts  доля всех платежей компании (с группой) компаниям своей группы с ВЭД; по thresholds
+#
+# В текстах — только подстановки {activity}, {sector}, {share}, {count}, {countries}, {direction}, {region},
+# {city}, {coverage}, {amount}, без форматов; опечатка в поле или битый шаблон — каталог не загрузится.
+# Канал (channel): direct — сама компания, buyers — покупатели, suppliers — поставщики, group — группа.
+
+version = "2026-10-24.1"
+
+[levels]
+high = 0.6
+medium = 0.3
+
+[payments]
+# платежи меньше этой доли выручки — спрос и поставки «нет данных»: цепочки по ним вводят в заблуждение
+min_revenue_coverage = 0.05
+# сторона (поступления или платежи) меньше этой доли выручки — для неё «нет данных»
+min_side_revenue_share = 0.01
+# отрасль известна у меньшей доли суммы стороны — сила по ней не выше low_coverage_cap
+low_coverage = 0.3
+low_coverage_cap = 0.29
+# один внешний контрагент даёт не меньше этой доли стороны — предупреждаем о зависимости
+concentration = 0.3
+
+# направление ВЭД по своему коду ОКВЭД — всегда оценка; самый длинный подходящий префикс
+[fx_direction]
+"01" = "экспорт"
+"46.21" = "экспорт"
+"46.71" = "экспорт"
+"20.15" = "экспорт"
+"24" = "экспорт"
+"45" = "импорт"
+"46" = "импорт"
+"47" = "импорт"
+"26" = "импорт"
+"28" = "импорт"
+"29" = "импорт"
+
+[[dynamic]]
+prefix = "demand"
+side = "customers"
+label = "Спрос покупателей"
+channel = "buyers"
+min_share = 0.05
+thresholds = [[0.5, 0.7], [0.15, 0.4], [0.05, 0.15]]
+text = "через покупателей: {sector} — {share} поступлений, {count} плательщиков"
+
+[[dynamic]]
+prefix = "supply"
+side = "suppliers"
+label = "Цены и устойчивость поставщиков"
+channel = "suppliers"
+min_share = 0.05
+# поставщика сменить проще, чем потерять покупателей, — порог высокой силы выше
+thresholds = [[0.6, 0.7], [0.15, 0.4], [0.05, 0.15]]
+text = "через поставщиков: {sector} — {share} платежей, {count} получателей"
+
+[[factor]]
+code = "rate"
+label = "Стоимость заёмных денег"
+signal = [
+  { kind = "flag", field = "credit", strength = 0.7, text = "собственный кредит в банке" },
+  { kind = "flag", field = "leasing", strength = 0.4, text = "лизинг в банке" },
+  { kind = "flag", field = "factoring", strength = 0.4, text = "факторинг в банке" },
+  { kind = "own_okved", codes = ["41", "42", "43", "68", "35", "49", "50", "51", "52"], strength = 0.35, text = "капиталоёмкая отрасль: {activity}" },
+  { kind = "group_okved", codes = ["41", "42", "35"], min_revenue_share = 0.3, strength = 0.4, channel = "group", text = "капиталоёмкие компании группы (стройка, генерация) — {share} выручки группы" },
+  { kind = "group_flag", field = "credit", min_count = 3, strength = 0.35, channel = "group", text = "кредиты у {count} компаний группы" },
+]
+
+[[factor]]
+code = "deposit_yield"
+label = "Доходность свободных денег"
+signal = [
+  { kind = "flag", field = "deposit", strength = 0.7, text = "депозиты в банке: при высокой ставке доходность держится дольше" },
+]
+
+[[factor]]
+code = "fx"
+label = "Курс валют"
+signal = [
+  { kind = "fts", unless_only = ["КАЗАХСТАН", "КИРГИЗИЯ", "БЕЛАРУСЬ", "АРМЕНИЯ"], strength = 0.65, text = "ВЭД: {countries}; направление — {direction}" },
+  { kind = "fts", only = ["КАЗАХСТАН", "КИРГИЗИЯ", "БЕЛАРУСЬ", "АРМЕНИЯ"], strength = 0.45, text = "ВЭД со странами ЕАЭС: {countries}; направление — {direction}" },
+  { kind = "fts", countries_unknown = true, strength = 0.4, text = "ВЭД есть, страны в данных не указаны; направление — {direction}" },
+  { kind = "group_suppliers_fts", thresholds = [[0.3, 0.65], [0.1, 0.4], [0.02, 0.2]], channel = "group", estimate = true, text = "через поставщиков своей группы с ВЭД: {share} всех платежей идут {count} компаниям группы ({countries}); что они импортируют — оценка по отрасли" },
+]
+
+[[factor]]
+code = "ved_logistics"
+label = "Санкции, платежи и логистика ВЭД"
+signal = [
+  { kind = "fts", unless_only = ["КАЗАХСТАН", "КИРГИЗИЯ", "БЕЛАРУСЬ", "АРМЕНИЯ"], with_okved = ["01", "46.21", "10.4", "10.6"], strength = 0.65, text = "экспорт сырья ({countries}): порты, пошлины, санкции — направление по отрасли" },
+  { kind = "fts", unless_only = ["КАЗАХСТАН", "КИРГИЗИЯ", "БЕЛАРУСЬ", "АРМЕНИЯ"], strength = 0.4, text = "ВЭД: {countries} — расчёты, логистика и санкционные риски" },
+  { kind = "fts", only = ["КАЗАХСТАН", "КИРГИЗИЯ", "БЕЛАРУСЬ", "АРМЕНИЯ"], strength = 0.2, text = "ВЭД только со странами ЕАЭС: {countries}" },
+  { kind = "fts", countries_unknown = true, strength = 0.25, text = "ВЭД есть, страны в данных не указаны" },
+  { kind = "group_suppliers_fts", thresholds = [[0.3, 0.4], [0.1, 0.25]], channel = "group", text = "через компании группы с ВЭД ({countries}): им идёт {share} платежей" },
+]
+
+[[factor]]
+code = "consumer"
+label = "Потребительский спрос"
+signal = [
+  { kind = "own_okved", codes = ["47", "55", "56", "96"], strength = 0.65, text = "своя отрасль ориентирована на потребителя: {activity}" },
+  { kind = "own_okved", codes = ["45"], strength = 0.65, text = "своя отрасль — авторынок: спрос зависит от покупок и обслуживания автомобилей" },
+  { kind = "group_okved", codes = ["45.1", "45.2", "45.32", "47", "56"], min_revenue_share = 0.2, strength = 0.4, channel = "group", text = "в группе — автосалоны, автосервисы, розница или общепит: {share} выручки группы" },
+  { kind = "side_share", side = "customers", okved = ["45", "47", "55", "56"], thresholds = [[0.3, 0.65], [0.1, 0.35], [0.03, 0.15]], channel = "buyers", text = "через покупателей из розницы, общепита и авторынка — {share} поступлений" },
+]
+
+[[factor]]
+code = "labor"
+label = "Рынок труда и зарплаты"
+signal = [
+  { kind = "workers", values = ["Более 251"], strength = 0.4, text = "больше 251 сотрудника по данным ФНС" },
+  { kind = "workers", values = ["101-250"], strength = 0.25, text = "101–250 сотрудников по данным ФНС" },
+  { kind = "workers", values = ["16-100"], strength = 0.1, text = "16–100 сотрудников по данным ФНС" },
+  { kind = "flag", field = "salary_project", strength = 0.25, text = "зарплатный проект в банке" },
+]
+
+[[factor]]
+code = "gov"
+label = "Госрасходы и бюджет"
+signal = [
+  { kind = "own_okved", codes = ["41", "42", "71", "84"], strength = 0.6, text = "своя отрасль зависит от госзаказа: {activity}" },
+  { kind = "flag", field = "guarantee", strength = 0.4, text = "банковские гарантии — часто под госзакупки" },
+  { kind = "group_okved", codes = ["41", "42", "71"], min_revenue_share = 0.3, strength = 0.65, channel = "group", text = "компании группы в стройке, дорогах и инжиниринге — {share} выручки группы" },
+]
+
+[[factor]]
+code = "commodity_oil"
+label = "Сырьё: нефть, газ и топливо"
+signal = [
+  { kind = "own_okved", codes = ["06", "09", "19", "46.71", "49.5"], strength = 0.8, text = "своя отрасль — нефть, газ и топливо: {activity}" },
+  { kind = "own_okved", codes = ["35"], strength = 0.5, text = "генерация: топливо — главная статья затрат" },
+  { kind = "own_okved", codes = ["49", "50", "51", "52"], strength = 0.5, text = "перевозки: топливо в себестоимости" },
+  { kind = "own_okved", codes = ["01", "46.21"], strength = 0.35, estimate = true, text = "сырьевая торговля: доставка грузов дорожает вместе с топливом (оценка по отрасли)" },
+  { kind = "side_share", side = "suppliers", okved = ["06", "19"], thresholds = [[0.2, 0.5], [0.05, 0.3]], channel = "suppliers", text = "поставщики топлива — {share} платежей" },
+  { kind = "side_share", side = "customers", okved = ["06", "09", "19"], thresholds = [[0.3, 0.5], [0.1, 0.3]], channel = "buyers", text = "покупатели из нефтегаза — {share} поступлений" },
+]
+
+[[factor]]
+code = "commodity_metals"
+label = "Сырьё: металлы"
+signal = [
+  { kind = "own_okved", codes = ["07.1", "07.2", "24", "46.72"], strength = 0.8, text = "своя отрасль — металлы: {activity}" },
+  { kind = "own_okved", codes = ["25"], strength = 0.5, text = "металлообработка: металл в себестоимости" },
+  { kind = "side_share", side = "suppliers", okved = ["24"], thresholds = [[0.2, 0.5], [0.05, 0.3]], channel = "suppliers", text = "поставщики металла — {share} платежей" },
+  { kind = "side_share", side = "customers", okved = ["07", "24"], thresholds = [[0.3, 0.5], [0.1, 0.3]], channel = "buyers", text = "покупатели из металлургии и добычи руд — {share} поступлений" },
+]
+
+[[factor]]
+code = "commodity_gold"
+label = "Сырьё: золото и драгметаллы"
+signal = [
+  { kind = "own_okved", codes = ["07.29.41", "24.41", "32.12", "47.77"], strength = 0.7, text = "своя отрасль связана с драгметаллами: {activity}" },
+]
+
+[[factor]]
+code = "commodity_fertilizers"
+label = "Сырьё: удобрения"
+signal = [
+  { kind = "own_okved", codes = ["20.15", "46.75"], strength = 0.8, text = "своя отрасль — удобрения: {activity}" },
+  { kind = "own_okved", codes = ["01.1", "01.4"], strength = 0.35, text = "растениеводство и животноводство: удобрения в затратах" },
+]
+
+[[factor]]
+code = "commodity_agro"
+label = "Сырьё: зерно и продовольствие"
+signal = [
+  { kind = "own_okved", codes = ["01", "46.21", "10.6", "10.9"], strength = 0.7, text = "своя отрасль — агросырьё: {activity}" },
+  { kind = "own_okved", codes = ["10", "11", "46.3"], strength = 0.45, text = "пищевая отрасль: агросырьё в себестоимости" },
+  { kind = "side_share", side = "suppliers", okved = ["01", "10"], thresholds = [[0.2, 0.5], [0.05, 0.3]], channel = "suppliers", text = "поставщики агросырья и продуктов — {share} платежей" },
+  { kind = "side_share", side = "customers", okved = ["01", "10"], thresholds = [[0.3, 0.5], [0.1, 0.3]], channel = "buyers", text = "покупатели из сельского хозяйства и пищепрома — {share} поступлений" },
+]
+
+[[factor]]
+code = "inflation"
+label = "Инфляция издержек"
+signal = [
+  { kind = "own_okved", codes = ["45", "46", "47"], strength = 0.35, text = "торговля: цены закупки быстро переходят в издержки" },
+  { kind = "own_okved", codes = ["10", "11", "12", "13", "14", "15", "16", "17", "18", "20", "22", "23", "25", "26", "27", "28", "29", "30", "31", "32", "33"], strength = 0.35, text = "производство с длинной цепочкой поставок" },
+  { kind = "always", strength = 0.15, text = "инфляция издержек касается любой компании: зарплаты, аренда, услуги" },
+]
+
+[[factor]]
+code = "region"
+label = "События региона"
+signal = [
+  { kind = "region", regions = ["Ростовская область", "Краснодарский край", "Приморский край", "Ленинградская область", "Калининградская область", "Мурманская область", "Астраханская область"], strength = 0.35, estimate = true, text = "{region}: портовый регион — экспорт и логистика (оценка)" },
+  { kind = "region", strength = 0.15, text = "регистрация: {region}" },
+]

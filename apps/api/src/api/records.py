@@ -78,7 +78,7 @@ class CompanyRecord:
 COMPANY_FIELDS = [f.name for f in fields(CompanyRecord)]
 
 # поле записи ← колонка CSV
-_COLUMN_OF = dict(zip(COMPANY_FIELDS[1:-1], COMPANY_COLUMNS[1:], strict=True))
+COLUMN_OF = dict(zip(COMPANY_FIELDS[1:-1], COMPANY_COLUMNS[1:], strict=True))
 _FLAGS = {
     "negative_mark",
     "rko",
@@ -129,7 +129,7 @@ def company_from_row(row: dict[str, str | None]) -> CompanyRecord | None:
     if company_id is None:
         return None
     values: dict[str, object] = {}
-    for field, column in _COLUMN_OF.items():
+    for field, column in COLUMN_OF.items():
         raw = row.get(column)
         if field in _FLAGS:
             values[field] = clean_flag(raw)
