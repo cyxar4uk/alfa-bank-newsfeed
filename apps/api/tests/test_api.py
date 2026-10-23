@@ -86,6 +86,23 @@ def test_exposure(client):
     assert client.get("/api/companies/U_404/exposure").status_code == 404
 
 
+def test_chain(client):
+    response = client.get("/api/companies/U_1/chain", params={"okved": ["49", "35"]})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["event_okved"] == ["49", "35"]
+    # перевозчик U_2 — из той же группы: платежи ему внутригрупповые, канал — группа, а не поставщики
+    # весь оборот U_1 — с U_2 из своей группы, поэтому канал группы по 49 сильнее, чем по 35 (энергетик U_4)
+    assert [(c["kind"], c["okved"]) for c in body["channels"]] == [("group", "49"), ("group", "35")]
+    assert body["channels"][0]["nodes"][0]["id"] == "U_2"
+    assert client.get("/api/companies/U_1/chain", params={"okved": "49,35"}).json()["event_okved"] == [
+        "49",
+        "35",
+    ]
+    assert client.get("/api/companies/U_1/chain").status_code == 422  # без okved
+    assert client.get("/api/companies/U_404/chain", params={"okved": "49"}).status_code == 404
+
+
 def test_company_not_found(client):
     assert client.get("/api/companies/U_404").status_code == 404
 

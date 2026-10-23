@@ -6,13 +6,13 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from psycopg_pool import ConnectionPool
 
 from api.config import get_settings
-from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, Persona
+from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
 from api.db import connect, ensure_schema
 from api.okved import sector_for
 from api.personas import make_personas
 from api.profile import display_name
 from api.repo import CompanyRepo, PgCompanyRepo
-from api.service import company_exposure, company_profile
+from api.service import company_chain, company_exposure, company_profile
 
 
 @asynccontextmanager
@@ -94,6 +94,24 @@ def get_exposure(company_id: str, repo: Repo) -> ExposureMap:
     if exposure is None:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
     return exposure
+
+
+@app.get("/api/companies/{company_id}/chain", response_model=InfluenceChain, tags=["компании"])
+def get_chain(
+    company_id: str,
+    repo: Repo,
+    okved: Annotated[list[str], Query(description="классы ОКВЭД события, например 56 или 46.71")],
+) -> InfluenceChain:
+    """Цепочка влияния: через кого событие в этих отраслях задевает компанию.
+
+    Каналы — напрямую, через покупателей, поставщиков и группу.
+    """
+    # коды можно передать и повтором параметра, и через запятую: okved=56&okved=10 или okved=56,10
+    codes = [code for value in okved for code in value.split(",") if code.strip()]
+    chain = company_chain(repo, company_id, codes)
+    if chain is None:
+        raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
+    return chain
 
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
