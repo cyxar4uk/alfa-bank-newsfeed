@@ -27,8 +27,13 @@
 docker compose up --build
 ```
 
-Поднимаются PostgreSQL, одноразовый импорт данных кейса и API на <http://127.0.0.1:8000>
+Поднимаются PostgreSQL, одноразовый импорт данных кейса, парсер новостей и API на <http://127.0.0.1:8000>
 (документация — <http://127.0.0.1:8000/api/docs>, схема — `/api/openapi.json`, проверка — `/api/health`).
+
+Парсер (`apps/ingest`, сервис `ingest`) сразу загружает в БД снимок новостей `data/demo/news_snapshot.jsonl` и готовую
+аналитику банка из `data/raw/derived/`, затем каждые `INGEST_EVERY_MIN` минут собирает свежие новости из лент. Без
+сети остаётся снимок. Повторная загрузка не создаёт дублей: та же новость обновляется, тот же сюжет у другого
+издателя дописывается к уже загруженному событию. Подробно — `apps/ingest/README.md`.
 
 Данные кейса (`df_Uid_data_hack.csv`, `df_Uid_payment_hack.csv`, `df_Fid_Uid_link_hack.csv`) кладутся в
 `data/raw/companies/` (или в каталог из `DATA_DIR`). Импорт идёт один раз: при повторном запуске те же файлы
@@ -47,6 +52,7 @@ docker compose up --build
 |---|---|---|
 | `DATA_DIR` | `./data/raw` | каталог с данными кейса на хосте (монтируется в импорт только на чтение) |
 | `IMPORT_FORCE` | `false` | перезагрузить данные, даже если файлы не менялись |
+| `INGEST_EVERY_MIN` | `30` | как часто парсер собирает свежие новости, минут |
 | `API_PORT` | `8000` | порт API на `127.0.0.1` |
 | `DB_PORT` | `5433` | порт PostgreSQL на `127.0.0.1` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | `newsfeed` | база и учётная запись PostgreSQL |
@@ -60,6 +66,8 @@ docker compose up --build
 | `GET /api/companies?large=true` | компании с выручкой больше 15 млрд ₽ (`large=false` — все, с `limit`/`offset`) |
 | `GET /api/companies/{id}` | профиль компании: признаки с происхождением, группа, крупные контрагенты, чего нет в данных |
 | `GET /api/personas` | тестовые пользователи: роль, компания, отрасль |
+| `GET /api/news` | лента новостей с разметкой: `q` (слова в любой форме), `factor`, `sector` (ОКВЭД или отрасль), `since`, `min_strength`, `limit`/`offset` |
+| `GET /api/sources/{id}` | первоисточник по id из ссылок инсайта: новость или фрагмент аналитики банка с файлом и страницей (`#` → `%23`) |
 
 Модели ответа — `apps/api/src/api/contract.py`, из них строится OpenAPI.
 
