@@ -5,7 +5,7 @@ import time
 import psycopg
 
 # менять при любой правке схемы или правил очистки: импорт пересоздаст таблицы и перечитает файлы
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS companies (
@@ -41,6 +41,14 @@ CREATE INDEX IF NOT EXISTS companies_group_idx ON companies (group_id);
 CREATE INDEX IF NOT EXISTS companies_class_idx ON companies (okved_class, revenue);
 CREATE INDEX IF NOT EXISTS companies_revenue_idx ON companies (revenue DESC NULLS LAST);
 
+-- группы: выручка группы — сумма известных выручек участников (крупный бизнес считается по ней)
+CREATE TABLE IF NOT EXISTS company_groups (
+    group_id    text PRIMARY KEY,
+    revenue     double precision,
+    size        integer NOT NULL,
+    clients     integer NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS payments (
     beneficiary text NOT NULL,
     payer       text NOT NULL,
@@ -63,6 +71,12 @@ CREATE TABLE IF NOT EXISTS imported_files (
     rows_skipped integer NOT NULL,
     loaded_at   timestamptz NOT NULL DEFAULT now()
 );
+"""
+
+GROUPS_FILL = """
+INSERT INTO company_groups (group_id, revenue, size, clients)
+SELECT group_id, sum(revenue), count(*), count(*) FILTER (WHERE client_type = 'CLIENT')
+FROM companies WHERE group_id IS NOT NULL GROUP BY group_id
 """
 
 # индексы платежей строятся после загрузки — так COPY быстрее
@@ -96,7 +110,9 @@ def ensure_schema(conn: psycopg.Connection, migrate: bool = False) -> None:
         row = conn.execute("SELECT value FROM schema_meta WHERE key = 'version'").fetchone()
         # нет версии — таблицы могли остаться от старой схемы; на пустой БД удалять просто нечего
         if migrate and (row is None or row[0] != str(SCHEMA_VERSION)):
-            conn.execute("DROP TABLE IF EXISTS companies, payments, person_links, imported_files")
+            conn.execute(
+                "DROP TABLE IF EXISTS companies, company_groups, payments, person_links, imported_files"
+            )
             conn.execute(
                 """
                 INSERT INTO schema_meta (key, value) VALUES ('version', %s)

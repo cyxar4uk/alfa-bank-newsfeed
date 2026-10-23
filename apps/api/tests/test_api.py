@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from api.contract import ImportedFile
 from api.main import app, get_repo
-from api.records import Flow
+from api.records import Flow, GroupStats
 
 
 class FakeRepo:
@@ -13,18 +13,47 @@ class FakeRepo:
             "U_1": make_company(),
             "U_2": make_company(id="U_2", okved_code="49.41", okved_name="Грузоперевозки", revenue=5e8),
             "U_4": make_company(
-                id="U_4", okved_code="35.11", okved_name="Производство электроэнергии", revenue=16e9
+                id="U_4",
+                okved_code="35.11",
+                okved_name="Производство электроэнергии",
+                revenue=16e9,
+                group_id="group_4_sb",
             ),
         }
 
     def get_company(self, company_id):
         return self.companies.get(company_id)
 
-    def list_companies(self, large, limit, offset):
-        items = sorted(self.companies.values(), key=lambda c: -(c.revenue or 0))
+    def list_companies(self, large, limit, offset, clients_only=False, per_group=False):
+        stats = self.group_stats([c.group_id for c in self.companies.values() if c.group_id])
+
+        def basis(c):
+            return (stats[c.group_id].revenue if c.group_id in stats else None) or c.revenue or 0
+
+        items = sorted(self.companies.values(), key=lambda c: (-basis(c), -(c.revenue or 0)))
         if large:
-            items = [c for c in items if (c.revenue or 0) > 15e9]
+            items = [c for c in items if basis(c) > 15e9]
+        if clients_only:
+            items = [c for c in items if c.client_type == "CLIENT"]
+        if per_group:
+            seen, unique = set(), []
+            for c in items:
+                if (c.group_id or c.id) not in seen:
+                    seen.add(c.group_id or c.id)
+                    unique.append(c)
+            items = unique
         return items[offset : offset + limit]
+
+    def group_stats(self, group_ids):
+        result = {}
+        for g in set(group_ids):
+            members = [c for c in self.companies.values() if c.group_id == g]
+            result[g] = GroupStats(
+                revenue=sum(c.revenue or 0 for c in members) or None,
+                size=len(members),
+                clients=sum(c.client_type == "CLIENT" for c in members),
+            )
+        return result
 
     def group(self, group_id, exclude, limit):
         return 2, ["U_2"]
@@ -53,10 +82,34 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_health(client):
+def test_health_without_case_data(client):
     response = client.get("/api/health")
-    assert response.status_code == 200
-    assert response.json()["db"] == "ok"
+    assert response.status_code == 200  # API живо
+    body = response.json()
+    assert (body["db"], body["status"]) == ("ok", "degraded")
+    assert len(body["warnings"]) == 3  # ни одного файла кейса не загружено
+    assert body["warnings"][0].startswith("файл df_Uid_data_hack.csv не загружен: положите CSV кейса")
+
+
+def test_health_with_case_data(client):
+    files = [
+        ImportedFile(
+            file=name,
+            rows_read=10,
+            rows_loaded=10 if i else 0,
+            rows_skipped=0,
+            loaded_at="2026-10-23T00:00:00Z",
+        )
+        for i, name in enumerate(
+            ["df_Uid_data_hack.csv", "df_Uid_payment_hack.csv", "df_Fid_Uid_link_hack.csv"]
+        )
+    ]
+    app.dependency_overrides[get_repo] = lambda: type(
+        "R", (FakeRepo,), {"imported_files": lambda self: files}
+    )()
+    body = client.get("/api/health").json()
+    assert body["status"] == "degraded"
+    assert body["warnings"] == ["файл df_Uid_data_hack.csv загружен, но в нём нет ни одной годной строки"]
 
 
 def test_company_profile(client):
@@ -64,7 +117,10 @@ def test_company_profile(client):
     assert response.status_code == 200
     body = response.json()
     assert body["id"] == "U_1"
-    assert body["group"] == {"id": "group_1_sb", "size": 2, "members": ["U_2"]}
+    assert body["group"] == {"id": "group_1_sb", "size": 2, "revenue": 20.5e9, "members": ["U_2"]}
+    features = {f["id"]: f for f in body["features"]}
+    assert features["feat:group_revenue"]["value"] == 20.5e9
+    assert features["feat:scale"]["display"].startswith("крупный бизнес по выручке группы (20,5 млрд ₽)")
     assert body["counterparties"][0]["sector"] == "транспорт и логистика"
     assert {f["id"] for f in body["features"]} >= {
         "feat:sector",
@@ -92,8 +148,8 @@ def test_chain(client):
     body = response.json()
     assert body["event_okved"] == ["49", "35"]
     # перевозчик U_2 — из той же группы: платежи ему внутригрупповые, канал — группа, а не поставщики
-    # весь оборот U_1 — с U_2 из своей группы, поэтому канал группы по 49 сильнее, чем по 35 (энергетик U_4)
-    assert [(c["kind"], c["okved"]) for c in body["channels"]] == [("group", "49"), ("group", "35")]
+    # весь оборот U_1 — с перевозчиком U_2 из своей группы; энергетик U_4 — в другой группе, канала по 35 нет
+    assert [(c["kind"], c["okved"]) for c in body["channels"]] == [("group", "49")]
     assert body["channels"][0]["nodes"][0]["id"] == "U_2"
     assert client.get("/api/companies/U_1/chain", params={"okved": "49,35"}).json()["event_okved"] == [
         "49",
@@ -109,8 +165,13 @@ def test_company_not_found(client):
 
 def test_large_companies(client):
     body = client.get("/api/companies", params={"large": "true"}).json()
-    assert [c["id"] for c in body] == ["U_1", "U_4"]
+    # крупный бизнес — по выручке группы: U_2 с выручкой 0,5 млрд — в группе на 20,5 млрд
+    assert [c["id"] for c in body] == ["U_1", "U_2", "U_4"]
     assert body[0]["sector"] == "оптовая торговля"
+    u2 = body[1]
+    assert (u2["revenue"], u2["group_revenue"], u2["group_size"], u2["large"]) == (5e8, 20.5e9, 2, True)
+    leaders = client.get("/api/companies", params={"large": "true", "per_group": "true"}).json()
+    assert [c["id"] for c in leaders] == ["U_1", "U_4"]
 
 
 def test_personas(client):

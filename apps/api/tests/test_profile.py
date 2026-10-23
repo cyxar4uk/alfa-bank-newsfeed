@@ -260,9 +260,32 @@ def test_only_self_payments():
     assert reasons["feat:top_counterparties"] == "все платежи — самой себе или выбросы"
 
 
-def test_duplicate_id_note():
-    profile = build_profile(make_company(duplicates=12), flows=[])
-    assert profile.data_notes == ["id U_1 встречается в выгрузке 12 раз — взята первая запись"]
+def test_scale_by_group_revenue():
+    # компания на 5 млрд в группе на 20 млрд — крупный бизнес по выручке группы;
+    # своей выручке сегмент не приписываем
+    profile = build_profile(make_company(revenue=5e9), flows=[], group_size=3, group_revenue=20e9)
+    scale = profile.feature("feat:scale")
+    assert scale.value == "крупный бизнес"
+    assert scale.display == "крупный бизнес по выручке группы (20,0 млрд ₽); своя выручка — 5,0 млрд ₽"
+    assert scale.derived_from == ["feat:group_revenue", "feat:REVENUE_COMPANY"]
+    assert profile.feature("feat:group_revenue").display == "20,0 млрд ₽ — 3 компании"
+    assert profile.feature("feat:group_revenue_share").value == 0.25
+    assert profile.group.revenue == 20e9
+
+
+def test_scale_without_own_revenue():
+    profile = build_profile(make_company(revenue=None), flows=[], group_size=2, group_revenue=30e9)
+    assert profile.feature("feat:scale").display.endswith("своей выручки в данных нет")
+    assert profile.feature("feat:group_revenue").derived_from == [
+        "feat:GROUP_ID"
+    ]  # своей выручки нет — не ссылаемся
+    assert "feat:group_revenue_share" in missing_ids(profile)
+
+
+def test_single_company_group_scale_by_own_revenue():
+    profile = build_profile(make_company(revenue=5e9), flows=[], group_size=1, group_revenue=5e9)
+    assert profile.feature("feat:scale").value == "средний бизнес"
+    assert profile.feature("feat:group_revenue") is None
 
 
 def test_single_company_group():
