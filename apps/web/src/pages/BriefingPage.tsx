@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import type { Briefing, ChannelKind, CompanyProfile, FactorRef } from '../api/types';
 import { BankBadge, FeedRow, FeedSkeleton, RelevanceMeter } from '../components/FeedParts';
+import { ServiceTabs } from '../components/ServiceTabs';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { StatementList, type RefIndex } from '../components/Statement';
 import { channelLabel, roleLabel, SERVICE_NAME } from '../state/labels';
@@ -58,25 +59,49 @@ function uniqueFactors(briefing: Briefing): FactorRef[] {
 }
 
 function AllEvents({ briefing }: { briefing: Briefing }) {
-  const [factor, setFactor] = useState<string | null>(null);
+  // Фактор живёт в адресе: с карты чувствительности открываем брифинг уже с фильтром.
+  const [params, setParams] = useSearchParams();
+  const factor = params.get('factor');
+  const setFactor = (code: string | null) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (code) next.set('factor', code);
+        else next.delete('factor');
+        return next;
+      },
+      { replace: true },
+    );
   const [channel, setChannel] = useState<ChannelKind | null>(null);
   const factors = useMemo(() => uniqueFactors(briefing), [briefing]);
+  // Фактора из адреса нет в брифинге этого пользователя (сменили пользователя, набрали руками) — сбрасываем.
+  const known = factor !== null && factors.some((f) => f.code === factor);
+  useEffect(() => {
+    if (factor !== null && !known) setFactor(null);
+    // setFactor пересоздаётся на каждом рендере
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [factor, known]);
+  const sectionRef = useRef<HTMLElement>(null);
+  const cameWithFactor = useRef(known);
+  useEffect(() => {
+    if (cameWithFactor.current) sectionRef.current?.scrollIntoView();
+  }, []);
   const channels = useMemo(() => [...new Set(briefing.items.map((i) => i.channel))], [briefing]);
 
   const shown = briefing.items.filter(
-    (i) => (!factor || i.factors.some((f) => f.code === factor)) && (!channel || i.channel === channel),
+    (i) => (!known || i.factors.some((f) => f.code === factor)) && (!channel || i.channel === channel),
   );
   const hidden = briefing.items.length - shown.length;
 
   return (
-    <section aria-labelledby="all-title">
+    <section aria-labelledby="all-title" ref={sectionRef}>
       <h2 className="section-title" id="all-title">
         Все события
       </h2>
       <div className="filters">
         <div className="filters__group" role="group" aria-label="Фильтр по фактору">
           <span className="filters__label">Фактор</span>
-          <button type="button" className="chip" aria-pressed={factor === null} onClick={() => setFactor(null)}>
+          <button type="button" className="chip" aria-pressed={!known} onClick={() => setFactor(null)}>
             Все
           </button>
           {factors.map((f) => (
@@ -121,7 +146,18 @@ function AllEvents({ briefing }: { briefing: Briefing }) {
           ))}
         </ul>
       ) : (
-        <EmptyState title="Под выбранные фильтры событий нет">Сбросьте фильтр, чтобы увидеть все события.</EmptyState>
+        <EmptyState title="Под выбранные фильтры событий нет">
+          <button
+            type="button"
+            className="btn btn--secondary"
+            onClick={() => {
+              setFactor(null);
+              setChannel(null);
+            }}
+          >
+            Сбросить фильтры
+          </button>
+        </EmptyState>
       )}
     </section>
   );
@@ -134,6 +170,7 @@ export function BriefingPage() {
   return (
     <div className="page page--narrow">
       <header className="page-head">
+        <ServiceTabs />
         <h1 className="page-head__title">{SERVICE_NAME}</h1>
         <p className="page-head__lead">
           Брифинг для роли «{roleLabel[persona.role].toLowerCase()}» в компании «{company.display_name}». Смените

@@ -1,4 +1,15 @@
-import type { Briefing, CompanyProfile, FeedItem, Feedback, Insight, Persona } from './types';
+import type {
+  Briefing,
+  CompanyProfile,
+  ExposureMap,
+  FeedItem,
+  Feedback,
+  Insight,
+  Persona,
+  SensitivityFactor,
+  Strength,
+  WeeklySummary,
+} from './types';
 import { mockApi } from '../mocks/mockApi';
 
 export interface Api {
@@ -9,6 +20,10 @@ export interface Api {
   /** null — событие не касается компании пользователя */
   insight(eventId: string, personaId: string, signal?: AbortSignal): Promise<Insight | null>;
   feedback(body: Feedback): Promise<void>;
+  /** карта чувствительности компании: к чему уязвима и через кого */
+  exposureMap(companyId: string, signal?: AbortSignal): Promise<ExposureMap>;
+  /** сводка недели для печати */
+  weekly(personaId: string, signal?: AbortSignal): Promise<WeeklySummary>;
 }
 
 export class ApiError extends Error {
@@ -32,6 +47,37 @@ function normalizeBriefing(personaId: string, raw: unknown): Briefing {
     summary: asArray(body.summary),
     sources: asArray(body.sources),
     items: asArray<FeedItem>(body.items).map((item) => ({ ...item, factors: asArray(item.factors) })),
+  };
+}
+
+const STRENGTHS: Strength[] = ['high', 'medium', 'low', 'none', 'no_data'];
+
+function normalizeMap(body: ExposureMap): ExposureMap {
+  return {
+    ...body,
+    sources: asArray(body.sources),
+    factors: asArray<SensitivityFactor>(body.factors).map((f) => ({
+      ...f,
+      // Незнакомую силу показываем как «нет данных», а не как ноль.
+      strength: STRENGTHS.includes(f.strength) ? f.strength : 'no_data',
+      evidence: asArray(f.evidence),
+      recent_event_ids: asArray(f.recent_event_ids),
+    })),
+  };
+}
+
+function normalizeWeekly(personaId: string, body: WeeklySummary): WeeklySummary {
+  return {
+    ...body,
+    persona_id: personaId,
+    period: { from: body.period?.from ?? '', to: body.period?.to ?? '' },
+    sections: asArray<WeeklySummary['sections'][number]>(body.sections).map((s) => ({
+      ...s,
+      statements: asArray(s.statements),
+    })),
+    bank_view: asArray(body.bank_view),
+    actions: asArray(body.actions),
+    sources: asArray(body.sources),
   };
 }
 
@@ -93,6 +139,10 @@ function createHttpApi(baseUrl: string): Api {
       const { body } = await request<Insight>(`/api/insights/${q(eventId)}?persona=${q(personaId)}`, { signal });
       return body ?? null;
     },
+    exposureMap: async (companyId, signal) =>
+      normalizeMap(await required<ExposureMap>(`/api/companies/${q(companyId)}/exposure-map`, signal)),
+    weekly: async (personaId, signal) =>
+      normalizeWeekly(personaId, await required<WeeklySummary>(`/api/weekly?persona=${q(personaId)}`, signal)),
     feedback: async (body) => {
       await request<unknown>(`/api/feedback`, {
         method: 'POST',
