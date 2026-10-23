@@ -8,7 +8,8 @@
 
 | Модель | Для чего |
 |---|---|
-| | |
+| Qwen3-VL-30B-A3B-Instruct | распознавание таблиц и слайдов в PDF аналитики банка: один раз, с кэшем по страницам |
+| Gemma 4 26B A4B | разметка новостей факторами поверх словарей (по флагу, по умолчанию выключена) |
 
 ## Данные
 
@@ -21,11 +22,19 @@
 
 | Источник | Адрес | Условия |
 |---|---|---|
-| | | |
+| Банк России — пресс-релизы, события | https://www.cbr.ru/rss/RssPress, https://www.cbr.ru/rss/eventrss | воспроизведение с указанием источника и ссылкой на страницу (cbr.ru/about) |
+| Интерфакс | https://www.interfax.ru/rss.asp | цитирование в информационных целях со ссылкой на interfax.ru (interfax.ru/license) |
+| Коммерсантъ — «Экономика», «Бизнес» | https://www.kommersant.ru/RSS/section-economics.xml, …/section-business.xml | до 30 % материала без переработки, с автором и ссылкой (kommersant.ru/copyright) |
+| РИА Новости | https://ria.ru/export/rss2/archive/index.xml | с указанием источника и гиперссылкой (ria.ru/docs/about/copyright.html) |
+| Forbes | https://www.forbes.ru/newrss.xml | в информационных целях с автором, датой и активной ссылкой |
+
+Храним только заголовок, лид дословно (до 500 знаков), ссылку, издателя и дату; полный текст и иллюстрации не храним,
+в интерфейсе ведём на первоисточник. ТАСС, РБК, Ведомости и Финмаркет есть в `apps/ingest/src/ingest/news/sources.toml`,
+но выключены: их условия запрещают автоматическое извлечение без разрешения или не найдены.
 
 ## Библиотеки
 
-Точные версии зависимостей API, включая транзитивные, — `apps/api/uv.lock`.
+Точные версии зависимостей, включая транзитивные, — `apps/api/uv.lock` и `apps/ingest/uv.lock`.
 
 | Компонент | Версия | Лицензия |
 |---|---|---|
@@ -35,9 +44,12 @@
 | pydantic-settings | 2.16.1 | MIT |
 | psycopg, psycopg-binary | 3.3.6 | LGPL-3.0 |
 | psycopg-pool | 3.3.3 | LGPL-3.0 |
+| HTTPX (парсер; в API — для тестов) | 0.28.1 | BSD-3-Clause |
+| feedparser | 6.0.14 | BSD-2-Clause |
+| pypdfium2 (PDFium) | 5.14.0 | Apache-2.0 / BSD-3-Clause |
+| Pillow | 13.0.0 | MIT-CMU |
 | pytest (разработка) | 9.1.1 | MIT |
 | Ruff (разработка) | 0.17.2 | MIT |
-| HTTPX (разработка, тесты API) | 0.28.1 | BSD-3-Clause |
 
 ## Образы и инструменты сборки
 
@@ -46,6 +58,7 @@
 | PostgreSQL (образ `postgres`) | 17, alpine | PostgreSQL License |
 | Python (образ `python`) | 3.12, slim | PSF License |
 | uv | 0.13.5 | MIT / Apache-2.0 |
+| Tesseract OCR (+ языковые модели rus, eng) | 5.3.0 (пакет Debian bookworm) | Apache-2.0 |
 
 ## Смоделированные интеграции
 

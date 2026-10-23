@@ -1,0 +1,13 @@
+# Сбор новостей и распознавание аналитики одной командой из корня репозитория:
+#   docker compose -f apps/ingest/compose.yaml run --rm ingest
+# Читает data/raw/alfa_analytics, пишет data/raw/derived.
+# Модели вызываются только с флагами --vlm и --llm api; ключ и адрес — из .env в корне (LLM_API_KEY, LLM_BASE_URL).
+services:
+  ingest:
+    build: .
+    image: alfa-newsfeed-ingest
+    env_file:
+      - path: ../../.env
+        required: false
+    volumes:
+      - ../../data:/data
