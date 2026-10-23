@@ -57,5 +57,4 @@ npm run dev        # http://localhost:5173
 | `src/bank/` | счета и платежи на главной — только антураж макета |
 | `src/styles.css` | тема на значениях токенов открытой дизайн-системы: цвета, шрифт, сетка |
 
-Шрифт переключается одной строкой в `src/styles.css`: `--font-family: var(--font-golos)` или `var(--font-system)`.
-Иконки — `@alfalab/icons-glyph`, по одной (`src/components/Icon.tsx`).
+Шрифт — системный (`--font-family` в `src/styles.css`), без загрузки файлов шрифтов. Иконки — `@alfalab/icons-glyph`, по одной (`src/components/Icon.tsx`).

@@ -7,10 +7,8 @@
    вывод модели и оценка — индиго с пунктиром, предложение банка — отдельная голубая промо-плашка. */
 
 :root {
-  /* шрифт: одна строка переключает гарнитуру (решение — в decisions.md) */
-  --font-golos: 'Golos Text', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, sans-serif;
-  --font-system: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, sans-serif;
-  --font-family: var(--font-golos);
+  /* системный шрифт, как в интернет-банке: на Mac — SF Pro, на Windows — Segoe UI */
+  --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, sans-serif;
 
   /* поверхности */
   --bg: #f2f3f5;

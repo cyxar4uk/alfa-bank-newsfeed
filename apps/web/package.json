@@ -15,7 +15,6 @@
   },
   "dependencies": {
     "@alfalab/icons-glyph": "^2.293.3",
-    "@fontsource/golos-text": "^5.3.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "react-router-dom": "^7.18.4"

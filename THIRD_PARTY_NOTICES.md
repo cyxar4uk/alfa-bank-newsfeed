@@ -29,7 +29,6 @@
 |---|---|---|
 | React, React DOM (`apps/web`) | 19.3 | MIT |
 | React Router (`apps/web`) | 7.18 | MIT |
-| Шрифт Golos Text, пакет `@fontsource/golos-text` (`apps/web`) | 5.3 | SIL OFL 1.1 |
 | Vite, `@vitejs/plugin-react` — сборка (`apps/web`) | 8.3 | MIT |
 | TypeScript — сборка (`apps/web`) | 5.9 | Apache-2.0 |
 | ESLint, typescript-eslint — проверка кода (`apps/web`) | 9.39 / 8.72 | MIT |

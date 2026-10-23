@@ -13,7 +13,7 @@ export const roleLabel: Record<Role, string> = {
 };
 
 export const originLabel: Record<Origin, string> = {
-  fact: 'Факт · из новости',
+  fact: 'Факт · из источника',
   data: 'Данные о компании',
   bank: 'Позиция Альфа-Банка',
   ai: 'Вывод модели',
