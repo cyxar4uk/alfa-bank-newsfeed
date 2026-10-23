@@ -4,11 +4,22 @@
 продукта добавляют расчётные инструменты — модель их не пишет, поэтому `estimate` и `offer` здесь запрещены.
 """
 
-from typing import Literal
+import re
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
-from api.contract import Confidence
+from api.contract import BankConflict, Confidence, HypothesisCheck, Statement
+
+_SHORT_SOURCE = re.compile(r"^(?:alfa|news):")
+
+
+def _normalize_refs(refs: list[str]) -> list[str]:
+    """Модель иногда сокращает ссылку («alfa:keyrate-2026-09#p1-6») — дописываем «src:»."""
+    return [f"src:{r}" if _SHORT_SOURCE.match(r) else r for r in (x.strip() for x in refs) if r]
+
+
+Refs = Annotated[list[str], AfterValidator(_normalize_refs)]
 
 
 class PlanFactor(BaseModel):
@@ -36,34 +47,67 @@ class Plan(BaseModel):
     role_focus: str = Field(description="что важно именно этой роли в событии, одна фраза")
 
 
+class DraftConflict(BaseModel):
+    text: str = Field(min_length=1, description="в чём вывод расходится с позицией Альфа-Банка, одна фраза")
+    refs: Refs = Field(description="фрагменты аналитики банка (src:alfa:…), с которыми вывод расходится")
+
+
 class DraftStatement(BaseModel):
     text: str = Field(min_length=1, description="одно утверждение по-русски, коротко и конкретно")
-    origin: Literal["fact", "bank", "data", "ai"] = Field(
+    origin: Literal["fact", "bank", "data", "ai", "hypothesis"] = Field(
         description="fact — из новости или материала; bank — позиция Альфа-Банка; data — данные банка о"
-        " компании; ai — твой вывод"
+        " компании; ai — твой вывод, опирающийся на данные; hypothesis — предположение, которое данные пока"
+        " не подтверждают"
     )
-    refs: list[str] = Field(default_factory=list, description="id из контекста: src:… и feat:…")
-    confidence: Confidence = Field(default="high", description="для ai: high, medium или low")
+    refs: Refs = Field(default_factory=list, description="id из контекста: src:… и feat:…")
+    confidence: Confidence = Field(default="high", description="для ai и hypothesis: high, medium или low")
     factor: str | None = Field(default=None, description="код фактора карты или канала, к которому относится")
     quote: str | None = Field(
         default=None,
-        description=(
-            "для fact и bank: дословная выдержка из текста источника (10–200 символов), без изменений",
-        ),
+        description="для fact и bank: дословная выдержка из текста источника (10–200 символов),"
+        " без изменений",
     )
+    confirm: str | None = Field(default=None, description="для hypothesis: что её подтвердит")
+    refute: str | None = Field(default=None, description="для hypothesis: что её опровергнет")
+    bank_conflict: DraftConflict | None = Field(
+        default=None, description="для ai и hypothesis: только если вывод расходится с позицией банка"
+    )
+
+
+def to_statement(s: DraftStatement) -> Statement:
+    """Утверждение контракта из черновика: с условиями проверки гипотезы и расхождением с банком."""
+    check = None
+    if s.origin == "hypothesis" and (s.confirm or s.refute):
+        check = HypothesisCheck(confirm=s.confirm, refute=s.refute)
+    conflict = None
+    if s.bank_conflict is not None and s.origin in ("ai", "hypothesis"):
+        conflict = BankConflict(text=s.bank_conflict.text, refs=list(dict.fromkeys(s.bank_conflict.refs)))
+    return Statement(
+        text=s.text,
+        origin=s.origin,
+        refs=list(dict.fromkeys(s.refs)),
+        confidence=s.confidence,
+        bank_conflict=conflict,
+        check=check,
+    )
+
+
+def cited(s: DraftStatement) -> list[str]:
+    """Все ссылки утверждения, включая материалы банка, с которыми вывод расходится."""
+    return [*s.refs, *(s.bank_conflict.refs if s.bank_conflict else [])]
 
 
 class DraftAction(BaseModel):
     text: str = Field(min_length=1)
     kind: Literal["question", "scenario"]
-    refs: list[str] = Field(default_factory=list)
+    refs: Refs = Field(default_factory=list)
 
 
 class Draft(BaseModel):
     """Черновик инсайта: шесть вопросов кейса, у каждого утверждения — происхождение и ссылки."""
 
     relevance_reason: str = Field(description="почему событие важно этой компании, одна фраза")
-    relevance_refs: list[str] = Field(default_factory=list)
+    relevance_refs: Refs = Field(default_factory=list)
     what_happened: list[DraftStatement] = Field(description="факты события, origin=fact")
     why_it_matters: list[DraftStatement] = Field(
         description="связь с бизнесом: data (признаки компании) и ai (вывод) с учётом роли"

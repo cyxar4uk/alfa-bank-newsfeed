@@ -179,6 +179,32 @@ class LlmClient:
         self.backoff = backoff
         self._sleep = sleep
         self._now = now
+        self._upstream: tuple[float, float | None] = (0.0, None)  # (когда спросили, остаток)
+
+    def upstream_remaining(self, ttl: float = 60.0) -> float | None:
+        """Остаток суточного бюджета ключа у шлюза, ₽ (общий на всю команду); неизвестен — None.
+
+        Шлюз отдаёт `info.max_budget` и `info.spend`; ответ кэшируется на `ttl` секунд.
+        """
+        key_info = getattr(self.transport, "key_info", None)
+        if key_info is None:
+            return None
+        asked, value = self._upstream
+        if time.monotonic() - asked < ttl and asked:
+            return value
+        info = (key_info() or {}).get("info") or {}
+        try:
+            value = float(info["max_budget"]) - float(info["spend"])
+        except (KeyError, TypeError, ValueError):
+            value = None
+        self._upstream = (time.monotonic(), value)
+        return value
+
+    def remaining(self) -> float:
+        """Сколько можно потратить сейчас: свой лимит сервиса и остаток ключа у шлюза — меньшее."""
+        upstream = self.upstream_remaining()
+        own = self.budget.remaining
+        return own if upstream is None else min(own, max(upstream, 0.0))
 
     def model_for(self, step: str) -> str:
         return self.models.get(step) or self.models["draft"]

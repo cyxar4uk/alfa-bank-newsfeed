@@ -11,11 +11,11 @@ from pydantic import BaseModel, Field
 
 from api.agent.checks import Checker
 from api.agent.context import AgentContext, as_data, dumps
-from api.agent.drafts import AskAnswer
+from api.agent.drafts import AskAnswer, cited, to_statement
 from api.agent.prompts import ASK_SYSTEM
 from api.agent.tools import Tools
 from api.agent.trace import TraceRecorder
-from api.contract import Insight, Source, Statement
+from api.contract import DISCLAIMER, Insight, Source, Statement
 from api.llm import LlmClient
 
 QUESTION_MAX = 1000
@@ -37,6 +37,7 @@ class AskOut(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     trace_id: str
+    disclaimer: str = DISCLAIMER
 
 
 OFF_TOPIC = "Я отвечаю только на вопросы об этом событии и о том, как оно касается вашей компании."
@@ -90,14 +91,14 @@ def answer(llm: LlmClient, tools: Tools, ctx: AgentContext, insight: Insight, qu
     sources = ctx.sources()
     used: dict[str, Source] = {}
     for s in kept:
-        for ref in s.refs:
+        for ref in cited(s):
             src = sources.get(ref) or sources.get(ref.split("#", 1)[0])
             if src is not None:
                 used.setdefault(src.id, src)
     warnings = []
     if problems:
         warnings.append(f"убрано утверждений без подтверждения: {len(reply.statements) - len(kept)}")
-    statements = [Statement(text=s.text, origin=s.origin, refs=s.refs, confidence=s.confidence) for s in kept]
+    statements = [to_statement(s) for s in kept]
     return AskOut(
         insight_id=insight.id,
         question=question,

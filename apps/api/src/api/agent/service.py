@@ -76,9 +76,10 @@ class AgentService:
     def _run(self, persona: Persona, event: Event) -> Insight:
         agent = self._agent()
         # не начинаем карточку, которую бюджет не даст закончить: план, черновик и две доработки
-        if agent.llm.budget.remaining < RUN_RESERVE_RUB:
+        remaining = agent.llm.remaining()
+        if remaining < RUN_RESERVE_RUB:
             raise BudgetExceeded(
-                f"на сегодня осталось {agent.llm.budget.remaining:.2f} ₽ — меньше, чем нужно на карточку"
+                f"на сегодня осталось {remaining:.2f} ₽ — меньше, чем нужно на карточку"
                 f" ({RUN_RESERVE_RUB:.0f} ₽); сброс в 03:00 МСК"
             )
         if not self._runs.acquire(timeout=RUN_WAIT_SECONDS):

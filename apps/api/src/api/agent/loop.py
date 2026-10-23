@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from api.agent.checks import Checker, Report
 from api.agent.context import AgentContext
-from api.agent.drafts import Draft, DraftStatement, Plan
+from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
 from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
@@ -28,7 +28,6 @@ from api.contract import (
     Quality,
     Relevance,
     Source,
-    Statement,
     Trace,
 )
 from api.llm import BudgetExceeded, LlmClient, LlmError
@@ -214,15 +213,10 @@ class Agent:
         trace.check(final.ok, f"итог после очистки (убрано {dropped}): " + final.summary())
         sources = ctx.sources()
 
-        def to_statement(s: DraftStatement) -> Statement:
-            return Statement(
-                text=s.text, origin=s.origin, refs=list(dict.fromkeys(s.refs)), confidence=s.confidence
-            )
-
         used_sources: dict[str, Source] = {}
         quotes: dict[str, list[str]] = {}
         for _, _, s in clean.statements():
-            for ref in s.refs:
+            for ref in cited(s):
                 if ref.startswith("src:"):
                     src = sources.get(ref) or sources.get(ref.split("#", 1)[0]) or _page_of(ctx, ref)
                     if src is not None:
@@ -257,7 +251,7 @@ class Agent:
         if ctx.event.id not in used_sources:
             out_sources.insert(0, ctx.event.source)
 
-        refs = {r for _, _, s in clean.statements() for r in s.refs}
+        refs = {r for _, _, s in clean.statements() for r in cited(s)}
         refs |= {r for e in ctx.estimates for r in e.statement.refs} | {r for a in actions for r in a.refs}
         refs |= set(clean.relevance_refs)
         known = ctx.feature_ids()
