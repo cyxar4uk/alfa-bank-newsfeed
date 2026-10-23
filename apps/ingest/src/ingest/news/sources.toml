@@ -1,0 +1,86 @@
+# Открытые ленты новостей. Добавить источник — дописать блок [[feed]], код менять не нужно.
+# Из ленты берём только заголовок, лид дословно (до 500 знаков), ссылку на материал и дату; полный текст
+# статей и картинки не храним, в интерфейсе всегда ведём ссылкой на первоисточник.
+# priority — какой издатель остаётся главным при склейке дублей (меньше — главнее): регулятор раньше СМИ.
+# enabled = false — источник выключен из-за условий использования или недоступности, причина в terms.
+
+[[feed]]
+id = "cbr-press"
+publisher = "Банк России"
+url = "https://www.cbr.ru/rss/RssPress"
+priority = 0
+terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
+
+[[feed]]
+id = "cbr-events"
+publisher = "Банк России"
+url = "https://www.cbr.ru/rss/eventrss"
+priority = 0
+terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
+
+[[feed]]
+id = "interfax"
+publisher = "Интерфакс"
+url = "https://www.interfax.ru/rss.asp"
+priority = 1
+terms = "interfax.ru/license: цитирование в информационных целях со ссылкой на interfax.ru"
+
+[[feed]]
+id = "kommersant-economics"
+publisher = "Коммерсантъ"
+url = "https://www.kommersant.ru/RSS/section-economics.xml"
+priority = 2
+terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
+
+[[feed]]
+id = "kommersant-business"
+publisher = "Коммерсантъ"
+url = "https://www.kommersant.ru/RSS/section-business.xml"
+priority = 2
+terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
+
+[[feed]]
+id = "ria"
+publisher = "РИА Новости"
+url = "https://ria.ru/export/rss2/archive/index.xml"
+priority = 3
+terms = "ria.ru/docs/about/copyright.html: с указанием источника и гиперссылкой в начале"
+
+[[feed]]
+id = "forbes"
+publisher = "Forbes"
+url = "https://www.forbes.ru/newrss.xml"
+priority = 3
+terms = "forbes.ru: в информационных целях с автором, датой и активной ссылкой"
+
+[[feed]]
+id = "tass"
+publisher = "ТАСС"
+url = "https://tass.ru/rss/v2.xml"
+priority = 1
+enabled = false
+terms = "условия для сайта не найдены; из сети разработки лента не открывается"
+
+[[feed]]
+id = "rbc"
+publisher = "РБК"
+url = "https://rssexport.rbc.ru/rbcnews/news/30/full.rss"
+priority = 2
+enabled = false
+terms = "rbc.ru: автоматическое извлечение без письменного разрешения запрещено"
+
+[[feed]]
+id = "vedomosti-economics"
+publisher = "Ведомости"
+url = "https://www.vedomosti.ru/rss/rubric/economics"
+priority = 2
+enabled = false
+terms = "vedomosti.ru/info/reprint_rules: базы данных и автоматически извлечённое — только с разрешения"
+
+[[feed]]
+id = "finmarket"
+publisher = "Финмаркет"
+url = "https://www.finmarket.ru/rss/mainnews.asp"
+priority = 2
+enabled = false
+terms = "finmarket.ru/lcz.asp: автоматическое извлечение и кэширование без разрешения запрещены"
