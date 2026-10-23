@@ -55,6 +55,7 @@ class FakeTransport:
 
 def make_client(transport, tmp_path, limit=10.0, now=None, **kwargs):
     budget = Budget(limit, now=now) if now else Budget(limit)
+    kwargs.setdefault("fallbacks", {})  # запасные модели проверяются отдельным тестом
     return LlmClient(
         transport,
         budget=budget,

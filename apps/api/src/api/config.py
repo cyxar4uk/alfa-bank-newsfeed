@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     llm_models: dict[str, str] = {}
     # доп. параметры запроса по шагу, JSON: {"draft": {"thinking": {"type": "disabled"}}}
     llm_step_params: dict[str, dict] = {}
+    # запасная модель, если основная недоступна у провайдера, JSON: {"google/gemma-4-26b-a4b-it": "..."}
+    llm_fallbacks: dict[str, str] = {}
     # свой суточный лимит сервиса, ₽ (у организаторов 500 ₽ на ключ всей команды, сброс в 03:00 МСК)
     llm_daily_budget_rub: float = 150.0
     # кэш ответов моделей и журнал вызовов

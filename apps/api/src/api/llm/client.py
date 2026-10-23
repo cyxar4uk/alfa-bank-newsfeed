@@ -45,6 +45,14 @@ DEFAULT_STEP_MODELS: dict[str, str] = {
 # доп. параметры запроса по шагу: у DeepSeek рассуждения выключаются, ответ в 3–5 раз дешевле и быстрее
 DEFAULT_STEP_PARAMS: dict[str, dict] = {}
 
+# модель недоступна у провайдера после всех повторов — один раз пробуем запасную того же класса
+DEFAULT_FALLBACK_MODELS: dict[str, str] = {
+    "google/gemma-4-26b-a4b-it": "qwen/qwen3.6-35b-a3b",
+    "qwen/qwen3.6-35b-a3b": "google/gemma-4-26b-a4b-it",
+    "deepseek/deepseek-v4.1-flash": "z-ai/glm-5.3-flash",
+    "z-ai/glm-5.3-flash": "deepseek/deepseek-v4.1-flash",
+}
+
 RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 MAX_TOKENS_CAP = 16000
 
@@ -148,6 +156,7 @@ class LlmClient:
         cache: DiskCache | None = None,
         models: dict[str, str] | None = None,
         step_params: dict[str, dict] | None = None,
+        fallbacks: dict[str, str] | None = None,
         max_attempts: int = 4,
         validation_attempts: int = 2,
         backoff: float = 2.0,
@@ -160,7 +169,9 @@ class LlmClient:
         self.cache = cache
         self.models = {**DEFAULT_STEP_MODELS, **(models or {})}
         self.step_params = {**DEFAULT_STEP_PARAMS, **(step_params or {})}
-        unknown = {m for m in self.models.values() if m not in ALLOWED_MODELS}
+        # None — запасные по умолчанию, {} — без запасных
+        self.fallbacks = dict(DEFAULT_FALLBACK_MODELS if fallbacks is None else fallbacks)
+        unknown = {m for m in [*self.models.values(), *self.fallbacks.values()] if m not in ALLOWED_MODELS}
         if unknown:
             raise ValueError(f"модели не из списка кейса: {', '.join(sorted(unknown))}")
         self.max_attempts = max_attempts
@@ -213,10 +224,31 @@ class LlmClient:
 
         conversation = list(messages)
         last_error = ""
+        fell_back = False
         for attempt in range(1, self.validation_attempts + 2):
             attempt_body = {**body, "messages": conversation}
             try:
-                text, record, finish = self._call(step, attempt_body, attempt)
+                try:
+                    text, record, finish = self._call(step, attempt_body, attempt)
+                except LlmUnavailable:
+                    fallback = self.fallbacks.get(body["model"])
+                    if fallback is None or fell_back:
+                        raise
+                    fell_back = True
+                    self._log(
+                        CallRecord(
+                            step=step,
+                            model=body["model"],
+                            attempt=attempt,
+                            ok=False,
+                            error=f"модель недоступна — запрос уходит на запасную {fallback}",
+                        )
+                    )
+                    # параметры шага настроены под основную модель (например, выключение рассуждений DeepSeek)
+                    own = self.step_params.get(step, {})
+                    body = {k: v for k, v in body.items() if k not in own} | {"model": fallback}
+                    attempt_body = {**body, "messages": conversation}
+                    text, record, finish = self._call(step, attempt_body, attempt)
             except (LlmError, BudgetExceeded) as exc:
                 exc.calls = calls
                 raise
@@ -248,7 +280,9 @@ class LlmClient:
                     ),
                 },
             ]
-        error = LlmBadResponse(f"ответ модели {model} на шаге {step} не прошёл проверку: {last_error[:500]}")
+        error = LlmBadResponse(
+            f"ответ модели {body['model']} на шаге {step} не прошёл проверку: {last_error[:500]}"
+        )
         error.calls = calls
         raise error
 
@@ -383,4 +417,5 @@ def client_from_settings(settings) -> "LlmClient | None":
         cache=DiskCache(settings.llm_cache_dir),
         models=settings.llm_models,
         step_params=settings.llm_step_params,
+        fallbacks={**DEFAULT_FALLBACK_MODELS, **settings.llm_fallbacks},
     )

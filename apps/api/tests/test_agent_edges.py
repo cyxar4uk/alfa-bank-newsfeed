@@ -196,3 +196,10 @@ def test_company_missing_is_404():
 
 def test_dates_key():
     assert dt.date.min < dt.date(2026, 1, 1)
+
+
+def test_bank_material_date_must_match_cited_material():
+    wrong = bank(text="Альфа-Банк в материале от 02.09.2026 ждёт сохранения ставки 14,0% до конца года.")
+    report = run(good_draft(bank_view=[wrong]))
+    assert any("02.09.2026" in i.message and i.hard for i in report.issues)
+    assert run(good_draft()).ok  # в эталонном черновике дата 11.09.2026 — дата материала

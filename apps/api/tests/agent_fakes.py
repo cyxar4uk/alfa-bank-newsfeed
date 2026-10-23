@@ -306,4 +306,6 @@ class ScriptedTransport:
 
 
 def make_llm(transport, limit=100.0) -> LlmClient:
-    return LlmClient(transport, budget=Budget(limit), journal=Journal(None), cache=None, sleep=lambda s: None)
+    return LlmClient(
+        transport, budget=Budget(limit), journal=Journal(None), cache=None, sleep=lambda s: None, fallbacks={}
+    )

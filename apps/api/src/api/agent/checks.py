@@ -13,6 +13,7 @@
 предупреждение.
 """
 
+import datetime as dt
 import re
 from dataclasses import dataclass, field
 
@@ -82,6 +83,17 @@ _GENERIC = {"альфа", "банк", "банка", "банке", "компа", 
 
 def _stems(text: str) -> set[str]:
     return {w.lower().replace("ё", "е")[:5].replace(",", ".") for w in _STEM_WORD.findall(text)} - _GENERIC
+
+
+# дата материала — «от 11.09.2026»; даты событий («заседание 23.10.2026») не проверяем
+_DATE = re.compile(r"\bот\s+(\d{2}\.\d{2}\.\d{4})\b")
+
+
+def _parse_date(text: str) -> dt.date | None:
+    try:
+        return dt.datetime.strptime(text, "%d.%m.%Y").date()
+    except ValueError:
+        return None
 
 
 def related(text: str, quote: str) -> bool:
@@ -199,6 +211,16 @@ class Checker:
                 stale = [h.source.id for h in self.ctx.analytics if h.stale and h.source.id in s.refs]
                 if stale:
                     bad("bank_quotes", "ссылка на устаревший материал — это не позиция банка")
+                # дата материала в тексте — одного из процитированных материалов, а не придуманная
+                dates = {
+                    h.material_date
+                    for h in self.ctx.analytics
+                    if h.material_date and (h.source.id in s.refs or h.page_ref in s.refs)
+                }
+                wrong = [d for d in _DATE.findall(s.text) if dates and _parse_date(d) not in dates]
+                if wrong:
+                    known = ", ".join(sorted(d.strftime("%d.%m.%Y") for d in dates))
+                    bad("bank_quotes", f"дата материала {wrong[0]} не совпадает с процитированным ({known})")
             cited = NumberBank()
             for t in texts:
                 cited.add_text(t)
