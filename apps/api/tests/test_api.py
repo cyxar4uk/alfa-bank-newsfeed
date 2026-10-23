@@ -82,10 +82,34 @@ def client():
     app.dependency_overrides.clear()
 
 
-def test_health(client):
+def test_health_without_case_data(client):
     response = client.get("/api/health")
-    assert response.status_code == 200
-    assert response.json()["db"] == "ok"
+    assert response.status_code == 200  # API живо
+    body = response.json()
+    assert (body["db"], body["status"]) == ("ok", "degraded")
+    assert len(body["warnings"]) == 3  # ни одного файла кейса не загружено
+    assert body["warnings"][0].startswith("файл df_Uid_data_hack.csv не загружен: положите CSV кейса")
+
+
+def test_health_with_case_data(client):
+    files = [
+        ImportedFile(
+            file=name,
+            rows_read=10,
+            rows_loaded=10 if i else 0,
+            rows_skipped=0,
+            loaded_at="2026-10-23T00:00:00Z",
+        )
+        for i, name in enumerate(
+            ["df_Uid_data_hack.csv", "df_Uid_payment_hack.csv", "df_Fid_Uid_link_hack.csv"]
+        )
+    ]
+    app.dependency_overrides[get_repo] = lambda: type(
+        "R", (FakeRepo,), {"imported_files": lambda self: files}
+    )()
+    body = client.get("/api/health").json()
+    assert body["status"] == "degraded"
+    assert body["warnings"] == ["файл df_Uid_data_hack.csv загружен, но в нём нет ни одной годной строки"]
 
 
 def test_company_profile(client):

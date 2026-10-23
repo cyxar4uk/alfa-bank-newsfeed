@@ -484,6 +484,9 @@ class ImportedFile(BaseModel):
 
 
 class Health(BaseModel):
-    status: Literal["ok", "degraded"]
+    status: Literal["ok", "degraded"] = Field(
+        description="degraded — БД недоступна или данные кейса не загружены"
+    )
     db: Literal["ok", "unavailable"]
     data: list[ImportedFile] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list, description="что не так с данными и как исправить")

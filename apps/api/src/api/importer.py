@@ -29,6 +29,7 @@ log = logging.getLogger("api.importer")
 COMPANIES_FILE = "df_Uid_data_hack.csv"
 PAYMENTS_FILE = "df_Uid_payment_hack.csv"
 LINKS_FILE = "df_Fid_Uid_link_hack.csv"
+DATA_FILES = [COMPANIES_FILE, PAYMENTS_FILE, LINKS_FILE]
 
 # колонки, без которых файл не грузится
 REQUIRED_COLUMNS = {

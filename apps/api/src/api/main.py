@@ -8,6 +8,7 @@ from psycopg_pool import ConnectionPool
 from api.config import get_settings
 from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
 from api.db import connect, ensure_schema
+from api.importer import DATA_FILES
 from api.okved import sector_for
 from api.personas import DEMO_COMPANIES, make_personas
 from api.profile import LARGE_REVENUE, display_name
@@ -54,8 +55,19 @@ def health(repo: Repo, response: Response) -> Health:
         files = repo.imported_files()
     except Exception:
         response.status_code = 503
-        return Health(status="degraded", db="unavailable")
-    return Health(status="ok", db="ok", data=files)
+        return Health(status="degraded", db="unavailable", warnings=["база данных недоступна"])
+    loaded = {f.file: f for f in files}
+    warnings = []
+    for name in DATA_FILES:
+        if name not in loaded:
+            warnings.append(
+                f"файл {name} не загружен: положите CSV кейса в DATA_DIR/companies"
+                " (по умолчанию data/raw/companies) и перезапустите импорт — `docker compose up import`"
+            )
+        elif not loaded[name].rows_loaded:
+            warnings.append(f"файл {name} загружен, но в нём нет ни одной годной строки")
+    # API живо — отвечаем 200, а нехватку данных показываем в статусе и предупреждениях
+    return Health(status="degraded" if warnings else "ok", db="ok", data=files, warnings=warnings)
 
 
 @app.get("/api/companies", response_model=list[CompanySummary], tags=["компании"])
