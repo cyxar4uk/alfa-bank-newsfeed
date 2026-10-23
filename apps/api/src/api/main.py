@@ -9,8 +9,8 @@ from api.config import get_settings
 from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
 from api.db import connect, ensure_schema
 from api.okved import sector_for
-from api.personas import make_personas
-from api.profile import display_name
+from api.personas import DEMO_COMPANIES, make_personas
+from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
 from api.service import company_chain, company_exposure, company_profile
 
@@ -61,22 +61,38 @@ def health(repo: Repo, response: Response) -> Health:
 @app.get("/api/companies", response_model=list[CompanySummary], tags=["компании"])
 def list_companies(
     repo: Repo,
-    large: Annotated[bool, Query(description="только крупные: выручка больше 15 млрд ₽")] = False,
+    large: Annotated[
+        bool, Query(description="только крупный бизнес: выручка группы (или своя вне группы) > 15 млрд ₽")
+    ] = False,
+    clients_only: Annotated[bool, Query(description="только действующие клиенты банка (CLIENT)")] = True,
+    per_group: Annotated[bool, Query(description="от каждой группы одна компания — крупнейшая")] = False,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CompanySummary]:
-    return [
-        CompanySummary(
-            id=c.id,
-            display_name=display_name(c, c.id),
-            sector=sector_for(c.okved_code),
-            okved=c.okved_code,
-            revenue=c.revenue,
-            region=c.region,
-            client_type=c.client_type,
+    companies = repo.list_companies(
+        large=large, limit=limit, offset=offset, clients_only=clients_only, per_group=per_group
+    )
+    groups = repo.group_stats([c.group_id for c in companies if c.group_id])
+    result = []
+    for c in companies:
+        stats = groups.get(c.group_id) if c.group_id else None
+        basis = stats.revenue if stats and stats.revenue else c.revenue
+        result.append(
+            CompanySummary(
+                id=c.id,
+                display_name=display_name(c, c.id),
+                sector=sector_for(c.okved_code),
+                okved=c.okved_code,
+                revenue=c.revenue,
+                group_id=c.group_id,
+                group_revenue=stats.revenue if stats else None,
+                group_size=stats.size if stats else None,
+                large=bool(basis and basis > LARGE_REVENUE),
+                region=c.region,
+                client_type=c.client_type,
+            )
         )
-        for c in repo.list_companies(large=large, limit=limit, offset=offset)
-    ]
+    return result
 
 
 @app.get("/api/companies/{company_id}", response_model=CompanyProfile, tags=["компании"])
@@ -116,4 +132,8 @@ def get_chain(
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
 def list_personas(repo: Repo) -> list[Persona]:
-    return make_personas(repo.list_companies(large=True, limit=500, offset=0))
+    # персоны — у действующих клиентов крупного бизнеса: демо-клиенты и крупнейшие компании групп
+    leaders = repo.list_companies(large=True, limit=1000, offset=0, clients_only=True, per_group=True)
+    known = {c.id for c in leaders}
+    demo = [repo.get_company(cid) for cid in DEMO_COMPANIES if cid not in known]
+    return make_personas([*leaders, *(c for c in demo if c)])

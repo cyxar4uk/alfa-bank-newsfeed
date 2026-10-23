@@ -25,6 +25,8 @@ DEMO_PERSONAS: list[tuple[str, str, str]] = [
     ("U_258116", "ceo", "Поставщик общепита, Москва"),
 ]
 
+DEMO_COMPANIES = list(dict.fromkeys(company_id for company_id, *_ in DEMO_PERSONAS))
+
 PREFERRED_SECTORS = [
     "оптовая торговля",
     "строительство",
@@ -96,6 +98,8 @@ def pick_companies(
 
 
 def make_personas(companies: list[CompanyRecord]) -> list[Persona]:
+    # сервис — для действующих клиентов: потенциальные и бывшие могут быть только контрагентами
+    companies = [c for c in companies if c.client_type == "CLIENT"]
     by_id = {c.id: c for c in companies}
     personas = [
         _persona(by_id[company_id], role, label)

@@ -12,6 +12,7 @@ import csv
 import logging
 import re
 import sys
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import astuple, dataclass
 from pathlib import Path
@@ -19,7 +20,7 @@ from pathlib import Path
 import psycopg
 
 from api.config import get_settings
-from api.db import PAYMENT_INDEXES, SCHEMA_VERSION, connect, ensure_schema
+from api.db import GROUPS_FILL, PAYMENT_INDEXES, SCHEMA_VERSION, connect, ensure_schema
 from api.okved import okved_prefix
 from api.records import COMPANY_FIELDS, CompanyRecord, clean_id, clean_text, company_from_row
 
@@ -81,16 +82,22 @@ def read_rows(path: Path, stats: FileStats) -> Iterator[dict[str, str]]:
 def load_companies(path: Path) -> tuple[list[CompanyRecord], FileStats]:
     stats = FileStats()
     companies: dict[str, CompanyRecord] = {}
+    rows: Counter[str] = Counter()
     for row in read_rows(path, stats):
         record = company_from_row(row)
         if record is None:
             stats.rows_skipped += 1
             continue
-        if record.id in companies:
-            companies[record.id].duplicates += 1
-            stats.rows_skipped += 1
-            continue
-        companies[record.id] = record
+        rows[record.id] += 1
+        companies.setdefault(record.id, record)
+    # id в нескольких строках — артефакт обезличивания (ответ организаторов): почти пустые строки разных
+    # компаний под одним id; ни одна из них не настоящая — убираем все
+    repeated = {company_id for company_id, n in rows.items() if n > 1}
+    for company_id in repeated:
+        companies.pop(company_id)
+        stats.rows_skipped += rows[company_id]
+    if repeated:
+        log.info("%s: убраны id в нескольких строках: %s", path.name, ", ".join(sorted(repeated)))
     stats.rows_loaded = len(companies)
     return list(companies.values()), stats
 
@@ -131,6 +138,8 @@ def import_companies(conn: psycopg.Connection, path: Path) -> FileStats:
         with conn.cursor().copy(f"COPY companies ({columns}) FROM STDIN") as copy:
             for record in companies:
                 copy.write_row((*astuple(record), okved_prefix(record.okved_code)))
+        conn.execute("TRUNCATE company_groups")
+        conn.execute(GROUPS_FILL)
         _record(conn, COMPANIES_FILE, signature(path), stats)
     return stats
 
@@ -293,7 +302,19 @@ IMPORTERS = [
 
 
 def import_all(conn: psycopg.Connection, data_dir: Path, force: bool = False) -> dict[str, FileStats]:
-    ensure_schema(conn, migrate=True)
+    # пересоздать таблицы под новую схему можно, только когда все три файла есть и годны к загрузке:
+    # иначе старые данные оставляем как есть, а не стираем без замены
+    unusable = []
+    for name, _ in IMPORTERS:
+        path = find_file(data_dir, name)
+        if path is None or REQUIRED_COLUMNS[name] - set(read_header(path)):
+            unusable.append(name)
+    can_reload = not unusable
+    if not can_reload:
+        log.warning(
+            "нет годных файлов %s в %s — схему и загруженные данные не трогаю", ", ".join(unusable), data_dir
+        )
+    ensure_schema(conn, migrate=can_reload)
     results: dict[str, FileStats] = {}
     for name, importer in IMPORTERS:
         path = find_file(data_dir, name)

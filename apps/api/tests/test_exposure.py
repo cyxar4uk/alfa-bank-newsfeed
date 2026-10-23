@@ -345,3 +345,13 @@ def test_levels():
         "none",
         "no_data",
     ]
+
+
+def test_levels_are_defined_in_api():
+    levels = {x.level: x for x in build_exposure(BASE, flows=[]).levels}
+    assert list(levels) == ["high", "medium", "low", "none", "no_data"]
+    assert (levels["high"].min, levels["high"].max) == (0.6, None)
+    assert (levels["medium"].min, levels["medium"].max) == (0.3, 0.6)
+    assert (levels["low"].min, levels["low"].max) == (0.01, 0.3)  # ноль — уровень none
+    assert levels["high"].meaning.startswith("сильная прямая связь")
+    assert all(x.meaning for x in levels.values())

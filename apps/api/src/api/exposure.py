@@ -17,7 +17,15 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from api.contract import ChannelKind, Evidence, ExposureChannel, ExposureLevel, ExposureMap, FactorExposure
+from api.contract import (
+    ChannelKind,
+    Evidence,
+    ExposureChannel,
+    ExposureLevel,
+    ExposureMap,
+    FactorExposure,
+    LevelDefinition,
+)
 from api.profile import Flows, aggregate_flows, countries, format_rub, format_share, payment_structure
 from api.records import COLUMN_OF, CompanyRecord, Flow
 
@@ -181,6 +189,22 @@ class Levels(BaseModel):
 
     high: float = Field(default=0.6, gt=0, le=1)
     medium: float = Field(default=0.3, gt=0, le=1)
+    # смысл уровней — показывается в API рядом с картой
+    high_meaning: str = "сильная прямая связь"
+    medium_meaning: str = "заметная связь"
+    low_meaning: str = "слабая или косвенная связь"
+    none_meaning: str = "сигналов в данных нет"
+    no_data_meaning: str = "оценить нельзя: не хватает данных"
+
+    def definitions(self) -> list[LevelDefinition]:
+        return [
+            LevelDefinition(level="high", min=self.high, max=None, meaning=self.high_meaning),
+            LevelDefinition(level="medium", min=self.medium, max=self.high, meaning=self.medium_meaning),
+            # сила округляется до сотых: низкая — от 0,01, ноль — «нет»
+            LevelDefinition(level="low", min=0.01, max=self.medium, meaning=self.low_meaning),
+            LevelDefinition(level="none", min=None, max=None, meaning=self.none_meaning),
+            LevelDefinition(level="no_data", min=None, max=None, meaning=self.no_data_meaning),
+        ]
 
     @model_validator(mode="after")
     def _order(self) -> "Levels":
@@ -719,5 +743,6 @@ def build_exposure(
         company_id=company.id,
         factors=factors,
         warnings=_warnings(ctx, factors),
+        levels=catalog.levels.definitions(),
         catalog_version=catalog.version,
     )
