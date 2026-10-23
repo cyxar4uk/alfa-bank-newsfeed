@@ -160,6 +160,57 @@ class IndustryPosition(BaseModel):
     percentile: float = Field(ge=0, le=1, description="доля компаний с тем же кодом и меньшей выручкой")
 
 
+# --- Карта чувствительности -----------------------------------------------------------------
+
+ExposureLevel = Literal["high", "medium", "low", "none", "no_data"]
+ChannelKind = Literal["direct", "buyers", "suppliers", "group"]
+
+
+class Evidence(BaseModel):
+    """Доказательство силы фактора: признак компании или число из данных."""
+
+    ref: str = Field(description="feat:… — признак профиля, payments — платежи, group — данные группы")
+    label: str
+    value: str
+
+
+class ExposureChannel(BaseModel):
+    kind: ChannelKind = Field(
+        description="direct — сама компания, buyers — через покупателей, suppliers — через поставщиков,"
+        " group — через компании группы"
+    )
+    text: str = Field(description="канал человеческим текстом")
+
+
+class FactorExposure(BaseModel):
+    """Чувствительность компании к одному фактору."""
+
+    id: str = Field(examples=["exp:rate"], description="ссылка на фактор в refs: exp:<code>")
+    code: str = Field(examples=["rate", "demand_56"])
+    label: str = Field(examples=["Стоимость заёмных денег"])
+    strength: float | None = Field(ge=0, le=1, description="0–1; null — нет данных")
+    level: ExposureLevel = Field(description="high ≥ 0,6 · medium ≥ 0,3 · low > 0 · none — сигналов нет")
+    channel: ExposureChannel | None = None
+    evidence: list[Evidence] = Field(default_factory=list)
+    estimate: bool = Field(
+        default=False, description="вывод — оценка по отрасли, а не данные (например, направление ВЭД)"
+    )
+    coverage: float | None = Field(
+        default=None, ge=0, le=1, description="для спроса и поставок: доля суммы стороны с известной отраслью"
+    )
+    okved: str | None = Field(default=None, description="для спроса и поставок: класс ОКВЭД контрагентов")
+    notes: list[str] = Field(default_factory=list)
+
+
+class ExposureMap(BaseModel):
+    """Карта чувствительности: к чему уязвима компания и через что. Факторы — по убыванию силы."""
+
+    company_id: str
+    factors: list[FactorExposure]
+    warnings: list[str] = Field(default_factory=list)
+    catalog_version: str
+
+
 class CompanyProfile(BaseModel):
     id: str = Field(examples=["U_1595"])
     display_name: str = Field(examples=["Компания №1595 · торговля розничная лекарственными средствами"])
