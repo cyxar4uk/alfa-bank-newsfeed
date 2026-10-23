@@ -25,9 +25,27 @@
 
 ## Библиотеки
 
+Точные версии зависимостей API, включая транзитивные, — `apps/api/uv.lock`.
+
 | Компонент | Версия | Лицензия |
 |---|---|---|
-| | | |
+| FastAPI | 0.161.1 | MIT |
+| Uvicorn | 0.54.0 | BSD-3-Clause |
+| Pydantic | 2.14.1 | MIT |
+| pydantic-settings | 2.16.1 | MIT |
+| psycopg, psycopg-binary | 3.3.6 | LGPL-3.0 |
+| psycopg-pool | 3.3.3 | LGPL-3.0 |
+| pytest (разработка) | 9.1.1 | MIT |
+| Ruff (разработка) | 0.17.2 | MIT |
+| HTTPX (разработка, тесты API) | 0.28.1 | BSD-3-Clause |
+
+## Образы и инструменты сборки
+
+| Компонент | Версия | Лицензия |
+|---|---|---|
+| PostgreSQL (образ `postgres`) | 17, alpine | PostgreSQL License |
+| Python (образ `python`) | 3.12, slim | PSF License |
+| uv | 0.13.5 | MIT / Apache-2.0 |
 
 ## Смоделированные интеграции
 
