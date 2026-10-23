@@ -1,4 +1,4 @@
-import type { Action, ChannelKind, Confidence, Feature, Origin, Role, Strength } from '../api/types';
+import type { Action, ChannelKind, Confidence, Feature, MissingFeature, Origin, Role, Source, Strength } from '../api/types';
 
 /** Рабочее название сервиса — меняется здесь. */
 export const SERVICE_NAME = 'Радар связей';
@@ -69,17 +69,37 @@ export const missingLabel: Record<string, string> = {
 };
 
 export function featureValue(value: Feature['value']): string {
+  if (value === null) return 'нет данных';
   if (value === true) return 'есть';
   if (value === false) return 'нет';
   if (Array.isArray(value)) return value.join('; ');
   return String(value);
 }
 
+/** Признак для показа: готовая подпись из API, иначе значение. */
+export function featureText(feature: Feature): string {
+  return feature.display ?? featureValue(feature.value);
+}
+
+/** Чего нет в данных: объект из API или код поля в тестовых данных. */
+export function missingText(item: MissingFeature | string): string {
+  return typeof item === 'string' ? (missingLabel[item] ?? item) : item.label;
+}
+
+/** Страница материала банка: поле page или суффикс #pN в id. */
+export function sourcePage(source: Source): number | null {
+  if (source.page) return source.page;
+  const m = /#p(\d+)$/.exec(source.id);
+  return m ? Number(m[1]) : null;
+}
+
 const dateFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
 const dateYearFmt = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 
-export function formatDate(iso: string): string {
+export function formatDate(iso: string | null | undefined): string {
+  if (!iso) return '';
   const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
   return d.getFullYear() === new Date().getFullYear() ? dateFmt.format(d) : dateYearFmt.format(d);
 }
 

@@ -83,29 +83,34 @@ function MapView({ map, company, items }: { map: ExposureMap; company: CompanyPr
   };
   const factors = [...map.factors].sort((a, b) => ORDER[a.strength] - ORDER[b.strength]);
   const gaps = factors.filter((f) => f.strength === 'no_data' || (f.coverage != null && f.coverage < 0.5));
+  const position = map.position ?? company.industry ?? null;
+  const warnings = map.warnings ?? [];
 
   if (factors.length === 0) {
     return (
-      <EmptyState title="Карта пока не построена">
-        Для этой компании ещё нет признаков, по которым можно оценить уязвимость.
+      <EmptyState title="Карта для этой компании пока не рассчитана">
+        Факторы и их силу считает API; для этой компании расчёта ещё нет.
       </EmptyState>
     );
   }
 
   return (
     <>
-      {map.position && (
+      {position && (
         <p className="map-position">
-          Положение в отрасли: № {map.position.rank} по выручке из {map.position.total} компаний с ОКВЭД{' '}
-          {map.position.okved} — среди компаний в данных банка
+          Положение в отрасли: № {position.rank} по выручке из {position.total} компаний с ОКВЭД {position.okved} —
+          среди компаний в данных банка
         </p>
       )}
-      {gaps.length > 0 && (
+      {(gaps.length > 0 || warnings.length > 0) && (
         <aside className="warnings" aria-label="Неполные данные">
           <Icon name="warning" />
           <div>
             <p className="warnings__title">Карта неполная</p>
             <ul>
+              {warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
               {gaps.map((g) => (
                 <li key={g.factor.code}>
                   {g.factor.label}:{' '}

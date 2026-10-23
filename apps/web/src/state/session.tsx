@@ -27,7 +27,12 @@ async function loadDirectory(signal: AbortSignal) {
   const personas = await api.personas(signal);
   const ids = [...new Set(personas.map((p) => p.company_id))];
   const list = await Promise.all(ids.map((id) => api.company(id, signal)));
-  return { personas, companies: Object.fromEntries(list.map((c) => [c.id, c])) };
+  // В интерфейсе компания подписана коротко («Оптовик автозапчастей, Москва»): подпись из пользователя API
+  // главнее длинного имени по ОКВЭД из профиля.
+  const label = new Map<string, string>();
+  for (const p of personas) if (p.company_name && !label.has(p.company_id)) label.set(p.company_id, p.company_name);
+  const companies = list.map((c) => ({ ...c, display_name: label.get(c.id) ?? c.display_name }));
+  return { personas, companies: Object.fromEntries(companies.map((c) => [c.id, c])) };
 }
 
 export function useDirectory() {

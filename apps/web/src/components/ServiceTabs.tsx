@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 
-/** Разделы сервиса: брифинг, карта чувствительности, сводка недели. */
+/** Разделы сервиса: брифинг, карта чувствительности, сводка недели, своя новость. */
 export function ServiceTabs() {
   return (
     <nav className="tabs" aria-label="Разделы сервиса">
@@ -12,6 +12,9 @@ export function ServiceTabs() {
       </NavLink>
       <NavLink to="/radar/weekly" className="tabs__item">
         Сводка недели
+      </NavLink>
+      <NavLink to="/radar/analyze" className="tabs__item">
+        Своя новость
       </NavLink>
     </nav>
   );

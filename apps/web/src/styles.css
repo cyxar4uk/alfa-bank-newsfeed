@@ -580,6 +580,14 @@ a.nav__item:hover {
   color: var(--red);
 }
 
+.data-source {
+  margin-top: auto;
+  padding: 0 12px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
 .main {
   min-width: 0;
 }
@@ -2553,6 +2561,203 @@ a.plate__row:hover {
   }
 }
 
+/* ─── Уточняющий вопрос ───────────────────────────────────────────────────── */
+
+.ask {
+  display: grid;
+  gap: 16px;
+}
+
+.ask .card__title {
+  margin-bottom: 0;
+}
+
+.ask__suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ask__thread {
+  display: grid;
+  gap: 16px;
+}
+
+.ask__entry {
+  display: grid;
+  gap: 8px;
+}
+
+.ask__question {
+  justify-self: end;
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+  font-weight: 500;
+}
+
+.ask__error {
+  color: var(--neg-text);
+  font-size: 14px;
+}
+
+.ask__form {
+  display: flex;
+  gap: 8px;
+}
+
+.ask__form .field {
+  flex: 1;
+  min-height: 48px;
+  padding: 12px 16px;
+}
+
+.insight-head__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.insight-head__links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ─── Как получен вывод ───────────────────────────────────────────────────── */
+
+.trace-note {
+  padding: 12px 16px;
+  border-radius: var(--r-control);
+  background: var(--warn-bg);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.trace-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 16px;
+}
+
+.trace-summary dt {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.trace-summary dd {
+  font-weight: 500;
+}
+
+.trace-steps {
+  display: grid;
+  gap: 20px;
+}
+
+.trace-step {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.trace-step__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.trace-step--pass .trace-step__mark {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.trace-step--fail .trace-step__mark {
+  background: var(--warn-bg);
+  color: var(--graphite);
+}
+
+.trace-step__body {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.trace-step__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trace-step__kind {
+  font-weight: 700;
+}
+
+.trace-step__tool,
+.trace-step__input pre {
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  font-size: 13px;
+}
+
+.trace-step__tool {
+  padding: 0 6px;
+  border-radius: var(--r-badge);
+  background: var(--bg);
+}
+
+.trace-step__summary {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.trace-step__usage {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.trace-step__input pre {
+  overflow-x: auto;
+  margin: 6px 0 0;
+  padding: 8px 12px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+}
+
+/* ─── Своя новость ────────────────────────────────────────────────────────── */
+
+.analyze {
+  display: grid;
+  gap: 16px;
+}
+
+.analyze__field {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.analyze__text {
+  resize: vertical;
+  font: inherit;
+}
+
+.analyze__error {
+  color: var(--neg-text);
+  font-size: 13px;
+}
+
+.analyze .btn {
+  justify-self: start;
+}
+
 /* ─── Узкий экран ─────────────────────────────────────────────────────────── */
 
 @media (max-width: 1100px) {
@@ -2595,6 +2800,7 @@ a.plate__row:hover {
   }
 
   .brand__name,
+  .data-source,
   .nav__new,
   .nav__group,
   .nav__item--muted {

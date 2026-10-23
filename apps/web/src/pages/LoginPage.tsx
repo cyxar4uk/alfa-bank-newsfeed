@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom';
 import { BrandMark, PrototypeNotice } from '../components/Shell';
-import { featureValue, roleLabel } from '../state/labels';
+import { featureText, roleLabel } from '../state/labels';
 import { useSession } from '../state/session';
 
 // Признаки из контракта, которые есть у любой компании: отрасль, выручка, регион.
@@ -38,7 +38,7 @@ export function LoginPage() {
                     .map((f) => (
                       <div key={f.id}>
                         <dt>{f.label}</dt>
-                        <dd>{featureValue(f.value)}</dd>
+                        <dd>{featureText(f)}</dd>
                       </div>
                     ))}
                 </dl>

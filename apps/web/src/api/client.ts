@@ -1,13 +1,18 @@
 import type {
+  AnalyzeRequest,
+  AskAnswer,
   Briefing,
   CompanyProfile,
   ExposureMap,
   FeedItem,
   Feedback,
+  Health,
   Insight,
   Persona,
   SensitivityFactor,
+  Statement,
   Strength,
+  Trace,
   WeeklySummary,
 } from './types';
 import { mockApi } from '../mocks/mockApi';
@@ -24,6 +29,13 @@ export interface Api {
   exposureMap(companyId: string, signal?: AbortSignal): Promise<ExposureMap>;
   /** сводка недели для печати */
   weekly(personaId: string, signal?: AbortSignal): Promise<WeeklySummary>;
+  health(signal?: AbortSignal): Promise<Health>;
+  /** уточняющий вопрос по разбору */
+  ask(insightId: string, personaId: string, question: string, signal?: AbortSignal): Promise<AskAnswer>;
+  /** трасса агента; null — трассы нет */
+  trace(traceId: string, signal?: AbortSignal): Promise<Trace | null>;
+  /** разбор своей новости; null — новость не касается компании пользователя */
+  analyze(body: AnalyzeRequest, signal?: AbortSignal): Promise<Insight | null>;
 }
 
 export class ApiError extends Error {
@@ -52,17 +64,54 @@ function normalizeBriefing(personaId: string, raw: unknown): Briefing {
 
 const STRENGTHS: Strength[] = ['high', 'medium', 'low', 'none', 'no_data'];
 
-function normalizeMap(body: ExposureMap): ExposureMap {
+/** Фактор в формате API: сила числом и уровнем, канал объектом, доказательства «признак — значение». */
+interface ApiFactor {
+  code: string;
+  label: string;
+  level?: string;
+  channel?: { kind?: string; text?: string } | null;
+  evidence?: { ref?: string; label: string; value: string }[];
+  estimate?: boolean;
+  coverage?: number | null;
+  notes?: string[];
+}
+
+function fromApiFactor(f: ApiFactor): SensitivityFactor {
+  const origin: Statement['origin'] = f.estimate ? 'estimate' : 'data';
+  return {
+    factor: { code: f.code, label: f.label },
+    strength: (f.level ?? 'no_data') as Strength,
+    channel_text: f.channel?.text ?? asArray<string>(f.notes)[0] ?? '',
+    evidence: [
+      ...asArray<NonNullable<ApiFactor['evidence']>[number]>(f.evidence).map((e) => ({
+        text: `${e.label}: ${e.value}`,
+        origin,
+        refs: e.ref?.startsWith('feat:') ? [e.ref] : [],
+        confidence: 'high' as const,
+      })),
+      ...asArray<string>(f.notes).map((n) => ({ text: n, origin, refs: [], confidence: 'high' as const })),
+    ],
+    coverage: f.coverage ?? null,
+    recent_event_ids: [],
+  };
+}
+
+/** Карту принимаем и в формате фронта, и в формате API (`level`, `channel`, `evidence[] {ref,label,value}`). */
+function normalizeMap(body: ExposureMap & { warnings?: unknown }): ExposureMap {
   return {
     ...body,
     sources: asArray(body.sources),
-    factors: asArray<SensitivityFactor>(body.factors).map((f) => ({
-      ...f,
-      // Незнакомую силу показываем как «нет данных», а не как ноль.
-      strength: STRENGTHS.includes(f.strength) ? f.strength : 'no_data',
-      evidence: asArray(f.evidence),
-      recent_event_ids: asArray(f.recent_event_ids),
-    })),
+    warnings: asArray(body.warnings),
+    factors: asArray<SensitivityFactor | ApiFactor>(body.factors).map((raw) => {
+      const f = 'factor' in raw ? raw : fromApiFactor(raw);
+      return {
+        ...f,
+        // Незнакомую силу показываем как «нет данных», а не как ноль.
+        strength: STRENGTHS.includes(f.strength) ? f.strength : 'no_data',
+        evidence: asArray(f.evidence),
+        recent_event_ids: asArray(f.recent_event_ids),
+      };
+    }),
   };
 }
 
@@ -140,22 +189,100 @@ function createHttpApi(baseUrl: string): Api {
       return body ?? null;
     },
     exposureMap: async (companyId, signal) =>
-      normalizeMap(await required<ExposureMap>(`/api/companies/${q(companyId)}/exposure-map`, signal)),
+      normalizeMap(await required<ExposureMap>(`/api/companies/${q(companyId)}/exposure`, signal)),
     weekly: async (personaId, signal) =>
       normalizeWeekly(personaId, await required<WeeklySummary>(`/api/weekly?persona=${q(personaId)}`, signal)),
     feedback: async (body) => {
-      await request<unknown>(`/api/feedback`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+      await request<unknown>(`/api/feedback`, post(body));
+    },
+    health: (signal) => required(`/api/health`, signal),
+    ask: async (insightId, personaId, question, signal) => {
+      const { body } = await request<AskAnswer>(`/api/insights/${q(insightId)}/ask`, {
+        ...post({ persona: personaId, question }),
+        signal,
       });
+      if (!body) throw new ApiError(204, 'Сервер не вернул ответ');
+      return { question, answer: asArray(body.answer), sources: asArray(body.sources) };
+    },
+    trace: async (traceId, signal) => {
+      const { body } = await request<Trace>(`/api/traces/${q(traceId)}`, { signal });
+      return body ? { ...body, steps: asArray(body.steps), sources: asArray(body.sources) } : null;
+    },
+    analyze: async (req, signal) => {
+      const { body } = await request<Insight>(`/api/analyze`, { ...post(req), signal });
+      return body ?? null;
     },
   };
 }
 
+function post(body: unknown): RequestInit {
+  return { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+type ApiMethod = keyof Api;
+
+/**
+ * Пока в API есть не все методы, часть берём из тестовых данных. Список методов из настоящего API —
+ * VITE_API_LIVE через запятую (по умолчанию то, что уже есть в API), `all` — всё из API.
+ */
+// Разбор, вопросы по нему, трасса и своя новость — одно целое: ответ и трасса должны описывать тот же разбор,
+// что на экране. Включаем их вместе.
+const AGENT_METHODS: ApiMethod[] = ['insight', 'ask', 'trace', 'analyze'];
+
+function createHybridApi(http: Api, mock: Api, live: Set<ApiMethod> | 'all'): Api {
+  if (live === 'all') return http;
+  const agentLive = AGENT_METHODS.some((m) => live.has(m));
+  const pick = <K extends ApiMethod>(key: K): Api[K] =>
+    live.has(key) || (agentLive && AGENT_METHODS.includes(key)) ? http[key] : mock[key];
+  return {
+    personas: pick('personas'),
+    briefing: pick('briefing'),
+    insight: pick('insight'),
+    feedback: pick('feedback'),
+    exposureMap: pick('exposureMap'),
+    weekly: pick('weekly'),
+    health: pick('health'),
+    ask: pick('ask'),
+    trace: pick('trace'),
+    analyze: pick('analyze'),
+    company: live.has('company')
+      ? async (id, signal) => {
+          const real = await http.company(id, signal);
+          // Тестовые разборы ссылаются на свои признаки (feat:group_loans…), которых нет в профиле API —
+          // дописываем их с пометкой, чтобы ссылки раскрывались и не путались с данными API.
+          const extra = await mock.company(id, signal).catch(() => null);
+          if (!extra) return real;
+          const have = new Set(real.features.map((f) => f.id));
+          const marked = extra.features
+            .filter((f) => !have.has(f.id))
+            .map((f) => ({ ...f, label: `${f.label} (тестовые данные)` }));
+          return { ...real, features: [...real.features, ...marked] };
+        }
+      : mock.company,
+  };
+}
+
 const apiUrl = import.meta.env.VITE_API_URL as string | undefined;
+const liveSetting = ((import.meta.env.VITE_API_LIVE as string | undefined) ?? 'personas,company,health').trim();
+const live: Set<ApiMethod> | 'all' =
+  liveSetting === 'all' ? 'all' : new Set(liveSetting.split(',').map((s) => s.trim()) as ApiMethod[]);
+
+/** Откуда данные: только тестовые, часть из API или всё из API. */
+export const dataMode: 'mock' | 'hybrid' | 'live' = !apiUrl ? 'mock' : live === 'all' ? 'live' : 'hybrid';
 
 /** Пустой VITE_API_URL — работаем на встроенных тестовых данных. */
-export const usingMocks = !apiUrl;
+export const usingMocks = dataMode === 'mock';
 
-export const api: Api = apiUrl ? createHttpApi(apiUrl) : mockApi;
+/** Какие методы идут в настоящий API — для подписи об источнике данных. */
+const ALL_METHODS: ApiMethod[] = [
+  'personas', 'company', 'briefing', 'insight', 'exposureMap', 'weekly', 'ask', 'trace', 'analyze', 'feedback', 'health',
+];
+
+export const liveMethods: ApiMethod[] =
+  dataMode === 'mock'
+    ? []
+    : live === 'all'
+      ? ALL_METHODS
+      : ALL_METHODS.filter((m) => live.has(m) || (AGENT_METHODS.includes(m) && AGENT_METHODS.some((a) => live.has(a))));
+
+export const api: Api = apiUrl ? createHybridApi(createHttpApi(apiUrl), mockApi, live) : mockApi;
