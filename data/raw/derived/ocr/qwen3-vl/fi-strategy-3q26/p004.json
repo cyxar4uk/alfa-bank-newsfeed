@@ -1,0 +1,18 @@
+{
+ "file": "FI_Strategy_3Q26_22072026.pdf",
+ "page": 4,
+ "engine": "qwen3-vl",
+ "blocks": [
+  {
+   "text": "Итоги 1-го полугодия 2026 г.",
+   "confidence": 100.0,
+   "bbox": [
+    0,
+    0,
+    2000,
+    1414
+   ]
+  }
+ ],
+ "pdf_sha": "6c3a4882ee784b60"
+}
