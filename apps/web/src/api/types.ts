@@ -7,7 +7,7 @@
  * data — из данных банка о компании, estimate — расчёт по формуле, offer — предложение продукта банка.
  * data, estimate и offer добавлены по спецификации продукта, в черновике контракта их ещё нет.
  */
-export type Origin = 'fact' | 'bank' | 'ai' | 'data' | 'estimate' | 'offer';
+export type Origin = 'fact' | 'bank' | 'ai' | 'data' | 'estimate' | 'offer' | 'hypothesis';
 export type Confidence = 'high' | 'medium' | 'low';
 
 /** Единица любого вывода: текст, происхождение и ссылки на источники и признаки компании. */
@@ -17,6 +17,14 @@ export interface Statement {
   /** id из `sources[]` (src:…) и признаков компании (feat:…) */
   refs: string[];
   confidence?: Confidence;
+  /**
+   * Вывод модели или гипотеза расходится с позицией Альфа-Банка: в чём именно и на какой материал банка опираемся
+   * (refs — источники `alfa_analytics` из `sources`). Предложение фронта. У утверждений другого происхождения
+   * интерфейс поле не показывает.
+   */
+  bank_conflict?: { text: string; refs: string[] } | null;
+  /** Для гипотезы: что её подтвердит и что опровергнет (эталоны разборов, Q44). Предложение фронта. */
+  check?: { confirm?: string | null; refute?: string | null } | null;
 }
 
 export interface Feature {

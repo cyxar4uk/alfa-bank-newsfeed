@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import type { FeedItem } from '../api/types';
-import { formatDate, relevanceLevel } from '../state/labels';
+import { formatDate, relevanceLevel, relevanceScore } from '../state/labels';
 import { eventPath } from '../state/routes';
 import { factorIcon } from './factorIcon';
 import { Icon } from './Icon';
@@ -15,16 +15,20 @@ export function BankBadge() {
   );
 }
 
+const scoreFormat = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export function RelevanceMeter({ score }: { score: number }) {
-  const { label, level } = relevanceLevel(score);
+  const { label, level, meaning } = relevanceLevel(score);
   return (
-    <span className={`meter meter--${level}`} title={label}>
+    <span className={`meter meter--${level}`} title={meaning}>
       <span className="meter__bars" aria-hidden="true">
         <i />
         <i />
         <i />
       </span>
-      <span className="meter__label">{label}</span>
+      <span className="meter__label">
+        {label} · {scoreFormat.format(relevanceScore(score))}
+      </span>
     </span>
   );
 }

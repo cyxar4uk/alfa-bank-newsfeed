@@ -4,9 +4,9 @@ import { roleLabel } from '../state/labels';
 import { useCurrentUser, useSession } from '../state/session';
 import { Icon } from './Icon';
 
-/** Переключатель тестового пользователя — на всех экранах, смена сразу перестраивает ленту. */
+/** Переключатель компании и роли — на всех экранах; смена сразу перестраивает брифинг. */
 export function PersonaSwitcher() {
-  const { personas, companies, selectPersona } = useSession();
+  const { personas, companies, selectPersona, account, logout } = useSession();
   const { persona, company } = useCurrentUser();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -39,10 +39,10 @@ export function PersonaSwitcher() {
     };
   }, [open]);
 
-  const groups = Object.values(companies).map((c) => ({
-    company: c,
-    personas: personas.filter((p) => p.company_id === c.id),
-  }));
+  // Только компании, в которых у человека из учётки есть роль.
+  const groups = Object.values(companies)
+    .map((c) => ({ company: c, personas: personas.filter((p) => p.company_id === c.id) }))
+    .filter((g) => g.personas.length > 0);
 
   return (
     <div className="switcher" ref={rootRef}>
@@ -64,7 +64,7 @@ export function PersonaSwitcher() {
       </button>
       {open && (
         <div className="switcher__menu" id={listId}>
-          <p className="switcher__menu-title">Сменить тестового пользователя</p>
+          <p className="switcher__menu-title">{account?.name ?? 'Сменить компанию или роль'}</p>
           {groups.map((g) => (
             <div key={g.company.id} className="switcher__group">
               <p className="switcher__group-name">{g.company.display_name}</p>
@@ -90,11 +90,11 @@ export function PersonaSwitcher() {
             type="button"
             className="switcher__exit"
             onClick={() => {
-              selectPersona(null);
+              logout();
               navigate('/login');
             }}
           >
-            Выйти к выбору пользователя
+            Выйти
           </button>
         </div>
       )}

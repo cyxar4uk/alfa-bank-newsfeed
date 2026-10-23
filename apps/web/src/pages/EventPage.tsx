@@ -6,6 +6,8 @@ import { AnalysisSteps } from '../components/AnalysisSteps';
 import { AskBox } from '../components/AskBox';
 import { RelevanceMeter } from '../components/FeedParts';
 import { FeedbackBox } from '../components/FeedbackBox';
+import { NextSteps } from '../components/NextSteps';
+import { RelevanceLegend } from '../components/RelevanceLegend';
 import { Icon } from '../components/Icon';
 import { BankVsMarketView, EstimateView, ExposureChain, GroupImpactView, ScoreBreakdown } from '../components/InsightBlocks';
 import { EmptyState, ErrorState } from '../components/States';
@@ -13,6 +15,7 @@ import { FeatureView, OriginTag, SourceView, StatementList, type RefIndex } from
 import {
   actionKindLabel,
   featureText,
+  bankConflictOf,
   formatDate,
   legendOrigins,
   missingText,
@@ -65,15 +68,31 @@ function bankMaterialDate(insight: Insight, index: RefIndex): string | null {
   return dates.length > 0 ? dates[dates.length - 1] : null;
 }
 
+/** Расхождения вывода модели или гипотезы с позицией банка — по всем утверждениям разбора. */
+function bankConflicts(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) value.forEach((v) => bankConflicts(v, found));
+  else if (value && typeof value === 'object') {
+    const s = value as Partial<Statement>;
+    if (typeof s.text === 'string' && s.origin) {
+      const c = bankConflictOf(s as Statement);
+      if (c && !found.includes(c.text)) found.push(c.text);
+    } else Object.values(value).forEach((v) => bankConflicts(v, found));
+  }
+  return found;
+}
+
 export function InsightView({
   insight,
   company,
   personaId,
+  eventId = null,
   back = <BackLink />,
 }: {
   insight: Insight;
   company: CompanyProfile;
   personaId: string;
+  /** событие брифинга; null — своя новость, её нечего скрывать */
+  eventId?: string | null;
   /** ссылка «назад» над заголовком; у своей новости — своя */
   back?: ReactNode;
 }) {
@@ -92,6 +111,7 @@ export function InsightView({
   const bankDate = bankMaterialDate(insight, index);
   // Первоисточник — первая новость со ссылкой: на неё ведёт кнопка в шапке.
   const primary = insight.sources.find((s) => s.kind === 'news' && s.url);
+  const conflicts = bankConflicts(insight);
 
   return (
     <div className="insight">
@@ -122,6 +142,21 @@ export function InsightView({
             </p>
           )}
         </header>
+
+        {conflicts.length > 0 && (
+          <aside className="warnings warnings--conflict" aria-label="Расхождение с позицией банка">
+            <Icon name="warning" />
+            <div>
+              <p className="warnings__title">Вывод модели расходится с позицией Альфа-Банка</p>
+              <ul>
+                {conflicts.map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+              <p className="warnings__hint">Такие места помечены в разборе. Опирайтесь на позицию банка и проверьте допущения модели.</p>
+            </div>
+          </aside>
+        )}
 
         {insight.quality.warnings.length > 0 && (
           <aside className="warnings" aria-label="Ограничения разбора">
@@ -259,6 +294,14 @@ export function InsightView({
           )}
         </Block>
 
+        <NextSteps
+          insightId={insight.id}
+          eventId={eventId}
+          personaId={personaId}
+          title={insight.event.title}
+          context={`${insight.event.title} (${formatDate(insight.event.date)}). ${insight.relevance.reason}`}
+        />
+
         <AskBox insight={insight} personaId={personaId} index={index} />
 
         <FeedbackBox insightId={insight.id} personaId={personaId} />
@@ -282,6 +325,9 @@ export function InsightView({
             <ScoreBreakdown terms={insight.relevance.breakdown} score={insight.relevance.score} />
           </section>
         )}
+        <section className="rail-card">
+          <RelevanceLegend />
+        </section>
         <section className="rail-card">
           <h2 className="rail-card__title">Что учтено о компании</h2>
           {usedFeatures.length > 0 ? (
@@ -337,7 +383,7 @@ export function EventPage() {
   }
   return (
     <div className="page">
-      <InsightView insight={insight.data} company={company} personaId={persona.id} />
+      <InsightView insight={insight.data} company={company} personaId={persona.id} eventId={eventId} />
     </div>
   );
 }

@@ -12,8 +12,8 @@ import { WeeklyPage } from './pages/WeeklyPage';
 import { SessionProvider, useDirectory, useSession } from './state/session';
 
 function RequireUser() {
-  const { persona } = useSession();
-  return persona ? <Shell /> : <Navigate to="/login" replace />;
+  const { account, persona } = useSession();
+  return account && persona ? <Shell /> : <Navigate to="/login" replace />;
 }
 
 function AppRoutes() {

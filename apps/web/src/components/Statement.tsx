@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Feature, Origin, Source, Statement } from '../api/types';
-import { confidenceLabel, featureText, formatDate, originHint, originLabel, sourcePage } from '../state/labels';
+import { bankConflictOf, confidenceLabel, displayOrigin, featureText, formatDate, originHint, originLabel, sourcePage } from '../state/labels';
 import { Icon, type IconName } from './Icon';
 
 export interface RefIndex {
@@ -15,6 +15,7 @@ const originIcon: Record<Origin, IconName> = {
   ai: 'model',
   estimate: 'calc',
   offer: 'offer',
+  hypothesis: 'hypothesis',
 };
 
 export function OriginTag({ origin }: { origin: Origin }) {
@@ -120,19 +121,65 @@ export function StatementItem({
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
-  const { origin, refs, confidence } = statement;
+  const { refs, confidence } = statement;
+  const origin = displayOrigin(statement.origin, confidence);
+  const conflict = bankConflictOf(statement);
+  const conflictSources = [
+    ...new Set(
+      (conflict?.refs ?? [])
+        .map((r) => index.sources[r])
+        .filter(Boolean)
+        .map((s) =>
+          [s.title, sourcePage(s) ? `стр. ${sourcePage(s)}` : null, s.published_at ? formatDate(s.published_at) : null]
+            .filter(Boolean)
+            .join(', '),
+        ),
+    ),
+  ];
 
   return (
     <li className={`stmt stmt--${origin}`}>
       <div className="stmt__meta">
         {caption && <span className="stmt__caption">{caption}</span>}
         <OriginTag origin={origin} />
-        {origin === 'ai' && confidence && <span className="stmt__confidence">{confidenceLabel[confidence]}</span>}
+        {(origin === 'ai' || origin === 'hypothesis') && confidence && (
+          <span className="stmt__confidence">{confidenceLabel[confidence]}</span>
+        )}
       </div>
+      {conflict && (
+        <p className="stmt__conflict">
+          <Icon name="warning" size={16} />
+          <span>
+            Расходится с позицией Альфа-Банка: {conflict.text}
+            {conflictSources.length > 0 && (
+              <span className="stmt__conflict-src">
+                {' '}
+                ({conflictSources.join('; ')})
+              </span>
+            )}
+          </span>
+        </p>
+      )}
       <p className="stmt__text">
         {statement.text}
         {footnotes && <Footnote refs={refs} footnotes={footnotes} />}
       </p>
+      {statement.check && (statement.check.confirm || statement.check.refute) && (
+        <dl className="stmt__check">
+          {statement.check.confirm && (
+            <div>
+              <dt>Подтвердит</dt>
+              <dd>{statement.check.confirm}</dd>
+            </div>
+          )}
+          {statement.check.refute && (
+            <div>
+              <dt>Опровергнет</dt>
+              <dd>{statement.check.refute}</dd>
+            </div>
+          )}
+        </dl>
+      )}
       {refs.length > 0 ? (
         <button
           type="button"
@@ -146,7 +193,7 @@ export function StatementItem({
         </button>
       ) : (
         <p className={`stmt__no-refs ${origin === 'fact' || origin === 'bank' ? 'stmt__no-refs--warn' : ''}`}>
-          {origin === 'ai'
+          {origin === 'ai' || origin === 'hypothesis'
             ? 'Источника нет — общее рассуждение модели'
             : origin === 'estimate'
               ? 'Допущение сервиса, источника нет'
