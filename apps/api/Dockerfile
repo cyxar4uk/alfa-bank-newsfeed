@@ -9,6 +9,10 @@ ENV UV_COMPILE_BYTECODE=1 \
     PYTHONUNBUFFERED=1
 
 WORKDIR /app
+# пакет парсера (apps/ingest) — зависимость по пути ../ingest: разметка новостей и схема таблиц материалов;
+# в compose он приходит отдельным контекстом сборки `ingest`, без compose:
+#   docker build --build-context ingest=apps/ingest apps/api
+COPY --from=ingest . /ingest
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 COPY src ./src
