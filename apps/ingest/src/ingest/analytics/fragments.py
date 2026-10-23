@@ -53,6 +53,8 @@ class PageReport:
     blocks: int
     kept: int
     dropped: dict[str, int] = field(default_factory=dict)
+    replaced_by_vlm: int = 0
+    added_from_vlm: int = 0
 
 
 def letter_share(text: str) -> float:
@@ -94,12 +96,45 @@ def classify(block: OcrBlock) -> str | None:
     return None
 
 
+_TABLE_RULE = re.compile(r"^[|\s:-]+$")
+
+
+def is_table(text: str) -> bool:
+    """Таблица от мультимодальной модели: строки с ячейками через « | »."""
+    return sum(" | " in line for line in text.splitlines()) >= 2
+
+
+def clean_table(text: str) -> str:
+    """Убирает строки-разделители Markdown («|---|---|») из таблицы; обычный текст не меняет."""
+    if not is_table(text):
+        return text
+    return "\n".join(line for line in text.splitlines() if not _TABLE_RULE.match(line))
+
+
+def classify_table(text: str) -> str | None:
+    """Таблица без подписанных строк — это оцифрованные оси графика («01.02.19 | 01.07.19 | …»), а не данные."""
+    rows = [line for line in text.splitlines() if " | " in line]
+    labelled = [row for row in rows if sum(c.isalpha() for c in row.split(" | ")[0]) >= 3]
+    return None if rows and len(labelled) / len(rows) >= 0.5 else "оси и легенды графика"
+
+
+def _attach_captions(blocks: list[OcrBlock]) -> list[OcrBlock]:
+    """Подпись «Табл.2: …» перед таблицей становится её заголовком, а не отбрасывается как подпись к графику."""
+    out: list[OcrBlock] = []
+    for block in blocks:
+        if out and is_table(block.text) and _CAPTION.match(out[-1].text.strip()):
+            caption = out.pop()
+            block = OcrBlock(f"{caption.text.strip()}\n{block.text}", block.confidence, block.bbox)
+        out.append(block)
+    return out
+
+
 def _is_heading(text: str) -> bool:
     return len(text) <= HEADING_MAX_CHARS and not text.rstrip().endswith((".", ";", ",", "…"))
 
 
 def split_long(text: str, limit: int = MAX_CHARS, target: int = TARGET_CHARS) -> list[str]:
-    if len(text) <= limit:
+    if len(text) <= limit or is_table(text):
         return [text]
     parts, current = [], ""
     for sentence in _SENTENCE_END.split(text):
@@ -113,49 +148,61 @@ def split_long(text: str, limit: int = MAX_CHARS, target: int = TARGET_CHARS) ->
     return parts
 
 
-def page_fragments(page: int, blocks: list[OcrBlock]) -> tuple[list[Fragment], PageReport]:
+def page_fragments(page: int, blocks: list[OcrBlock], allow_tables: bool = False) -> tuple[list[Fragment], PageReport]:
+    """allow_tables — для текста мультимодальной модели: её таблицы читаемы, их оставляем вместе с подписью."""
     report = PageReport(page=page, blocks=len(blocks), kept=0)
-    kept: list[OcrBlock] = []
-    for block in blocks:
-        reason = classify(block)
+    if allow_tables:
+        blocks = [OcrBlock(clean_table(b.text), b.confidence, b.bbox) for b in _attach_captions(blocks)]
+    # индекс блока на странице нужен, чтобы склеивать только соседние блоки: тогда любое предложение фрагмента
+    # стоит в тексте страницы подряд и цитату банка можно сверить дословно
+    kept: list[tuple[int, OcrBlock]] = []
+    for idx, block in enumerate(blocks):
+        reason = classify_table(block.text) if allow_tables and is_table(block.text) else classify(block)
         if reason:
             report.dropped[reason] = report.dropped.get(reason, 0) + 1
         else:
-            kept.append(block)
+            kept.append((idx, block))
 
-    fragments: list[Fragment] = []
-    heading: OcrBlock | None = None
-    for block in kept:
+    pieces: list[tuple[Fragment, int, int]] = []  # фрагмент, первый и последний блок
+    heading: tuple[str, float, int, int] | None = None  # текст, уверенность, первый и последний блок
+
+    def flush_heading() -> None:
+        if heading and len(heading[0]) >= MIN_CHARS:
+            pieces.append((Fragment(page=page, text=heading[0], confidence=heading[1]), heading[2], heading[3]))
+
+    for idx, block in kept:
         text = block.text.strip()
+        if heading and heading[3] != idx - 1:
+            # между заголовком и этим блоком что-то отброшено — склеивать нельзя
+            flush_heading()
+            heading = None
         if _is_heading(text):
             # подряд идущие заголовки склеиваем: «Макростатистика 7М26» + «Данные по рынку труда…»
             if heading:
-                conf = min(heading.confidence, block.confidence)
-                heading = OcrBlock(f"{heading.text}. {text}", conf, heading.bbox)
+                heading = (f"{heading[0]}\n{text}", min(heading[1], block.confidence), heading[2], idx)
             else:
-                heading = block
+                heading = (text, block.confidence, idx, idx)
             continue
-        conf = block.confidence
+        first, conf = idx, block.confidence
         if heading:
-            text = f"{heading.text.strip()}\n{text}"
-            conf = min(conf, heading.confidence)
+            text, conf, first = f"{heading[0]}\n{text}", min(conf, heading[1]), heading[2]
             heading = None
         for part in split_long(text):
-            fragments.append(Fragment(page=page, text=part, confidence=conf))
+            pieces.append((Fragment(page=page, text=part, confidence=conf), first, idx))
+    flush_heading()
 
-    if heading and len(heading.text) >= MIN_CHARS:
-        fragments.append(Fragment(page=page, text=heading.text.strip(), confidence=heading.confidence))
-
-    # короткий хвост приклеиваем к предыдущему фрагменту, одиночный короткий — выбрасываем
-    merged: list[Fragment] = []
-    for frag in fragments:
+    # короткий хвост приклеиваем к соседнему предыдущему фрагменту, одиночный короткий — выбрасываем
+    merged: list[tuple[Fragment, int, int]] = []
+    for frag, first, last in pieces:
         if len(frag.text) < MIN_CHARS:
-            if merged and len(merged[-1].text) + len(frag.text) <= MAX_CHARS:
-                merged[-1].text += " " + frag.text
-                merged[-1].confidence = min(merged[-1].confidence, frag.confidence)
+            prev = merged[-1] if merged else None
+            if prev and prev[2] in (first - 1, first) and len(prev[0].text) + len(frag.text) <= MAX_CHARS:
+                prev[0].text += " " + frag.text
+                prev[0].confidence = min(prev[0].confidence, frag.confidence)
+                merged[-1] = (prev[0], prev[1], last)
             else:
                 report.dropped["слишком короткий"] = report.dropped.get("слишком короткий", 0) + 1
             continue
-        merged.append(frag)
+        merged.append((frag, first, last))
     report.kept = len(merged)
-    return merged, report
+    return [frag for frag, _, _ in merged], report

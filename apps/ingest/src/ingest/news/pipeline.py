@@ -2,17 +2,19 @@
 
 from ingest.models import Source
 from ingest.news.dedup import deduplicate
+from ingest.news.expectations import extract
 from ingest.news.fetch import Feed, FeedReport, RawItem, fetch_all
 from ingest.news.normalize import normalize
 from ingest.tagging.llm import LlmTagger, merge_tags
-from ingest.tagging.rules import tag_text
+from ingest.tagging.rules import tag
 
 
 def tag_source(source: Source, llm: LlmTagger | None = None) -> Source:
-    tags = tag_text(f"{source.title}\n{source.fragment}")
+    lead = source.fragment if source.fragment != source.title else ""
+    tags = tag(source.title, lead)
     if llm is not None:
         tags = merge_tags(tags, llm.tag(source))
-    return source.model_copy(update={"tags": tags})
+    return source.model_copy(update={"tags": tags, "expectations": extract(source.title, lead)})
 
 
 def build_news(raw: list[RawItem], llm: LlmTagger | None = None) -> list[Source]:

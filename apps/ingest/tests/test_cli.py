@@ -46,6 +46,7 @@ def test_news_command_writes_output_and_snapshot(tmp_path, monkeypatch):
         "fragment",
         "tags",
         "also_reported_by",
+        "expectations",
     }
     report = json.loads((tmp_path / "raw" / "derived" / "report.json").read_text("utf-8"))
     assert report["news"]["news"] == 1

@@ -58,36 +58,29 @@ def deduplicate(items: list[Source], priority: dict[str, int] | None = None) -> 
             by_url[item.url] = item
     unique = list(by_url.values())
 
-    parent = list(range(len(unique)))
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    title_stems = [stems(it.title) for it in unique]
-    title_names = [proper_names(it.title) for it in unique]
+    # Кластер собирается вокруг главной записи: новая запись присоединяется, только если похожа на саму главную.
+    # Так цепочка «бензин — рекорд» → «бензин Аи-95» → «дизель Аи-95» → «дизель после рекорда» не склеивает
+    # четыре разных события в одно, как было бы при транзитивной склейке.
+    unique.sort(key=lambda it: _rank(it, priority))
+    heads: list[tuple[Source, set[str], set[str]]] = []
+    clusters: list[list[Source]] = []
     index: dict[str, list[int]] = defaultdict(list)
-    for i, st in enumerate(title_stems):
-        for s in st:
-            index[s].append(i)
-
-    for i, st in enumerate(title_stems):
-        candidates = {j for s in st for j in index[s] if j > i}
-        for j in candidates:
-            if similar_titles(st, title_stems[j], title_names[i], title_names[j]) and _close_in_time(
-                unique[i], unique[j]
-            ):
-                parent[find(j)] = find(i)
-
-    clusters: dict[int, list[Source]] = defaultdict(list)
-    for i, item in enumerate(unique):
-        clusters[find(i)].append(item)
+    for item in unique:
+        st, names = stems(item.title), proper_names(item.title)
+        candidates = sorted({k for s in st for k in index[s]})
+        for k in candidates:
+            head, head_st, head_names = heads[k]
+            if similar_titles(head_st, st, head_names, names) and _close_in_time(head, item):
+                clusters[k].append(item)
+                break
+        else:
+            for s in st:
+                index[s].append(len(heads))
+            heads.append((item, st, names))
+            clusters.append([item])
 
     result = []
-    for members in clusters.values():
-        members.sort(key=lambda it: _rank(it, priority))
+    for members in clusters:
         head, rest = members[0], members[1:]
         head = head.model_copy(
             update={

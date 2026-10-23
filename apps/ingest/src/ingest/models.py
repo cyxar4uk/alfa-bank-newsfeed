@@ -1,7 +1,8 @@
 """Схема материала (Source) — общий формат обмена с API, см. контракт.
 
-Поля сверх контракта необязательные: `page`, `file`, `ocr_confidence` у фрагментов аналитики,
-`also_reported_by` у склеенных новостей, `tags.countries` и `tags.tagged_by`.
+Поля сверх контракта необязательные. У новостей: `also_reported_by` (тот же сюжет у других издателей),
+`expectations` (ожидания рынка и аналитиков из текста). У аналитики: `page`, `file`, `page_ref`, `ocr_engine`,
+`ocr_confidence`, `stale`. В разметке: `factors` и `sector_links` с силой связи, `countries`, `tagged_by`.
 """
 
 from datetime import datetime
@@ -12,14 +13,45 @@ from pydantic import BaseModel, Field
 LEAD_MAX_CHARS = 500
 
 
+class FactorLink(BaseModel):
+    """Связь материала с фактором из каталога карты чувствительности. strength 0–1, evidence — найденные слова."""
+
+    code: str
+    name: str
+    strength: float
+    evidence: list[str] = Field(default_factory=list)
+
+
+class SectorLink(BaseModel):
+    """Связь с отраслью (двузначный ОКВЭД 2). via: «text» — отрасль названа в тексте, «factor:<код>» — через фактор."""
+
+    okved: str
+    name: str
+    strength: float
+    via: str
+    evidence: list[str] = Field(default_factory=list)
+
+
 class Tags(BaseModel):
-    topics: list[str] = Field(default_factory=list)
-    sectors: list[str] = Field(default_factory=list)
+    topics: list[str] = Field(default_factory=list)  # названия факторов — для совместимости с контрактом
+    factors: list[FactorLink] = Field(default_factory=list)
+    sectors: list[str] = Field(default_factory=list)  # названия отраслей — для совместимости с контрактом
+    sector_links: list[SectorLink] = Field(default_factory=list)
     okved: list[str] = Field(default_factory=list)
     event_type: str | None = None
     regions: list[str] = Field(default_factory=list)
     countries: list[str] = Field(default_factory=list)
     tagged_by: list[str] = Field(default_factory=list)
+
+
+class Expectation(BaseModel):
+    """Ожидание из текста новости (фича F): кто ожидает, что, по какому показателю. quote — дословно из лида."""
+
+    who: str
+    who_kind: Literal["analysts", "market", "international", "regulator", "government", "company", "bank", "other"]
+    indicator: str | None = None  # код фактора, к которому относится ожидание
+    values: list[str] = Field(default_factory=list)
+    quote: str
 
 
 class Mention(BaseModel):
@@ -42,5 +74,10 @@ class Source(BaseModel):
     tags: Tags = Field(default_factory=Tags)
     page: int | None = None
     file: str | None = None
+    page_ref: str | None = None
+    ocr_engine: str | None = None
     ocr_confidence: float | None = None
+    vlm_text: str | None = None
+    stale: bool | None = None
     also_reported_by: list[Mention] = Field(default_factory=list)
+    expectations: list[Expectation] = Field(default_factory=list)

@@ -108,5 +108,17 @@ def test_build_news_normalizes_dedups_and_tags():
     out = build_news(raw)
     assert len(out) == 1
     assert out[0].publisher == "Банк России"
-    assert "ключевая ставка" in out[0].tags.topics
+    assert "rate" in [f.code for f in out[0].tags.factors]
     assert out[0].tags.tagged_by == ["rules"]
+
+
+def test_chain_of_similar_titles_does_not_glue_different_events():
+    items = [
+        news("1", "Цены на бензин Аи-95 обновили рекорд на бирже", at=T0),
+        news("2", "Цены на бензин Аи-95 на бирже снизились", at=T0 + timedelta(hours=1)),
+        news("3", "Цены на дизель на бирже снизились после рекорда", at=T0 + timedelta(hours=2)),
+    ]
+    out = deduplicate(items)
+    # «1» и «3» не похожи напрямую — даже если каждый похож на «2», это не один сюжет
+    assert not any({m.title for m in o.also_reported_by} >= {items[0].title, items[2].title} for o in out)
+    assert len(out) >= 2

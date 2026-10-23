@@ -1,5 +1,6 @@
 """Распознавание страницы в абзацы. Движок сменный: Tesseract сейчас, Qwen3-VL — когда будет ключ."""
 
+import base64
 import csv
 import io
 import os
@@ -7,6 +8,7 @@ import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Protocol
 
 from PIL import Image
@@ -57,14 +59,21 @@ class TesseractEngine:
     def recognize(self, image: Image.Image) -> list[OcrBlock]:
         buf = io.BytesIO()
         image.save(buf, format="PNG")
-        proc = subprocess.run(
-            [self.binary, "stdin", "stdout", "-l", self.langs, "--psm", str(self.psm), "tsv"],
-            input=buf.getvalue(),
-            capture_output=True,
-            check=True,
-            # страницы распознаются параллельно, внутренние потоки tesseract только мешают
-            env={**os.environ, "OMP_THREAD_LIMIT": "1"},
-        )
+        try:
+            proc = subprocess.run(
+                [self.binary, "stdin", "stdout", "-l", self.langs, "--psm", str(self.psm), "tsv"],
+                input=buf.getvalue(),
+                capture_output=True,
+                check=True,
+                # страницы распознаются параллельно, внутренние потоки tesseract только мешают
+                env={**os.environ, "OMP_THREAD_LIMIT": "1"},
+            )
+        except (subprocess.CalledProcessError, OSError) as exc:
+            # чаще всего не установлен язык rus — подсказка есть в stderr tesseract
+            detail = getattr(exc, "stderr", b"") or b""
+            raise OcrUnavailable(
+                f"tesseract не смог распознать страницу: {detail.decode('utf-8', 'replace')[:200]}"
+            ) from exc
         return blocks_from_tsv(proc.stdout.decode("utf-8"))
 
 
@@ -189,30 +198,80 @@ class VisionClient(Protocol):
 
 
 VLM_PROMPT = (
-    "Это страница аналитического отчёта. Перепиши весь текст страницы дословно, сохраняя порядок чтения "
-    "(колонки — по очереди). Абзацы раздели пустой строкой. Таблицы и подписи к графикам — отдельными абзацами. "
-    "Ничего не добавляй от себя."
+    "Это скан страницы аналитического отчёта на русском языке. Перепиши весь текст страницы дословно, ничего не "
+    "пересказывая и не добавляя от себя. Сохраняй порядок чтения: колонки и блоки слайда — по очереди. Абзацы раздели "
+    "пустой строкой. Таблицу выведи отдельным абзацем: каждая строка таблицы — на своей строке, ячейки через « | », "
+    "числа ровно как на странице. Подписи осей и легенды графиков пропускай, название графика и источник оставляй. "
+    "Ответ — только текст страницы, без пояснений и без разметки Markdown."
 )
+VLM_MAX_SIDE = 2000
+
+
+# модель иногда зацикливается и повторяет фразу до лимита токенов — оставляем одно повторение
+_LOOP = re.compile(r"(.{15,300}?)\1{3,}", re.S)
+
+
+def cut_loops(text: str) -> str:
+    return _LOOP.sub(r"\1", text)
+
+
+def _paragraph(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # строки таблицы склеивать нельзя — каждая строка остаётся строкой
+    if sum(" | " in line for line in lines) >= 2:
+        return "\n".join(lines)
+    return join_lines(lines)
 
 
 class VisionLlmEngine:
-    """Распознавание через Qwen3-VL-30B-A3B-Instruct. Уверенность модель не сообщает — ставим 100."""
+    """Распознавание мультимодальной моделью (Qwen3-VL-30B-A3B-Instruct). Уверенности у модели нет — ставим 100."""
 
-    name = "qwen3-vl"
+    # запросов к API одновременно: больше — упираемся в лимиты шлюза
+    workers = 6
 
-    def __init__(self, client: VisionClient):
+    def __init__(self, client: VisionClient, max_side: int = VLM_MAX_SIDE, name: str = "qwen3-vl"):
         self.client = client
+        self.max_side = max_side
+        # заглушка называется иначе, чтобы её пустые страницы не попали в кэш настоящей модели
+        self.name = name
 
     def recognize(self, image: Image.Image) -> list[OcrBlock]:
+        if max(image.size) > self.max_side:
+            scale = self.max_side / max(image.size)
+            image = image.resize((round(image.size[0] * scale), round(image.size[1] * scale)), Image.LANCZOS)
         buf = io.BytesIO()
-        image.save(buf, format="PNG")
-        text = self.client.complete(buf.getvalue(), VLM_PROMPT)
+        image.save(buf, format="PNG", optimize=True)
+        from ingest.llm import LlmUnavailable
+
+        try:
+            text = cut_loops(self.client.complete(buf.getvalue(), VLM_PROMPT))
+        except LlmUnavailable as exc:
+            raise OcrUnavailable(str(exc)) from exc
         w, h = image.size
         return [
-            OcrBlock(text=join_lines(par.splitlines()), confidence=100.0, bbox=(0, 0, w, h))
+            OcrBlock(text=_paragraph(par), confidence=100.0, bbox=(0, 0, w, h))
             for par in re.split(r"\n\s*\n", text)
             if par.strip()
         ]
+
+
+class ApiVisionClient:
+    """Мультимодальная модель через API организаторов: картинка уходит data-URL в сообщении."""
+
+    def __init__(self, llm, model: str = "qwen/qwen3-vl-30b-a3b-instruct", max_tokens: int = 4000):
+        self.llm = llm
+        self.model = model
+        self.max_tokens = max_tokens
+
+    def complete(self, image_png: bytes, prompt: str) -> str:
+        url = "data:image/png;base64," + base64.b64encode(image_png).decode("ascii")
+        messages = [
+            {
+                "role": "user",
+                "content": [{"type": "image_url", "image_url": {"url": url}}, {"type": "text", "text": prompt}],
+            }
+        ]
+        return self.llm.chat(self.model, messages, purpose="ocr", max_tokens=self.max_tokens).text
 
 
 class MockVisionClient:
@@ -230,6 +289,8 @@ class MockVisionClient:
 class CacheOnlyEngine:
     """Движка нет на машине: страницы берутся только из кэша, нераспознанная страница — ошибка с подсказкой."""
 
+    cache_only = True
+
     def __init__(self, name: str, reason: str):
         self.name = name
         self.reason = reason
@@ -238,9 +299,17 @@ class CacheOnlyEngine:
         raise OcrUnavailable(self.reason)
 
 
-def make_engine(name: str) -> OcrEngine:
+def make_engine(name: str, journal: Path | None = None) -> OcrEngine:
     if name == "tesseract":
         return TesseractEngine()
     if name == "qwen3-vl-mock":
-        return VisionLlmEngine(MockVisionClient())
+        return VisionLlmEngine(MockVisionClient(), name="qwen3-vl-mock")
+    if name == "qwen3-vl":
+        from ingest.llm import LlmClient, LlmUnavailable
+
+        try:
+            llm = LlmClient.from_env(journal)
+        except LlmUnavailable as exc:
+            raise OcrUnavailable(str(exc)) from exc
+        return VisionLlmEngine(ApiVisionClient(llm))
     raise ValueError(f"неизвестный движок распознавания: {name}")
