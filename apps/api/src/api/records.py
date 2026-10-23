@@ -32,6 +32,8 @@ COMPANY_COLUMNS = [
 ]
 
 _ID = re.compile(r"^[A-Za-z]+_\d+$")
+# REVENUE_COMPANY = 1000 — заглушка вместо неизвестной выручки
+REVENUE_STUB = 1000.0
 _EMPTY = {"nan", "none", "null", "n/a", "-"}
 _FLAG_VALUES = {
     "1": True,
@@ -136,10 +138,22 @@ def company_from_row(row: dict[str, str | None]) -> CompanyRecord | None:
         elif field == "revenue":
             revenue = clean_number(raw)
             # нулевая и отрицательная выручка в выгрузке означает «нет данных»
-            values[field] = revenue if revenue is not None and revenue > 0 else None
+            # нулевая и отрицательная выручка и заглушка 1000 (ответ организаторов) — «нет данных»
+            values[field] = (
+                revenue if revenue is not None and revenue > 0 and revenue != REVENUE_STUB else None
+            )
         else:
             values[field] = clean_text(raw)
     return CompanyRecord(id=company_id, **values)
+
+
+@dataclass
+class GroupStats:
+    """Группа компаний по выгрузке: выручка — сумма известных выручек участников, включая саму компанию."""
+
+    revenue: float | None
+    size: int
+    clients: int
 
 
 @dataclass

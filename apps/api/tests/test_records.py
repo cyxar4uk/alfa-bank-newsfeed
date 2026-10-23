@@ -31,6 +31,8 @@ def test_company_from_row_tolerates_garbage():
     assert record.okved_code == "41.20"
     assert record.rko is None
     assert record.revenue is None  # нулевая выручка — нет данных
+    stub = company_from_row({"SYNTHETIC_U": "U_7", "REVENUE_COMPANY": "1000.0"})
+    assert stub.revenue is None  # 1000 — заглушка организаторов вместо неизвестной выручки
     assert record.fts_countries is None
     assert record.region is None  # колонки нет вовсе
 

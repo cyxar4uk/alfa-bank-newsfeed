@@ -14,15 +14,18 @@ def company_profile(repo: CompanyRepo, company_id: str) -> CompanyProfile | None
     company = repo.get_company(company_id)
     if company is None:
         return None
-    size, members = 1, []
+    size, members, group_revenue = 1, [], None
     if company.group_id:
         size, members = repo.group(company.group_id, exclude=company.id, limit=GROUP_MEMBERS_SHOWN)
+        stats = repo.group_stats([company.group_id]).get(company.group_id)
+        group_revenue = stats.revenue if stats else None
     return build_profile(
         company,
         repo.flows(company.id),
         group_size=size,
         group_members=members,
         industry=repo.industry(company),
+        group_revenue=group_revenue,
     )
 
 

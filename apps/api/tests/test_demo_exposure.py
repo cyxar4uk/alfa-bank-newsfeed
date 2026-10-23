@@ -89,7 +89,13 @@ def test_demo_client_map(repo, company_id):
 
 
 def test_all_large_companies(repo):
-    for company in repo.list_companies(large=True, limit=500, offset=0):
+    # крупнейшая компания каждой крупной группы (клиенты) и все компании со своей выручкой > 15 млрд
+    leaders = repo.list_companies(large=True, limit=5000, offset=0, clients_only=True, per_group=True)
+    with repo.pool.connection() as conn:
+        own = [r[0] for r in conn.execute("SELECT id FROM companies WHERE revenue > 15e9").fetchall()]
+    assert len(own) == 115
+    companies = {c.id: c for c in leaders} | {cid: repo.get_company(cid) for cid in own}
+    for company in companies.values():
         result = exposure(repo, company.id)
         assert result.factors
         for factor in result.factors:
@@ -119,3 +125,30 @@ def test_demo_chains_match_manual_csv_count(repo):
     road = chain(repo, "U_26030", ["42"])[("buyers", "42")]
     assert round(road.share, 3) == 0.506
     assert road.nodes[0].id == "U_196945"
+
+
+def test_self_payments_are_most_of_volume_and_excluded(repo):
+    # ответ организаторов: ~82 % объёма платежей — переводы самому себе; в профиле и карте их нет
+    with repo.pool.connection() as conn:
+        self_share = conn.execute(
+            "SELECT sum(amount) FILTER (WHERE payer = beneficiary) / sum(amount) FROM payments"
+        ).fetchone()[0]
+    assert 0.78 < self_share < 0.86
+    from api.profile import aggregate_flows
+
+    for company_id in ("U_26030", "U_34911"):  # у обоих самоплатежи на миллиарды
+        company = repo.get_company(company_id)
+        flows = aggregate_flows(company, repo.flows(company_id))
+        assert company_id not in flows.pairs
+        assert flows.self_payments == 1
+
+
+def test_large_by_group_revenue(repo):
+    # крупный бизнес — по выручке группы: все прежние 115 остаются, добавляются компании крупных групп
+    leaders = repo.list_companies(large=True, limit=5000, offset=0, clients_only=True, per_group=True)
+    assert len(leaders) > 115
+    ids = {c.id for c in leaders}
+    assert {"U_8318", "U_57706", "U_34911", "U_258116"} <= ids
+    assert all(c.client_type == "CLIENT" for c in leaders)
+    stats = repo.group_stats(["group_133141_sb"])["group_133141_sb"]  # группа U_8318
+    assert round(stats.revenue / 1e9, 1) == 55.7

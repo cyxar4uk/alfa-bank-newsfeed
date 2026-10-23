@@ -104,6 +104,9 @@ class Counterparty(BaseModel):
 class CompanyGroup(BaseModel):
     id: str
     size: int = Field(description="число компаний в группе в выгрузке, включая эту")
+    revenue: float | None = Field(
+        default=None, description="выручка группы: сумма известных выручек участников, включая эту, ₽"
+    )
     members: list[str] = Field(default_factory=list, description="другие компании группы (не больше 20)")
 
 
@@ -202,12 +205,22 @@ class FactorExposure(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class LevelDefinition(BaseModel):
+    """Уровень силы: границы и что он значит для компании."""
+
+    level: ExposureLevel
+    min: float | None = Field(description="нижняя граница силы, включительно; у none и no_data — null")
+    max: float | None = Field(description="верхняя граница, не включительно; null — без границы")
+    meaning: str
+
+
 class ExposureMap(BaseModel):
     """Карта чувствительности: к чему уязвима компания и через что. Факторы — по убыванию силы."""
 
     company_id: str
     factors: list[FactorExposure]
     warnings: list[str] = Field(default_factory=list)
+    levels: list[LevelDefinition] = Field(default_factory=list, description="шкала силы и смысл уровней")
     catalog_version: str
 
 
@@ -299,7 +312,14 @@ class CompanySummary(BaseModel):
     display_name: str
     sector: str | None
     okved: str | None
-    revenue: float | None = Field(description="выручка, ₽")
+    revenue: float | None = Field(description="выручка компании, ₽ (2025 год)")
+    group_id: str | None = None
+    group_revenue: float | None = Field(
+        default=None,
+        description="выручка группы, ₽; если в группе одна эта компания — её же выручка, group_size = 1",
+    )
+    group_size: int | None = None
+    large: bool = Field(description="крупный бизнес: выручка группы (или своя, если группы нет) > 15 млрд ₽")
     region: str | None
     client_type: str | None
 
@@ -464,6 +484,9 @@ class ImportedFile(BaseModel):
 
 
 class Health(BaseModel):
-    status: Literal["ok", "degraded"]
+    status: Literal["ok", "degraded"] = Field(
+        description="degraded — БД недоступна или данные кейса не загружены"
+    )
     db: Literal["ok", "unavailable"]
     data: list[ImportedFile] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list, description="что не так с данными и как исправить")
