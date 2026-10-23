@@ -252,3 +252,38 @@ def test_empty_news_base_falls_back_to_snapshot(tmp_path):
     assert [e.id for e in news.events(None, 10)] == ["src:news:s"]
     assert news.name.startswith("снимок")
     assert news.has_bank_view(["rate"]) is False  # в снимке аналитики нет
+
+
+def test_group_impact_endpoint(client):
+    body = client.get("/api/companies/U_1/group-impact", params={"okved": "49"}).json()
+    assert body["affected_count"] == 1
+    assert body["affected"][0]["id"] == "U_2"  # перевозчик из той же группы
+    assert body["intra_payments"] == 1e9
+    # U_4 — одна в своей группе: блока нет
+    assert client.get("/api/companies/U_4/group-impact", params={"okved": "35"}).json() is None
+    assert client.get("/api/companies/U_404/group-impact").status_code == 404
+
+
+def test_feed_group_impact_only_for_owner_and_ceo(client):
+    app.dependency_overrides[news_provider] = GroupNews
+    owner = client.get("/api/feed", params={"persona": "p-u1-owner"}).json()["items"][0]
+    assert owner["group_impact"]["affected"][0]["id"] == "U_2"
+    cfo = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]
+    assert cfo["group_impact"] is None
+
+
+class GroupNews(FakeNews):
+    def events(self, since, limit):
+        import datetime as dt
+
+        from api.ranking import MSK, NewsEvent
+
+        return [
+            NewsEvent(
+                id="src:news:trucks",
+                title="Грузоперевозки",
+                published_at=dt.datetime.now(MSK),
+                factors=[("rate", 1.0, "ставка")],
+                sectors=[("49", 1.0)],
+            )
+        ]
