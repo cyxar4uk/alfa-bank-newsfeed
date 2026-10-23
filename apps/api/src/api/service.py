@@ -3,7 +3,8 @@
 На вход — репозиторий (`CompanyRepo`) и id компании, на выход — модели контракта; нет компании — None.
 """
 
-from api.contract import CompanyProfile, ExposureMap
+from api.chain import build_chain
+from api.contract import CompanyProfile, ExposureMap, InfluenceChain
 from api.exposure import build_exposure
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile
 from api.repo import CompanyRepo
@@ -31,3 +32,17 @@ def company_exposure(repo: CompanyRepo, company_id: str) -> ExposureMap | None:
         return None
     group = repo.group_records(company.group_id, exclude=company.id) if company.group_id else []
     return build_exposure(company, repo.flows(company.id), group)
+
+
+def company_chain(
+    repo: CompanyRepo, company_id: str, okved: list[str], weights: dict[str, float] | None = None
+) -> InfluenceChain | None:
+    """Через кого событие с классами ОКВЭД `okved` задевает компанию.
+
+    `weights` — сила связи события с классом ОКВЭД (0–1), по умолчанию 1.
+    """
+    company = repo.get_company(company_id)
+    if company is None:
+        return None
+    group = repo.group_records(company.group_id, exclude=company.id) if company.group_id else []
+    return build_chain(company, repo.flows(company.id), group, okved, weights)

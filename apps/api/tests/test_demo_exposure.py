@@ -97,3 +97,25 @@ def test_all_large_companies(repo):
                 assert factor.evidence and factor.channel, (company.id, factor.code)
             if factor.code.startswith(("demand_", "supply_")):
                 assert factor.coverage is not None, (company.id, factor.code)
+
+
+def chain(repo, company_id, okved):
+    from api.service import company_chain
+
+    return {(c.kind, c.okved): c for c in company_chain(repo, company_id, okved).channels}
+
+
+def test_demo_chains_match_manual_csv_count(repo):
+    # поставщик общепита: 53,1 % внешних поступлений — от ОКВЭД 56, покрытие 66 % (расчёт по CSV)
+    buyers = chain(repo, "U_258116", ["56"])[("buyers", "56")]
+    assert round(buyers.share, 3) == 0.531
+    assert round(buyers.coverage, 2) == 0.66
+    # оптовик автозапчастей: 50,9 % внешних платежей — ОКВЭД 45; импортёры группы — отдельно, в канале группы
+    channels = chain(repo, "U_8318", ["45"])
+    assert round(channels[("suppliers", "45")].share, 3) == 0.509
+    assert {"U_92457", "U_52177"} <= {n.id for n in channels[("group", "45")].nodes}
+    assert not {"U_92457", "U_52177"} & {n.id for n in channels[("suppliers", "45")].nodes}
+    # топливный оптовик из Уфы: половина поступлений — от строителя дорог (42), один плательщик U_196945
+    road = chain(repo, "U_26030", ["42"])[("buyers", "42")]
+    assert round(road.share, 3) == 0.506
+    assert road.nodes[0].id == "U_196945"
