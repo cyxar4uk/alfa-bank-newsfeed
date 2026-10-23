@@ -8,7 +8,8 @@
 
 | Модель | Для чего |
 |---|---|
-| | |
+| Qwen3-VL-30B-A3B-Instruct | распознавание таблиц и слайдов в PDF аналитики банка: один раз, с кэшем по страницам |
+| Gemma 4 26B A4B | разметка новостей факторами поверх словарей (по флагу, по умолчанию выключена) |
 
 ## Данные
 
@@ -21,20 +22,51 @@
 
 | Источник | Адрес | Условия |
 |---|---|---|
-| | | |
+| Банк России — пресс-релизы, события | https://www.cbr.ru/rss/RssPress, https://www.cbr.ru/rss/eventrss | воспроизведение с указанием источника и ссылкой на страницу (cbr.ru/about) |
+| Интерфакс | https://www.interfax.ru/rss.asp | цитирование в информационных целях со ссылкой на interfax.ru (interfax.ru/license) |
+| Коммерсантъ — «Экономика», «Бизнес» | https://www.kommersant.ru/RSS/section-economics.xml, …/section-business.xml | до 30 % материала без переработки, с автором и ссылкой (kommersant.ru/copyright) |
+| РИА Новости | https://ria.ru/export/rss2/archive/index.xml | с указанием источника и гиперссылкой (ria.ru/docs/about/copyright.html) |
+| Forbes | https://www.forbes.ru/newrss.xml | в информационных целях с автором, датой и активной ссылкой |
+
+Храним только заголовок, лид дословно (до 500 знаков), ссылку, издателя и дату; полный текст и иллюстрации не храним,
+в интерфейсе ведём на первоисточник. ТАСС, РБК, Ведомости и Финмаркет есть в `apps/ingest/src/ingest/news/sources.toml`,
+но выключены: их условия запрещают автоматическое извлечение без разрешения или не найдены.
 
 ## Библиотеки
 
+Точные версии зависимостей, включая транзитивные, — `apps/api/uv.lock`, `apps/ingest/uv.lock` и `apps/web/package-lock.json`.
+
 | Компонент | Версия | Лицензия |
 |---|---|---|
+| FastAPI | 0.161.1 | MIT |
+| Uvicorn | 0.54.0 | BSD-3-Clause |
+| Pydantic | 2.14.1 | MIT |
+| pydantic-settings | 2.16.1 | MIT |
+| psycopg, psycopg-binary | 3.3.6 | LGPL-3.0 |
+| psycopg-pool | 3.3.3 | LGPL-3.0 |
+| HTTPX (парсер; в API — для тестов) | 0.28.1 | BSD-3-Clause |
+| feedparser | 6.0.14 | BSD-2-Clause |
+| pypdfium2 (PDFium) | 5.14.0 | Apache-2.0 / BSD-3-Clause |
+| Pillow | 13.0.0 | MIT-CMU |
+| pytest (разработка) | 9.1.1 | MIT |
+| Ruff (разработка) | 0.17.2 | MIT |
 | React, React DOM (`apps/web`) | 19.3 | MIT |
 | React Router (`apps/web`) | 7.18 | MIT |
 | Vite, `@vitejs/plugin-react` — сборка (`apps/web`) | 8.3 | MIT |
 | TypeScript — сборка (`apps/web`) | 5.9 | Apache-2.0 |
 | ESLint, typescript-eslint — проверка кода (`apps/web`) | 9.39 / 8.72 | MIT |
-| nginx — раздача интерфейса в Docker-образе | 1.27 | BSD-2-Clause |
 | Иконки `@alfalab/icons-glyph` (`apps/web`), по одной иконке; иконки с логотипами не используются | 2.293 | MIT (по данным npm) |
 | Значения дизайн-токенов (цвета, отступы, радиусы, тени, размеры текста) из `@alfalab/core-components-vars`, перенесены в CSS-переменные `apps/web`; сам пакет не установлен | 11.4 | MIT, © core-ds |
+
+## Образы и инструменты сборки
+
+| Компонент | Версия | Лицензия |
+|---|---|---|
+| PostgreSQL (образ `postgres`) | 17, alpine | PostgreSQL License |
+| Python (образ `python`) | 3.12, slim | PSF License |
+| uv | 0.13.5 | MIT / Apache-2.0 |
+| Tesseract OCR (+ языковые модели rus, eng) | 5.3.0 (пакет Debian bookworm) | Apache-2.0 |
+| nginx — раздача интерфейса в Docker-образе | 1.27 | BSD-2-Clause |
 
 ## Смоделированные интеграции
 
