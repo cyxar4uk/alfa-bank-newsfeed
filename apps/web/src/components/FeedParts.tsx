@@ -2,13 +2,14 @@ import { Link } from 'react-router-dom';
 import type { FeedItem } from '../api/types';
 import { formatDate, relevanceLevel } from '../state/labels';
 import { eventPath } from '../state/routes';
+import { factorIcon } from './factorIcon';
 import { Icon } from './Icon';
 import { Skeleton } from './States';
 
 export function BankBadge() {
   return (
     <span className="bank-badge">
-      <Icon name="bank" size={14} />
+      <Icon name="bank" size={16} />
       Позиция банка
     </span>
   );
@@ -33,19 +34,24 @@ export function FeedRow({ item }: { item: FeedItem }) {
   return (
     <li className="feed-row">
       <Link to={eventPath(item.event_id)} className="feed-row__link">
-        <div className="feed-row__top">
-          <RelevanceMeter score={item.relevance.score} />
-          {item.has_bank_view && <BankBadge />}
-        </div>
-        <h3 className="feed-row__title">{item.event.title}</h3>
-        <p className="feed-row__why">
-          <span className="feed-row__why-label">Почему важно вам:</span> {item.relevance.reason}
-        </p>
-        <p className="feed-row__meta">
-          <span className="feed-row__channel">{item.channel_text}</span>
-          <span>{item.source.publisher}</span>
-          <time dateTime={item.event.date}>{formatDate(item.event.date)}</time>
-        </p>
+        <span className="icon-tile" aria-hidden="true">
+          <Icon name={factorIcon(item.factors[0]?.code ?? '')} />
+        </span>
+        <span className="feed-row__body">
+          <span className="feed-row__top">
+            <RelevanceMeter score={item.relevance.score} />
+            {item.has_bank_view && <BankBadge />}
+          </span>
+          <span className="feed-row__title">{item.event.title}</span>
+          <span className="feed-row__why">
+            <span className="feed-row__why-label">Почему важно вам:</span> {item.relevance.reason}
+          </span>
+          <span className="feed-row__meta">
+            <span>{item.channel_text}</span>
+            <span>{item.source.publisher}</span>
+            <time dateTime={item.event.date}>{formatDate(item.event.date)}</time>
+          </span>
+        </span>
       </Link>
     </li>
   );

@@ -57,8 +57,8 @@ export function PersonaSwitcher() {
       >
         <Icon name="user" />
         <span className="switcher__who">
-          <span className="switcher__role">{roleLabel[persona.role]}</span>
           <span className="switcher__company">{company.display_name}</span>
+          <span className="switcher__role">{roleLabel[persona.role]}</span>
         </span>
         <Icon name="chevronDown" size={16} />
       </button>

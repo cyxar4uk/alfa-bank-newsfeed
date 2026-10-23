@@ -89,9 +89,6 @@ function InsightView({ insight, company, personaId }: { insight: Insight; compan
             <RelevanceMeter score={insight.relevance.score} />
             <span>{insight.relevance.reason}</span>
           </div>
-          {insight.relevance.breakdown && insight.relevance.breakdown.length > 0 && (
-            <ScoreBreakdown terms={insight.relevance.breakdown} score={insight.relevance.score} />
-          )}
         </header>
 
         {insight.quality.warnings.length > 0 && (
@@ -168,14 +165,20 @@ function InsightView({ insight, company, personaId }: { insight: Insight; compan
           ) : (
             <p className="muted">Конкретных шагов модель не предложила</p>
           )}
-          {offer && (
-            <div className="offer">
+        </Block>
+
+        {offer && (
+          <aside className="offer" aria-label="Предложение банка">
+            <span className="offer__icon" aria-hidden="true">
+              <Icon name="offer" size={24} />
+            </span>
+            <div>
               <OriginTag origin="offer" />
               <p className="offer__text">{offer.text}</p>
               <p className="offer__note">Продукт банка. Это предложение, а не вывод анализа.</p>
             </div>
-          )}
-        </Block>
+          </aside>
+        )}
 
         <Block n={6} title="На чём основано">
           {news.length > 0 && (
@@ -239,6 +242,12 @@ function InsightView({ insight, company, personaId }: { insight: Insight; compan
             ))}
           </ul>
         </section>
+        {insight.relevance.breakdown && insight.relevance.breakdown.length > 0 && (
+          <section className="rail-card">
+            <h2 className="rail-card__title">Почему это выше остального</h2>
+            <ScoreBreakdown terms={insight.relevance.breakdown} score={insight.relevance.score} />
+          </section>
+        )}
         <section className="rail-card">
           <h2 className="rail-card__title">Что учтено о компании</h2>
           {usedFeatures.length > 0 ? (

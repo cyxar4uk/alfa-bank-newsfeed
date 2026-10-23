@@ -18,16 +18,21 @@ export function LoginPage() {
           <BrandMark />
           <h1 className="login__title">Вход в интернет-банк</h1>
           <p className="login__lead">
-            Выберите компанию и роль. Компании обезличены, у каждой свои признаки из данных банка — от них зависит,
-            какие события вы увидите.
+            Выберите тестового пользователя: компанию и роль. Компании обезличены, у каждой свои признаки из данных
+            банка — от них и от роли зависит, какие события вы увидите.
           </p>
         </div>
         <ul className="login__list">
-          {Object.values(companies).map((company) => (
-            <li key={company.id} className="login-company">
-              <div className="login-company__info">
-                <h2 className="login-company__name">{company.display_name}</h2>
-                <dl className="login-company__features">
+          {personas.map((p) => {
+            const company = companies[p.company_id];
+            if (!company) return null;
+            return (
+              <li key={p.id} className="card login-card">
+                <h2 className="login-card__title">
+                  <span className="login-card__role">{roleLabel[p.role]}</span>
+                  <span className="login-card__company">{company.display_name}</span>
+                </h2>
+                <dl className="login-card__features">
                   {company.features
                     .filter((f) => PREVIEW_FEATURES.includes(f.id))
                     .map((f) => (
@@ -37,26 +42,23 @@ export function LoginPage() {
                       </div>
                     ))}
                 </dl>
-              </div>
-              <div className="login-company__roles">
-                {personas
-                  .filter((p) => p.company_id === company.id)
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      className="btn btn--secondary btn--wrap"
-                      onClick={() => {
-                        selectPersona(p.id);
-                        navigate('/');
-                      }}
-                    >
-                      Войти как {roleLabel[p.role].toLowerCase()}
-                    </button>
-                  ))}
-              </div>
-            </li>
-          ))}
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={() => {
+                    selectPersona(p.id);
+                    navigate('/');
+                  }}
+                >
+                  Войти
+                  <span className="visually-hidden">
+                    {' '}
+                    как {roleLabel[p.role].toLowerCase()}, {company.display_name}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </div>

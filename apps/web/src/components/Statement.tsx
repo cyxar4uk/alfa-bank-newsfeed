@@ -10,17 +10,17 @@ export interface RefIndex {
 
 const originIcon: Record<Origin, IconName> = {
   fact: 'fact',
-  data: 'accounts',
+  data: 'data',
   bank: 'bank',
   ai: 'model',
   estimate: 'calc',
-  offer: 'bank',
+  offer: 'offer',
 };
 
 export function OriginTag({ origin }: { origin: Origin }) {
   return (
     <span className={`origin-tag origin-tag--${origin}`} title={originHint[origin]}>
-      <Icon name={originIcon[origin]} size={14} />
+      <Icon name={originIcon[origin]} size={16} />
       {originLabel[origin]}
     </span>
   );

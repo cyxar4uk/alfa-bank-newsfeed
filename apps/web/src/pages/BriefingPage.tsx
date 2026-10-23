@@ -16,7 +16,7 @@ function Summary({ briefing, company }: { briefing: Briefing; company: CompanyPr
     features: Object.fromEntries(company.features.map((f) => [f.id, f])),
   };
   return (
-    <section className="summary" aria-labelledby="summary-title">
+    <section className="card summary" aria-labelledby="summary-title">
       <h2 className="section-title" id="summary-title">
         Что изменилось для вас
       </h2>
@@ -143,7 +143,7 @@ export function BriefingPage() {
 
       {briefing.status === 'loading' && (
         <div className="briefing" aria-busy="true">
-          <div className="summary">
+          <div className="card summary">
             <Skeleton width={220} height={20} />
             <Skeleton width="90%" />
             <Skeleton width="75%" />

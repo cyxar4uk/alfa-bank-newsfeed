@@ -1,43 +1,101 @@
-// Простые линейные иконки 20×20, цвет — от текста.
-const paths = {
-  home: 'M3 9.5 10 4l7 5.5V16a1 1 0 0 1-1 1h-3.5v-4.5h-5V17H4a1 1 0 0 1-1-1V9.5Z',
-  accounts: 'M3 6h14v9H3zM3 9h14M6 12.5h3',
-  payments: 'M4 7h10l-3-3M16 13H6l3 3',
-  salary: 'M10 3v14M13.5 6.5c0-1.4-1.6-2-3.5-2s-3.5.8-3.5 2.3c0 3.4 7 1.6 7 5 0 1.6-1.6 2.4-3.5 2.4s-3.5-.8-3.5-2.2',
-  documents: 'M6 3h6l3 3v11H6zM12 3v3h3M8.5 10h4M8.5 13h4',
-  pulse: 'M2.5 10h3.5l2-5 4 10 2-5h3.5',
-  bank: 'M3 8 10 4l7 4M4.5 8.5v6M8 8.5v6M12 8.5v6M15.5 8.5v6M3 16.5h14',
-  fact: 'M5 4h10v12H5zM8 8h4M8 11h4',
-  model: 'M10 3.5 11.6 8.4 16.5 10 11.6 11.6 10 16.5 8.4 11.6 3.5 10 8.4 8.4Z',
-  chevronDown: 'm5.5 8 4.5 4.5L14.5 8',
-  chevronLeft: 'M12 5 7 10l5 5',
-  external: 'M8 5H5v10h10v-3M11 4h5v5M16 4l-7 7',
-  check: 'm4.5 10.5 3.5 3.5 7.5-8',
-  warning: 'M10 3.5 17.5 16.5h-15L10 3.5ZM10 8.5v3.5M10 14.2v.3',
-  user: 'M10 10a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM4 17c.8-3 3.2-4.5 6-4.5s5.2 1.5 6 4.5',
-  thumbUp: 'M7 9v8H4V9h3Zm0 0 3.5-5.5c1 0 1.8.8 1.6 1.8L11.6 8H16a1 1 0 0 1 1 1.2l-1.2 6.2a1.5 1.5 0 0 1-1.5 1.1H7',
-  thumbDown: 'M7 11V3H4v8h3Zm0 0 3.5 5.5c1 0 1.8-.8 1.6-1.8L11.6 12H16a1 1 0 0 0 1-1.2l-1.2-6.2A1.5 1.5 0 0 0 14.3 3.5H7',
-  refresh: 'M15.5 7.5A6 6 0 1 0 16 12M16 4v3.5h-3.5',
-  calc: 'M5 3h10v14H5zM7.5 6h5M7.5 10h1M11.5 10h1M7.5 13.5h1M11.5 13.5h1',
-} as const;
+// Иконки — глифы @alfalab/icons-glyph (MIT), импорт по одной. Иконки со знаком банка не используем.
+import type { ComponentType, SVGProps } from 'react';
+import { AlertCircleMIcon } from '@alfalab/icons-glyph/AlertCircleMIcon';
+import { ArrowRightUpMIcon } from '@alfalab/icons-glyph/ArrowRightUpMIcon';
+import { ArrowsRightLeftMIcon } from '@alfalab/icons-glyph/ArrowsRightLeftMIcon';
+import { BankMIcon } from '@alfalab/icons-glyph/BankMIcon';
+import { BarChartMIcon } from '@alfalab/icons-glyph/BarChartMIcon';
+import { BarrelMIcon } from '@alfalab/icons-glyph/BarrelMIcon';
+import { BellMIcon } from '@alfalab/icons-glyph/BellMIcon';
+import { CalculatorMIcon } from '@alfalab/icons-glyph/CalculatorMIcon';
+import { CalendarMIcon } from '@alfalab/icons-glyph/CalendarMIcon';
+import { CardMIcon } from '@alfalab/icons-glyph/CardMIcon';
+import { ChartLineAscMIcon } from '@alfalab/icons-glyph/ChartLineAscMIcon';
+import { CheckmarkMIcon } from '@alfalab/icons-glyph/CheckmarkMIcon';
+import { ChevronDownMIcon } from '@alfalab/icons-glyph/ChevronDownMIcon';
+import { ChevronLeftMIcon } from '@alfalab/icons-glyph/ChevronLeftMIcon';
+import { ContainerMIcon } from '@alfalab/icons-glyph/ContainerMIcon';
+import { DocumentInfoMIcon } from '@alfalab/icons-glyph/DocumentInfoMIcon';
+import { DocumentMIcon } from '@alfalab/icons-glyph/DocumentMIcon';
+import { DollarRoundedMIcon } from '@alfalab/icons-glyph/DollarRoundedMIcon';
+import { DoorArrowRightBoldMIcon } from '@alfalab/icons-glyph/DoorArrowRightBoldMIcon';
+import { FactoryMIcon } from '@alfalab/icons-glyph/FactoryMIcon';
+import { HandPercentMIcon } from '@alfalab/icons-glyph/HandPercentMIcon';
+import { HexagonLinkMIcon } from '@alfalab/icons-glyph/HexagonLinkMIcon';
+import { HouseHomeMIcon } from '@alfalab/icons-glyph/HouseHomeMIcon';
+import { MagicWandMIcon } from '@alfalab/icons-glyph/MagicWandMIcon';
+import { MagnifierMIcon } from '@alfalab/icons-glyph/MagnifierMIcon';
+import { MailMIcon } from '@alfalab/icons-glyph/MailMIcon';
+import { MetalGoldMIcon } from '@alfalab/icons-glyph/MetalGoldMIcon';
+import { PercentMIcon } from '@alfalab/icons-glyph/PercentMIcon';
+import { PinLocationMIcon } from '@alfalab/icons-glyph/PinLocationMIcon';
+import { PlusMIcon } from '@alfalab/icons-glyph/PlusMIcon';
+import { RadarMIcon } from '@alfalab/icons-glyph/RadarMIcon';
+import { RepeatMIcon } from '@alfalab/icons-glyph/RepeatMIcon';
+import { SafeBoxMIcon } from '@alfalab/icons-glyph/SafeBoxMIcon';
+import { ScalesMIcon } from '@alfalab/icons-glyph/ScalesMIcon';
+import { ShoppingCartMIcon } from '@alfalab/icons-glyph/ShoppingCartMIcon';
+import { ThumbDownMIcon } from '@alfalab/icons-glyph/ThumbDownMIcon';
+import { ThumbUpMIcon } from '@alfalab/icons-glyph/ThumbUpMIcon';
+import { UserMIcon } from '@alfalab/icons-glyph/UserMIcon';
+import { UsersGroupMIcon } from '@alfalab/icons-glyph/UsersGroupMIcon';
+import { UsersMIcon } from '@alfalab/icons-glyph/UsersMIcon';
+import { WalletMIcon } from '@alfalab/icons-glyph/WalletMIcon';
+import { WorldMIcon } from '@alfalab/icons-glyph/WorldMIcon';
 
-export type IconName = keyof typeof paths;
+const icons = {
+  // разделы банка
+  home: HouseHomeMIcon,
+  accounts: WalletMIcon,
+  payments: ArrowsRightLeftMIcon,
+  salary: UsersGroupMIcon,
+  documents: DocumentMIcon,
+  card: CardMIcon,
+  plus: PlusMIcon,
+  radar: RadarMIcon,
+  search: MagnifierMIcon,
+  calendar: CalendarMIcon,
+  mail: MailMIcon,
+  bell: BellMIcon,
+  exit: DoorArrowRightBoldMIcon,
+  user: UserMIcon,
+  // происхождение утверждений
+  fact: DocumentInfoMIcon,
+  data: BarChartMIcon,
+  bank: BankMIcon,
+  model: MagicWandMIcon,
+  calc: CalculatorMIcon,
+  offer: HandPercentMIcon,
+  // факторы и каналы
+  rate: PercentMIcon,
+  deposit: SafeBoxMIcon,
+  fx: DollarRoundedMIcon,
+  ved: WorldMIcon,
+  logistics: ContainerMIcon,
+  buyers: UsersMIcon,
+  suppliers: FactoryMIcon,
+  consumer: ShoppingCartMIcon,
+  labor: UsersGroupMIcon,
+  gov: ScalesMIcon,
+  oil: BarrelMIcon,
+  gold: MetalGoldMIcon,
+  inflation: ChartLineAscMIcon,
+  region: PinLocationMIcon,
+  group: HexagonLinkMIcon,
+  // служебные
+  chevronDown: ChevronDownMIcon,
+  chevronLeft: ChevronLeftMIcon,
+  external: ArrowRightUpMIcon,
+  check: CheckmarkMIcon,
+  warning: AlertCircleMIcon,
+  thumbUp: ThumbUpMIcon,
+  thumbDown: ThumbDownMIcon,
+  refresh: RepeatMIcon,
+} satisfies Record<string, ComponentType<SVGProps<SVGSVGElement>>>;
+
+export type IconName = keyof typeof icons;
 
 export function Icon({ name, size = 20, className }: { name: IconName; size?: number; className?: string }) {
-  return (
-    <svg
-      className={className}
-      width={size}
-      height={size}
-      viewBox="0 0 20 20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d={paths[name]} />
-    </svg>
-  );
+  const Glyph = icons[name];
+  return <Glyph className={className} width={size} height={size} aria-hidden="true" role="presentation" />;
 }

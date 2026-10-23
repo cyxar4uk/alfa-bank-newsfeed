@@ -31,7 +31,9 @@ export function AnalysisSteps() {
       <ol className="analysis__steps">
         {STEPS.map((step, i) => (
           <li key={step} className={`analysis__step ${i === current ? 'is-active' : ''}`}>
-            <span className="analysis__mark" aria-hidden="true" />
+            <span className="analysis__mark" aria-hidden="true">
+              {i + 1}
+            </span>
             {step}
           </li>
         ))}

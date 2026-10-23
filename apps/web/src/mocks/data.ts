@@ -413,7 +413,7 @@ export const feeds: Record<string, MockFeedEntry[]> = {
     { event: 'ev-bonds', reason: 'Куда разместить ликвидность: ОФЗ около 16 %, корпоративные AAA 15,3 %', refs: [DEP], factors: [F.deposit], channel: 'direct', channel_text: 'прямо: ваш депозит' },
     { event: 'ev-ruble', reason: 'Расчёты с Казахстаном и Киргизией', refs: [FTS], factors: [F.fx], channel: 'direct', channel_text: 'прямо: ВЭД, направление — оценка' },
     { event: 'ev-budget', reason: 'Бюджет держит ставку высокой — доход на остатки дольше', refs: [DEP], factors: [F.gov, F.deposit], channel: 'direct', channel_text: 'прямо: ваш депозит' },
-    { event: 'ev-gold', reason: 'Защитный актив для валютной ликвидности', refs: [DEP], factors: [F.gold], channel: 'direct', channel_text: 'прямо: ваша ликвидность' },
+    { event: 'ev-gold', reason: 'Защитный актив для свободных средств компании', refs: [DEP], factors: [F.gold], channel: 'direct', channel_text: 'прямо: ваша ликвидность' },
   ],
   'p-u34911-ceo': [
     { event: 'ev-harvest', reason: 'Своя отрасль — зерно: давление на внутренние цены', refs: [OKVED], factors: [F.agro], channel: 'direct', channel_text: 'прямо: своя отрасль' },
@@ -427,7 +427,7 @@ export const feeds: Record<string, MockFeedEntry[]> = {
     { event: 'ev-keyrate', reason: 'Стоимость оборотного кредита', refs: [LOA], factors: [F.rate], channel: 'direct', channel_text: 'прямо: ваш кредит' },
     { event: 'ev-harvest', reason: 'Урожай и экспорт: сроки поступления выручки', refs: [OKVED], factors: [F.agro], channel: 'direct', channel_text: 'прямо: своя отрасль' },
     { event: 'ev-import', reason: 'Рост импорта давит на рубль', refs: [FTS], factors: [F.fx], channel: 'direct', channel_text: 'прямо: ВЭД' },
-    { event: 'ev-bonds', reason: 'Ориентир доходности для свободных средств', refs: [LOA], factors: [F.deposit], channel: 'direct', channel_text: 'прямо: ваша ликвидность' },
+    { event: 'ev-bonds', reason: 'Ориентир доходности, если появятся свободные средства', refs: [], factors: [F.deposit], channel: 'direct', channel_text: 'прямо: свободные средства' },
   ],
   'p-u258116-ceo': [
     { event: 'ev-consumption', reason: 'Рестораны и кафе дают 53 % поступлений', refs: ['feat:demand_56'], factors: [F.demand56, F.consumer], channel: 'buyers', channel_text: 'через покупателей: рестораны и кафе, 53 % поступлений' },
@@ -469,7 +469,7 @@ export const summaries: Record<string, Statement[]> = {
     ai('Оборотный кредит не подешевеет до конца года.', [LOA, KR1], 'high'),
   ],
   'p-u258116-ceo': [
-    ai('Половина вашей выручки — от ресторанов и кафе, а потребление услуг замедляется: банк ждёт около нуля в 4К26.', ['feat:demand_56', CON1], 'high'),
+    ai('53 % поступлений в видимом банку обороте — от ресторанов и кафе, а потребление услуг замедляется: банк ждёт около нуля в 4К26.', ['feat:demand_56', CON1], 'high'),
     ai('Одновременно дорожает импорт из Китая и Индонезии — маржу сжимает с двух сторон.', [FTS, KR2]),
     ai('Зарплаты растут и у вас, и у ресторанов-покупателей.', [WORKERS, M7_2]),
   ],
@@ -550,7 +550,7 @@ const B_GROUP: GroupImpact = {
   affected: [
     { id: 'U_4909', label: 'ТЭС', revenue_bn: 31.0, factors: [F.rate] },
     { id: 'U_191099', label: 'дорожный строитель', revenue_bn: 28.8, factors: [F.rate, F.gov] },
-    { id: 'U_201985', label: 'жилищный строитель, ВЭД Турция', revenue_bn: 25.0, factors: [F.rate] },
+    { id: 'U_201985', label: 'жилищный строитель, ВЭД Турция', revenue_bn: 25.0, factors: [F.rate, F.gov] },
     { id: 'U_122823', label: 'строитель с гарантиями', revenue_bn: 13.5, factors: [F.rate, F.gov] },
     { id: 'U_178740', label: 'заказчик-застройщик', revenue_bn: 11.0, factors: [F.rate] },
     { id: 'U_417124', label: 'дорожный строитель', revenue_bn: 7.9, factors: [F.rate, F.gov] },
@@ -778,14 +778,22 @@ export const details: Record<string, MockDetail> = {
         id: 'fx',
         title: 'Рублёвая выручка от экспорта',
         formula: 'валютная выручка × изменение курса',
-        input: { label: 'Валютная выручка в год по текущему курсу', unit: 'млн ₽', hint: 'Объёма ВЭД в данных нет — введите сами' },
+        input: {
+          label: 'Валютная выручка в год в рублях по курсу 87,2 ₽/$',
+          unit: 'млн ₽',
+          hint: 'Объёма ВЭД в данных нет — введите сами. Курс 87,2 ₽/$ — прогноз банка на конец 2026 года',
+        },
         result_label: 'Изменение рублёвой выручки за год',
         scenarios: [
-          { id: 'base', label: 'Базовый: 87,2 → 93,0 ₽/$ — прогноз банка на 2027 год', multiplier: 0.0665, basis: bank('Рубль 87,2 ₽/$ на конец 2026 года и 93,0 ₽/$ на конец 2027 года: ослабление на 6,65 %', [KR2]) },
-          { id: 'hard', label: 'Сильное ослабление: +15 %', multiplier: 0.15, basis: est('Допущение сервиса: рубль слабеет на 15 %') },
-          { id: 'soft', label: 'Курс не меняется', multiplier: 0, basis: est('Допущение сервиса: курс остаётся на текущем уровне') },
+          { id: 'base', label: 'Прогноз банка: 87,2 → 93,0 ₽/$', multiplier: 0.0665, basis: bank('Рубль 87,2 ₽/$ на конец 2026 года и 93,0 ₽/$ на конец 2027 года: ослабление на 6,65 % за 2027 год', [KR2]) },
+          { id: 'hard', label: 'Рубль слабее на 10 %', multiplier: 0.1, basis: est('Допущение сервиса: ослабление рубля на 10 % — на каждые 100 млн ₽ выручки +10 млн ₽') },
+          { id: 'soft', label: 'Курс не меняется', multiplier: 0, basis: est('Допущение сервиса: курс остаётся 87,2 ₽/$') },
         ],
-        assumptions: ['Вся валютная выручка — в долларах: валюта и направление ВЭД в данных не указаны', 'Без учёта пошлин и логистики'],
+        assumptions: [
+          'Вся валютная выручка — в долларах: валюта и направление ВЭД в данных не указаны',
+          'Сумму вводите по курсу 87,2 ₽/$ — от него считается изменение',
+          'Без учёта пошлин и логистики',
+        ],
       },
     ],
   },

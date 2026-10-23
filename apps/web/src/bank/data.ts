@@ -75,11 +75,3 @@ const views: Record<string, BankView> = {
 export function bankView(companyId: string): BankView {
   return views[companyId] ?? { accounts: [], payments: [] };
 }
-
-const symbols = { RUB: '₽', USD: '$', CNY: '¥', KZT: '₸' } as const;
-
-export function formatMoney(amount: number, currency: Account['currency'], signed = false): string {
-  const abs = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Math.abs(amount));
-  const sign = signed ? (amount < 0 ? '−' : '+') : amount < 0 ? '−' : '';
-  return `${sign}${abs} ${symbols[currency]}`;
-}
