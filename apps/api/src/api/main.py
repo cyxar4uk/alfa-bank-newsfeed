@@ -6,14 +6,15 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from psycopg_pool import ConnectionPool
 
 from api.config import get_settings
-from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
+from api.contract import CompanyProfile, CompanySummary, ExposureMap, Feed, Health, InfluenceChain, Persona
 from api.db import connect, ensure_schema
 from api.importer import DATA_FILES
+from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_COMPANIES, make_personas
 from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
-from api.service import company_chain, company_exposure, company_profile
+from api.service import company_chain, company_exposure, company_profile, persona_feed
 
 
 @asynccontextmanager
@@ -140,6 +141,38 @@ def get_chain(
     if chain is None:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
     return chain
+
+
+def news_provider(request: Request) -> NewsProvider:
+    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo."""
+    path = get_settings().news_snapshot
+    snapshot = SnapshotNews(path) if path.is_file() else None
+    search = getattr(request.app.state, "search", None)
+    if search is not None:
+        return FallbackNews(SearchNews(search), snapshot)
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail=f"нет новостей: ни базы поиска, ни снимка {path}")
+    return snapshot
+
+
+@app.get("/api/feed", response_model=Feed, tags=["лента"])
+@app.get("/api/briefing", response_model=Feed, tags=["лента"], summary="Брифинг — то же, что лента")
+def get_feed(
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> Feed:
+    """Лента пользователя: события, которые задевают его компанию, с оценкой и её разложением."""
+    settings = get_settings()
+    feed = persona_feed(
+        repo, news, persona, limit=limit, candidates=settings.feed_candidates, days=settings.feed_days
+    )
+    if feed is None:
+        raise HTTPException(
+            status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
+        )
+    return feed
 
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])

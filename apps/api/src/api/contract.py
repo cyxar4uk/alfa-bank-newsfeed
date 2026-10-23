@@ -448,6 +448,70 @@ class Insight(BaseModel):
         return {r for r in refs if not resolved(r)}
 
 
+# --- Лента -----------------------------------------------------------------------------------------
+
+
+class ScoreTerm(BaseModel):
+    """Слагаемое оценки события: сумма слагаемых равна `relevance.score`."""
+
+    kind: Literal["factor", "chain", "bank", "repeat"]
+    code: str = Field(examples=["rate", "chain:buyers:56", "bank_view"])
+    label: str = Field(description="что дало вклад, человеческим текстом")
+    value: float = Field(description="вклад в итоговую оценку")
+    event_strength: float | None = Field(
+        default=None, description="сила связи события с фактором или отраслью"
+    )
+    exposure: float | None = Field(
+        default=None, description="чувствительность компании (карта) или сила канала"
+    )
+    role_weight: float | None = Field(default=None, description="вес роли пользователя")
+
+
+class FeedRelevance(BaseModel):
+    score: float = Field(ge=0, le=1)
+    reason: str
+    refs: list[str] = Field(default_factory=list, description="exp:… карты, feat:… профиля, src:… события")
+    breakdown: list[ScoreTerm] = Field(default_factory=list)
+    freshness: float = Field(ge=0, le=1, description="множитель свежести — уже учтён в слагаемых")
+    source_quality: float = Field(
+        ge=0, le=1, description="множитель качества источника — уже учтён в слагаемых"
+    )
+
+
+class FeedFactor(BaseModel):
+    code: str
+    label: str
+
+
+class FeedItem(BaseModel):
+    """Событие в ленте пользователя: почему оно здесь — без полного инсайта."""
+
+    event_id: str
+    event: InsightEvent
+    relevance: FeedRelevance
+    has_bank_view: bool = Field(description="есть ли аналитика Альфа-Банка по факторам события")
+    source: Source
+    factors: list[FeedFactor] = Field(
+        default_factory=list, description="факторы события, задевающие компанию"
+    )
+    channel: ChannelKind = Field(
+        description="главный путь влияния: сама компания, покупатели, поставщики, группа"
+    )
+    channel_text: str
+
+
+class Feed(BaseModel):
+    persona_id: str
+    company_id: str
+    role: Role
+    items: list[FeedItem]
+    candidates: int = Field(description="сколько событий рассмотрено")
+    news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+    summary: list[Statement] = Field(
+        default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
+    )
+
+
 # --- Трасса ---------------------------------------------------------------------------------------
 
 

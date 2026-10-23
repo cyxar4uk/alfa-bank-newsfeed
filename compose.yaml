@@ -40,6 +40,10 @@ services:
     build: ./apps/api
     environment:
       <<: *api-env
+      # снимок новостей — источник ленты, когда базы новостей нет
+      NEWS_SNAPSHOT: /demo/news_snapshot.jsonl
+    volumes:
+      - ./data/demo:/demo:ro
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
