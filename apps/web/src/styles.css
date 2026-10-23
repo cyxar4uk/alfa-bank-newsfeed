@@ -1,0 +1,2333 @@
+/* Тема макета в стиле интернет-банка для бизнеса.
+   Значения дизайн-токенов (цвета, отступы, радиусы, тени, размеры текста) взяты из @alfalab/core-components-vars
+   (MIT, © core-ds), палитра bluetint, светлая тема. Компоненты библиотеки не используем — только значения.
+
+   Происхождение утверждения кодируется цветом, иконкой и словом сразу:
+   факт и данные — графит со сплошной линией, позиция банка — красная линия 4 px без заливки,
+   вывод модели и оценка — индиго с пунктиром, предложение банка — отдельная голубая промо-плашка. */
+
+:root {
+  /* системный шрифт, как в интернет-банке: на Mac — SF Pro, на Windows — Segoe UI */
+  --font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Helvetica, sans-serif;
+
+  /* поверхности */
+  --bg: #f2f3f5;
+  --surface: #fff;
+  --field: rgba(15, 25, 55, 0.1);
+  --field-hover: rgba(5, 12, 41, 0.14);
+  --skeleton: #edeef0;
+  --hover: rgba(38, 55, 88, 0.06);
+  --line: #e7e8eb;
+  --line-strong: #d2d3d9;
+
+  /* текст */
+  --ink: rgba(3, 3, 6, 0.88);
+  --ink-2: rgba(4, 4, 19, 0.55);
+  --ink-3: rgba(5, 8, 29, 0.38);
+  --link: #2a77ef;
+  --focus-color: #2288fa;
+
+  /* бренд */
+  --red: #ef3124;
+  --red-hover: #e32a17;
+  --red-press: #d72505;
+  --red-text: #c41400;
+  --graphite: #212124;
+
+  /* статусы: яркий / подложка / текст */
+  --ok: #0cc44d;
+  --ok-bg: #dff8e5;
+  --ok-text: #0d9336;
+  --neg: #ff4837;
+  --neg-bg: #ffebeb;
+  --neg-text: #c41400;
+  --warn: #fa9313;
+  --warn-bg: #ffefd9;
+  --info: #2288fa;
+  --info-bg: #e4f0ff;
+  --info-text: #2a77ef;
+
+  /* происхождение */
+  --origin-fact: #212124;
+  --origin-fact-bg: #f2f3f5;
+  --origin-bank: #ef3124;
+  --origin-bank-text: #c41400;
+  --origin-ai: #7a63f1;
+  --origin-ai-text: #6e52d7;
+  --origin-ai-bg: #eeedff;
+  --origin-offer-bg: #d8eaff;
+  --origin-offer: #3193fc;
+
+  /* форма */
+  --r-card: 16px;
+  --r-control: 12px;
+  --r-chip: 10px;
+  --r-badge: 6px;
+  --shadow-s: 0 12px 16px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.04), 0 0 1px rgba(0, 0, 0, 0.04);
+
+  color-scheme: light;
+  font-family: var(--font-family);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+h1,
+h2,
+h3,
+p,
+ul,
+ol,
+dl,
+dd,
+blockquote {
+  margin: 0;
+}
+
+ul,
+ol {
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: inherit;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
+
+svg {
+  flex: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus-color);
+  outline-offset: 2px;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* ─── Базовые элементы ────────────────────────────────────────────────────── */
+
+.card {
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.card__title,
+.section-title {
+  margin-bottom: 16px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 16px;
+  border: 0;
+  border-radius: var(--r-control);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.btn--primary {
+  background: var(--red);
+  color: #fff;
+}
+
+.btn--primary:hover {
+  background: var(--red-hover);
+}
+
+.btn--secondary {
+  background: var(--field);
+  color: var(--graphite);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--field-hover);
+}
+
+.link-action {
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.link-action:hover {
+  text-decoration: underline;
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  cursor: pointer;
+}
+
+.chip {
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: var(--field);
+  color: var(--graphite);
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  background: var(--field-hover);
+}
+
+.chip[aria-pressed='true'] {
+  background: var(--graphite);
+  color: #fff;
+}
+
+.chip--plain {
+  background: none;
+  color: var(--link);
+}
+
+.tag {
+  padding: 0 6px;
+  border-radius: var(--r-badge);
+  background: var(--field);
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-badge);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.status--done {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.status--info {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.status--pending,
+.status--warn {
+  background: var(--warn-bg);
+  color: var(--graphite);
+}
+
+.counter {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: var(--line);
+  color: var(--graphite);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.counter--urgent {
+  background: var(--red);
+  color: #fff;
+}
+
+.icon-tile {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+  color: var(--graphite);
+}
+
+.field {
+  width: 100%;
+  min-height: 56px;
+  padding: 16px;
+  border: 1px solid transparent;
+  border-radius: var(--r-control);
+  background: var(--field);
+  font-size: 16px;
+}
+
+.field:focus {
+  border-color: var(--focus-color);
+  background: var(--surface);
+  outline: none;
+}
+
+.field[aria-invalid='true'] {
+  border-color: var(--neg);
+}
+
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--skeleton) 0%, #f6f7f8 50%, var(--skeleton) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.flip {
+  transform: rotate(180deg);
+}
+
+.money {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.money__whole {
+  font-weight: 700;
+}
+
+.money__rest {
+  color: var(--ink-2);
+}
+
+.money--in .money__whole {
+  color: var(--ok-text);
+}
+
+/* Таблицы: шапка капсом, суммы справа */
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.table th {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 1.25px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.table td {
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+.table th:first-child,
+.table td:first-child {
+  padding-left: 0;
+}
+
+.table th:last-child,
+.table td:last-child {
+  padding-right: 0;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table__main {
+  display: block;
+  font-weight: 500;
+}
+
+.table__sub {
+  display: block;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.table__muted {
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* ─── Оболочка интернет-банка ─────────────────────────────────────────────── */
+
+.prototype-notice {
+  padding: 6px 16px;
+  background: var(--graphite);
+  color: rgba(255, 255, 255, 0.94);
+  font-size: 13px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.app {
+  min-height: 100vh;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: calc(100vh - 28px);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 12px;
+  border-right: 1px solid #eaebee;
+  background: var(--bg);
+}
+
+.sidebar__brand {
+  padding: 4px 12px;
+  text-decoration: none;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand__mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--graphite);
+  color: #fff;
+}
+
+.brand__name {
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.brand__badge {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav__new {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: default;
+}
+
+.nav__new-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--graphite);
+  color: #fff;
+}
+
+.nav__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  color: var(--graphite);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.nav__item svg {
+  color: var(--ink-2);
+}
+
+a.nav__item:hover {
+  background: var(--hover);
+}
+
+.nav__item.active {
+  background: var(--surface);
+}
+
+.nav__item.active svg {
+  color: var(--graphite);
+}
+
+.nav__item--muted {
+  color: var(--ink-2);
+  cursor: default;
+}
+
+.nav__group {
+  margin: 16px 12px 6px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 16px;
+  letter-spacing: 1.25px;
+  text-transform: uppercase;
+}
+
+.nav__item--service svg,
+.nav__item--service.active svg {
+  color: var(--red);
+}
+
+.main {
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  min-height: 64px;
+  padding: 8px 32px;
+}
+
+.topbar__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-right: auto;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.topbar__icons {
+  display: flex;
+  gap: 16px;
+  color: var(--ink-2);
+}
+
+.content {
+  padding: 8px 32px 64px;
+}
+
+.page {
+  display: grid;
+  gap: 24px;
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+.page--narrow {
+  max-width: 880px;
+}
+
+/* дети сетки не должны раздвигать страницу шире экрана (прокручиваемые ленты внутри) */
+.page > *,
+.briefing > *,
+.insight__main > * {
+  min-width: 0;
+}
+
+.page-head__title {
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 48px;
+}
+
+.page-head__lead {
+  max-width: 70ch;
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 16px;
+  line-height: 24px;
+}
+
+/* ─── Переключатель пользователя в шапке ──────────────────────────────────── */
+
+.switcher {
+  position: relative;
+}
+
+.switcher__caption {
+  display: none;
+}
+
+.switcher__button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 380px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.switcher__button:hover {
+  background: var(--hover);
+}
+
+.switcher__who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcher__company {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.switcher__role {
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.switcher__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  width: min(380px, calc(100vw - 32px));
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding: 8px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-s);
+}
+
+.switcher__menu-title {
+  padding: 8px 12px 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.switcher__group {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.switcher__group-name {
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.switcher__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.switcher__option:hover {
+  background: var(--hover);
+}
+
+.switcher__option[aria-current='true'] {
+  font-weight: 700;
+}
+
+.switcher__exit {
+  width: 100%;
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* ─── Вход ────────────────────────────────────────────────────────────────── */
+
+.login {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 48px 16px 64px;
+}
+
+.login__head {
+  margin-bottom: 32px;
+}
+
+.login__title {
+  margin-top: 28px;
+  font-size: 40px;
+  font-weight: 700;
+  line-height: 48px;
+}
+
+.login__lead {
+  max-width: 64ch;
+  margin-top: 8px;
+  color: var(--ink-2);
+}
+
+.login__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.login-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.login-card__title {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-card__role {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.login-card__company {
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+}
+
+.login-card__features {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.login-card__features dt {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.login-card .btn {
+  margin-top: auto;
+}
+
+.boot {
+  display: grid;
+  place-items: center;
+  min-height: 60vh;
+  padding: 16px;
+}
+
+.boot__loading {
+  display: grid;
+  gap: 12px;
+}
+
+/* ─── Главная интернет-банка ──────────────────────────────────────────────── */
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.quick-action {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 112px;
+  padding: 16px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  padding: 16px 24px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.tasks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Плашка сервиса: первая карточка под быстрыми действиями */
+
+.plate__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.plate__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.plate__mark {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+  color: var(--red);
+}
+
+.plate__subtitle {
+  display: block;
+  margin-top: 2px;
+  color: var(--ink-2);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.plate__list {
+  display: grid;
+}
+
+.plate__list > li + li {
+  border-top: 1px solid var(--line);
+}
+
+.plate__row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  margin: 0 -8px;
+  padding: 12px 8px;
+  border-radius: var(--r-control);
+  text-decoration: none;
+}
+
+a.plate__row:hover {
+  background: var(--hover);
+}
+
+.plate__row--skeleton {
+  grid-template-columns: 40px minmax(0, 1fr);
+}
+
+.plate__skeleton-text {
+  display: grid;
+  gap: 8px;
+}
+
+.plate__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plate__item-title {
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.plate__item-why {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.plate__aside {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.plate__item-date {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.plate__state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  color: var(--ink-2);
+}
+
+.plate__note {
+  margin-top: 12px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.accounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.account {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+}
+
+.account__name {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.account__balance {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.account__number {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Бейджи значимости и банка ───────────────────────────────────────────── */
+
+.bank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--origin-bank-text);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.bank-badge svg {
+  color: var(--origin-bank);
+}
+
+.meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.meter__bars {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.meter__bars i {
+  width: 12px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.meter--3 .meter__bars i,
+.meter--2 .meter__bars i:nth-child(-n + 2),
+.meter--1 .meter__bars i:first-child {
+  background: var(--graphite);
+}
+
+.meter__label {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* ─── Брифинг ─────────────────────────────────────────────────────────────── */
+
+.briefing {
+  display: grid;
+  gap: 24px;
+}
+
+.summary .stmt-list {
+  gap: 8px;
+}
+
+.top-events {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.top-event__link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  padding: 20px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+  text-decoration: none;
+}
+
+.top-event__link:hover {
+  box-shadow: var(--shadow-s);
+}
+
+.top-event__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.top-event__title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.top-event__why {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.top-event__channel {
+  margin-top: auto;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.filters {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.filters__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filters__label {
+  min-width: 64px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.filters__count {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.feed-list {
+  display: grid;
+  gap: 8px;
+}
+
+.feed-row {
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.feed-row__link {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: var(--r-card);
+  text-decoration: none;
+}
+
+.feed-row__link:hover {
+  box-shadow: var(--shadow-s);
+}
+
+.feed-row--skeleton {
+  display: grid;
+  gap: 10px;
+  padding: 20px 24px;
+}
+
+.feed-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.feed-row__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.feed-row__title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.feed-row__why {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.feed-row__why-label {
+  color: var(--ink-2);
+}
+
+.feed-row__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* ─── Состояния ───────────────────────────────────────────────────────────── */
+
+.state {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.state > svg {
+  box-sizing: content-box;
+  padding: 12px;
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.state--error > svg {
+  background: var(--neg-bg);
+  color: var(--neg-text);
+}
+
+.state--error > div {
+  flex: 1;
+}
+
+.state--empty {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.state__title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.state__text {
+  max-width: 64ch;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* ─── Карточка события ────────────────────────────────────────────────────── */
+
+.back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.insight {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  align-items: start;
+  gap: 24px;
+}
+
+.insight__main {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+
+.insight-head {
+  display: grid;
+  gap: 8px;
+}
+
+.insight-head__date {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.insight-head__title {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 36px;
+}
+
+.insight-head__relevance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.warnings {
+  display: flex;
+  gap: 12px;
+  padding: 16px 20px;
+  border: 1px solid var(--warn);
+  border-radius: var(--r-card);
+  background: var(--warn-bg);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.warnings > svg {
+  color: var(--warn);
+}
+
+.warnings__title {
+  font-weight: 700;
+}
+
+.warnings ul {
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.block {
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.block__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.block__n {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--graphite);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Позиция банка — белая карточка с красной линией 4 px: красная заливка у банка значит «ошибка» */
+.block--bank {
+  border-left: 4px solid var(--origin-bank);
+}
+
+.block--bank .block__n {
+  background: var(--red-text);
+  color: #fff;
+}
+
+.bank-date {
+  margin-bottom: 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.bank-empty {
+  padding: 16px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.sub-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 24px 0 12px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.two-col > div > .sub-title,
+.block > .sub-title:first-of-type {
+  margin-top: 0;
+}
+
+.sub-title--risk::before,
+.sub-title--opportunity::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.sub-title--risk::before {
+  background: var(--neg);
+}
+
+.sub-title--opportunity::before {
+  background: var(--ok);
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+/* Утверждения: метка (цвет + иконка + слово) и линия слева */
+
+.stmt-list {
+  display: grid;
+  gap: 12px;
+}
+
+.stmt {
+  padding: 12px 16px;
+  border-left: 2px solid var(--origin-fact);
+  border-radius: 0 var(--r-control) var(--r-control) 0;
+  background: var(--origin-fact-bg);
+}
+
+.stmt--bank {
+  border-left: 4px solid var(--origin-bank);
+  background: var(--surface);
+}
+
+.block--bank .stmt--bank {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.stmt--ai,
+.stmt--estimate {
+  border-left: 2px dashed var(--origin-ai);
+  background: var(--origin-ai-bg);
+}
+
+.stmt--offer {
+  border-left: 0;
+  background: var(--origin-offer-bg);
+}
+
+.stmt__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin-bottom: 6px;
+}
+
+.stmt__caption {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.stmt__confidence {
+  color: var(--origin-ai-text);
+  font-size: 13px;
+}
+
+.stmt__text {
+  max-width: 72ch;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.stmt__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font-size: 13px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.stmt__no-refs {
+  margin-top: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.stmt__no-refs--warn {
+  color: var(--graphite);
+}
+
+.stmt__no-refs--warn::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.origin-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 6px;
+  border-radius: var(--r-badge);
+  background: var(--surface);
+  color: var(--origin-fact);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.origin-tag--bank {
+  color: var(--origin-bank-text);
+}
+
+.origin-tag--bank svg {
+  color: var(--origin-bank);
+}
+
+.stmt--bank .origin-tag,
+.legend .origin-tag--bank {
+  background: var(--neg-bg);
+}
+
+.origin-tag--ai,
+.origin-tag--estimate {
+  color: var(--origin-ai-text);
+}
+
+.origin-tag--ai svg,
+.origin-tag--estimate svg {
+  color: var(--origin-ai);
+}
+
+.legend .origin-tag--ai {
+  background: var(--origin-ai-bg);
+}
+
+.legend .origin-tag--fact,
+.legend .origin-tag--data {
+  background: var(--origin-fact-bg);
+}
+
+.origin-tag--offer {
+  background: var(--surface);
+  color: var(--graphite);
+}
+
+.origin-tag--offer svg {
+  color: var(--origin-offer);
+}
+
+/* Источники */
+
+.refs {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.refs--grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  margin-top: 0;
+}
+
+.ref {
+  padding: 12px 16px;
+  border-radius: var(--r-control);
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--line);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ref--bank {
+  border-left: 4px solid var(--origin-bank);
+}
+
+.ref--feature {
+  background: var(--bg);
+  box-shadow: none;
+}
+
+.ref--missing {
+  color: var(--ink-2);
+}
+
+.ref__head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.ref__publisher {
+  color: var(--graphite);
+  font-weight: 500;
+}
+
+.ref__title {
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.ref__page {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.ref__fragment {
+  margin-top: 8px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-strong);
+  color: var(--ink-2);
+}
+
+.ref__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  color: var(--link);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.ref__note {
+  margin-top: 8px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* Цепочка влияния: дорожки каналов, узел «Вы» — единственный тёмный */
+
+.chains {
+  display: grid;
+  gap: 8px;
+}
+
+.chain {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+}
+
+.chain__kind {
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 16px;
+}
+
+.chain__body {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chain__path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+}
+
+.chain__node {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--r-control);
+  background: var(--surface);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.chain__node:not(:last-child)::after {
+  content: '→';
+  position: absolute;
+  right: -15px;
+  color: var(--ink-2);
+}
+
+.summary {
+  display: grid;
+  gap: 12px;
+}
+
+.summary .section-title {
+  margin-bottom: 0;
+}
+
+.chain__node--you {
+  background: var(--graphite);
+  color: #fff;
+}
+
+.chain__text {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.chain__numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.chain__parties {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.chain__parties li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+}
+
+.chain__party-id {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.chain__party-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.gaps {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.gaps li::before {
+  content: '';
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--warn);
+}
+
+.group-impact > p {
+  margin-bottom: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+/* Банк против рынка */
+
+.vs-market {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.vs-market__summary {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.vs-market .stmt-list {
+  width: 100%;
+}
+
+.vs-market__pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+/* Оценка в рублях */
+
+.estimate {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+}
+
+.estimate .sub-title {
+  margin: 0;
+}
+
+.estimate .sub-title svg {
+  color: var(--origin-ai);
+}
+
+.estimate__field {
+  display: grid;
+  gap: 6px;
+  max-width: 420px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.estimate__field .field {
+  background: var(--surface);
+}
+
+.estimate__field small {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.estimate__field .estimate__error {
+  color: var(--neg-text);
+}
+
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-self: start;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-control);
+  background: var(--field);
+}
+
+.segmented__item {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: none;
+  font-size: 14px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.segmented__item[aria-checked='true'] {
+  background: var(--surface);
+  font-weight: 500;
+}
+
+.estimate__value {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.estimate__number {
+  color: var(--origin-ai-text);
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+  text-decoration: underline dotted;
+  text-underline-offset: 4px;
+}
+
+.estimate__formula {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.estimate__assumptions {
+  padding-left: 18px;
+  list-style: disc;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* Действия и предложение банка */
+
+.actions {
+  display: grid;
+}
+
+.action {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.action:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.action__kind {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.offer {
+  display: flex;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: var(--r-card);
+  background: var(--origin-offer-bg);
+}
+
+.offer__icon {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--origin-offer);
+}
+
+.offer__text {
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+}
+
+.offer__note {
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.checks {
+  display: grid;
+  gap: 6px;
+  font-size: 14px;
+}
+
+.checks li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checks svg {
+  color: var(--ok-text);
+}
+
+/* Отзыв */
+
+.feedback {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 20px 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.feedback__question {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.feedback__buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.feedback__reasons {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.feedback__reasons p {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.feedback__error {
+  width: 100%;
+  color: var(--neg-text);
+  font-size: 14px;
+}
+
+.feedback--sent {
+  color: var(--ok-text);
+  font-weight: 500;
+}
+
+/* Правая колонка карточки */
+
+.insight__rail {
+  position: sticky;
+  top: 16px;
+  display: grid;
+  gap: 16px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+}
+
+.rail-card {
+  padding: 20px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.rail-card__title {
+  margin-bottom: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.legend {
+  display: grid;
+  gap: 12px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.legend li {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.rail-features {
+  display: grid;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.rail-features dt {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.rail-missing {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.breakdown ul {
+  display: grid;
+  gap: 10px;
+}
+
+.breakdown li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.breakdown__bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.breakdown__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--graphite);
+}
+
+.breakdown__value,
+.breakdown__total {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.breakdown__total {
+  margin-top: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Шаги анализа — вертикальный степпер */
+
+.analysis {
+  margin-top: 16px;
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.analysis__title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.analysis__lead {
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.analysis__steps {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.analysis__step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--ink-2);
+  font-size: 16px;
+}
+
+.analysis__step.is-active {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.analysis__mark {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.analysis__step.is-active .analysis__mark {
+  background: var(--graphite);
+  color: #fff;
+}
+
+/* ─── Узкий экран ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .insight {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .insight__rail {
+    position: static;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    max-height: none;
+  }
+
+  .top-events {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .quick-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid #eaebee;
+  }
+
+  .sidebar__brand {
+    padding: 0;
+  }
+
+  .brand__name,
+  .nav__new,
+  .nav__group,
+  .nav__item--muted {
+    display: none;
+  }
+
+  .nav {
+    flex-direction: row;
+  }
+
+  .nav__item {
+    white-space: nowrap;
+  }
+
+  .topbar {
+    padding: 8px 16px;
+  }
+
+  .topbar__search,
+  .topbar__icons {
+    display: none;
+  }
+
+  .switcher {
+    width: 100%;
+  }
+
+  .switcher__button {
+    width: 100%;
+    max-width: none;
+    background: var(--surface);
+  }
+
+  .content {
+    padding: 8px 16px 48px;
+  }
+
+  .login__list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .page-head__title,
+  .login__title {
+    font-size: 30px;
+    line-height: 36px;
+  }
+
+  .insight-head__title {
+    font-size: 26px;
+    line-height: 32px;
+  }
+
+  .card,
+  .block,
+  .feed-row__link {
+    padding: 16px;
+  }
+
+  .quick-actions {
+    display: flex;
+    overflow-x: auto;
+  }
+
+  .quick-action {
+    min-width: 150px;
+  }
+
+  .plate__row {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+
+  .plate__aside {
+    grid-column: 2;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+  }
+
+  .two-col,
+  .vs-market__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .action {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .offer {
+    flex-direction: column;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
