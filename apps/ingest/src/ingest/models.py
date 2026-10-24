@@ -2,7 +2,7 @@
 
 Поля сверх контракта необязательные. У новостей: `also_reported_by` (тот же сюжет у других издателей),
 `expectations` (ожидания рынка и аналитиков из текста). У аналитики: `page`, `file`, `page_ref`, `ocr_engine`,
-`ocr_confidence`, `stale`. В разметке: `factors` и `sector_links` с силой связи, `countries`, `tagged_by`.
+`ocr_confidence`, `ocr_fixes`, `stale`. В разметке: `factors` и `sector_links` с силой связи, `countries`, `tagged_by`.
 """
 
 from datetime import datetime
@@ -78,6 +78,7 @@ class Source(BaseModel):
     ocr_engine: str | None = None
     ocr_confidence: float | None = None
     vlm_text: str | None = None
+    ocr_fixes: list[str] | None = None  # у страницы: слова, исправленные по тексту Qwen3-VL («было → стало»)
     stale: bool | None = None
     also_reported_by: list[Mention] = Field(default_factory=list)
     expectations: list[Expectation] = Field(default_factory=list)

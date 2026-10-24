@@ -5,8 +5,15 @@
 *.pem
 *.key
 
-# данные кейса — не в репозитории; для проверки есть data/demo/
-data/raw/
+# данные кейса: CSV и распознанная аналитика банка лежат в репозитории (он приватный — так разрешили организаторы);
+# исходные PDF аналитики, журналы вызовов моделей и свежие новости — нет
+data/raw/*
+!data/raw/companies/
+!data/raw/derived/
+data/raw/derived/*
+!data/raw/derived/alfa_pages.jsonl
+!data/raw/derived/alfa_fragments.jsonl
+!data/raw/derived/ocr/
 
 # зависимости и сборка
 node_modules/

@@ -11,12 +11,10 @@ def test_load_companies_tolerates_garbage_and_duplicates(data_dir):
     by_id = {c.id: c for c in companies}
 
     assert sorted(by_id) == ["U_1", "U_2", "U_3", "U_4"]
-    assert stats.rows_read == 7
+    assert stats.rows_read == 8
     assert stats.rows_loaded == 4
-    assert stats.rows_skipped == 3  # дубль U_1, строка с другим числом колонок, строка без id
-    # у дубля берётся первая запись, повтор посчитан
-    assert by_id["U_1"].okved_code == "46.71"
-    assert by_id["U_1"].duplicates == 2
+    # обе строки повторяющегося id U_5 (артефакт обезличивания), строка с другим числом колонок, строка без id
+    assert stats.rows_skipped == 4
     # мусор в значениях — None, а не ошибка
     assert by_id["U_3"].rko is None
     assert by_id["U_3"].revenue is None

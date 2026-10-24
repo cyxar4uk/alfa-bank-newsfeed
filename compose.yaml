@@ -24,7 +24,10 @@ services:
 
   # загрузка CSV кейса в БД; уже загруженные файлы пропускает
   import:
-    build: ./apps/api
+    build:
+      context: ./apps/api
+      additional_contexts:
+        ingest: ./apps/ingest
     command: ["python", "-m", "api.importer"]
     environment:
       <<: *api-env
@@ -36,10 +39,43 @@ services:
       db:
         condition: service_healthy
 
-  api:
-    build: ./apps/api
+  # парсер: снимок новостей и готовая аналитика банка (data/raw/derived/alfa_*.jsonl, если есть) — в БД, затем
+  # свежие новости из лент каждые INGEST_EVERY_MIN минут сразу в БД; без сети остаётся загруженное. Модели не
+  # вызывает, файлы не пишет. Распознать PDF аналитики — отдельно: docker compose -f apps/ingest/compose.yaml run --rm ingest
+  ingest:
+    build: ./apps/ingest
+    command: ["serve", "--data", "/data"]
     environment:
       <<: *api-env
+      INGEST_EVERY_MIN: ${INGEST_EVERY_MIN:-30}
+    volumes:
+      - ./data:/data:ro
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build:
+      context: ./apps/api
+      additional_contexts:
+        ingest: ./apps/ingest
+    # ключ и адрес моделей (LLM_API_KEY, LLM_BASE_URL) — из .env в корне; без них агент отвечает 503, остальное работает
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *api-env
+      DATA_DIR: /data
+      NEWS_SNAPSHOT: /demo/news_snapshot.jsonl
+      LLM_CACHE_DIR: /cache/llm
+      LLM_JOURNAL: /cache/llm_calls.jsonl
+      LLM_DAILY_BUDGET_RUB: ${LLM_DAILY_BUDGET_RUB:-150}
+    volumes:
+      # разобранные новости и аналитика (data/raw/derived) — только чтение; кэш и журнал моделей — свой том
+      - ${DATA_DIR:-./data/raw}:/data:ro
+      - ./data/demo:/demo:ro
+      - llmcache:/cache
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -55,3 +91,4 @@ services:
 
 volumes:
   pgdata:
+  llmcache:

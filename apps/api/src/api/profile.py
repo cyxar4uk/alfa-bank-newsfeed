@@ -1,5 +1,6 @@
 """Сборка профиля компании из записи выгрузки, её группы и платежей."""
 
+import dataclasses
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -69,6 +70,17 @@ def format_share(share: float) -> str:
     return f"{percent:.0f} %" if percent >= 1 else f"{percent:.1f} %".replace(".", ",")
 
 
+def companies(n: int) -> str:
+    """«1 компания», «3 компании», «12 компаний»."""
+    if n % 10 == 1 and n % 100 != 11:
+        word = "компания"
+    elif n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        word = "компании"
+    else:
+        word = "компаний"
+    return f"{n} {word}"
+
+
 def scale_for(revenue: float) -> str:
     if revenue > LARGE_REVENUE:
         return "крупный бизнес"
@@ -98,10 +110,15 @@ class _Builder:
         self.missing: list[MissingFeature] = []
         self.notes: list[str] = []
 
-    def dataset(self, column: str, label: str, value, display: str | None = None) -> None:
+    def dataset(
+        self, column: str, label: str, value, display: str | None = None, reason: str | None = None
+    ) -> None:
         feature_id = f"feat:{column}"
         if value is None:
-            self.missing.append(MissingFeature(id=feature_id, label=label))
+            missing = MissingFeature(id=feature_id, label=label)
+            if reason:
+                missing.reason = reason
+            self.missing.append(missing)
             return
         self.features.append(
             Feature(id=feature_id, label=label, value=value, display=display, source="dataset")
@@ -133,7 +150,9 @@ class _Builder:
 
 
 @dataclass
-class _Pair:
+class Pair:
+    """Платежи с одним контрагентом в обе стороны."""
+
     out_amount: float = 0.0
     in_amount: float = 0.0
     payments: int = 0
@@ -146,6 +165,7 @@ def build_profile(
     group_size: int = 1,
     group_members: list[str] | None = None,
     industry: IndustryPosition | None = None,
+    group_revenue: float | None = None,
 ) -> CompanyProfile:
     b = _Builder()
 
@@ -159,12 +179,47 @@ def build_profile(
 
     # масштаб
     revenue = company.revenue
-    b.dataset("REVENUE_COMPANY", "Выручка", revenue, display=format_rub(revenue) if revenue else None)
+    b.dataset(
+        "REVENUE_COMPANY",
+        "Выручка за 2025 год",
+        revenue,
+        display=format_rub(revenue) if revenue else None,
+        reason="нет в выгрузке или заглушка 1000",
+    )
+    in_group = bool(company.group_id and group_size > 1)
+    own_refs = ["feat:REVENUE_COMPANY"] if revenue else []
+    if in_group:
+        b.derived(
+            "group_revenue",
+            "Выручка группы",
+            group_revenue,
+            ["feat:GROUP_ID", *own_refs],
+            display=f"{format_rub(group_revenue)} — {companies(group_size)}" if group_revenue else None,
+            reason="нет выручки ни у одной компании группы",
+        )
+        share = revenue / group_revenue if revenue and group_revenue else None
+        b.derived(
+            "group_revenue_share",
+            "Доля компании в выручке группы",
+            round(share, 4) if share is not None else None,
+            ["feat:REVENUE_COMPANY", "feat:group_revenue"],
+            display=format_share(share) if share is not None else None,
+            reason="нет своей выручки или выручки группы",
+        )
+    # сегмент считается по выручке группы (ответ организаторов), у компании вне группы — по своей;
+    # своей выручке сегмент не приписываем
+    basis = group_revenue if in_group and group_revenue else revenue
+    scale = scale_for(basis) if basis else None
+    scale_display = None
+    if scale and in_group and group_revenue:
+        own = f"своя выручка — {format_rub(revenue)}" if revenue else "своей выручки в данных нет"
+        scale_display = f"{scale} по выручке группы ({format_rub(group_revenue)}); {own}"
     b.derived(
         "scale",
         "Масштаб",
-        scale_for(revenue) if revenue else None,
-        ["feat:REVENUE_COMPANY"],
+        scale,
+        ["feat:group_revenue", *own_refs] if in_group and group_revenue else own_refs,
+        display=scale_display,
         reason="нет выручки",
     )
     b.dataset("AMOUNT_WORKERS_FNS_GRADATION", "Сотрудники по данным ФНС", company.workers_fns)
@@ -174,7 +229,9 @@ def build_profile(
     b.dataset(
         "OKFS_NAME", "Форма собственности", company.okfs_name.capitalize() if company.okfs_name else None
     )
-    b.dataset("NEGATIVEMARK", "Признак ключевого собственника", company.negative_mark)
+    b.dataset(
+        "NEGATIVEMARK", "У банка есть достоверные сведения о ключевом собственнике", company.negative_mark
+    )
 
     # отношения с банком
     client_type = company.client_type
@@ -209,12 +266,14 @@ def build_profile(
     group = None
     if company.group_id:
         members = (group_members or [])[:GROUP_MEMBERS_SHOWN]
-        group = CompanyGroup(id=company.group_id, size=max(group_size, 1), members=members)
+        group = CompanyGroup(
+            id=company.group_id, size=max(group_size, 1), revenue=group_revenue, members=members
+        )
         b.dataset(
             "GROUP_ID",
             "Группа компаний",
             company.group_id,
-            display="компания вне группы" if group.size == 1 else f"{group.size} компаний в группе",
+            display="компания вне группы" if group.size == 1 else f"{companies(group.size)} в группе",
         )
     else:
         b.dataset("GROUP_ID", "Группа компаний", None)
@@ -224,11 +283,6 @@ def build_profile(
     b.dataset("CITY", "Город", company.city)
 
     counterparties, payments = _counterparties(company, flows, b)
-
-    if company.duplicates > 1:
-        b.notes.append(
-            f"id {company.id} встречается в выгрузке {company.duplicates} раз — взята первая запись"
-        )
 
     return CompanyProfile(
         id=company.id,
@@ -314,40 +368,92 @@ def _side_features(side: PaymentSide, name: str, label: str, of_what: str, b: _B
     )
 
 
-def _counterparties(
-    company: CompanyRecord, flows: list[Flow], b: _Builder
-) -> tuple[list[Counterparty], PaymentStructure | None]:
-    pairs: dict[str, _Pair] = defaultdict(_Pair)
-    self_payments = 0
-    outliers: set[str] = set()  # контрагенты, у которых отброшена хотя бы одна сторона
+@dataclass
+class Flows:
+    """Платежи компании, сведённые по контрагентам: без самоплатежей и явных выбросов."""
+
+    company: CompanyRecord
+    pairs: dict[str, Pair]
+    self_payments: int = 0
+    outliers: set[str] = dataclasses.field(
+        default_factory=set
+    )  # контрагенты, у которых отброшена хотя бы одна сторона
+    had_flows: bool = False
+
+    @property
+    def turnover(self) -> float:
+        return sum(p.out_amount + p.in_amount for p in self.pairs.values())
+
+    def in_group(self, cp: CompanyRecord | None) -> bool:
+        return in_group(self.company, cp)
+
+    def external(self) -> list[Pair]:
+        return [p for p in self.pairs.values() if not self.in_group(p.counterparty)]
+
+
+def in_group(company: CompanyRecord, cp: CompanyRecord | None) -> bool:
+    return bool(cp and company.group_id and cp.group_id == company.group_id)
+
+
+def aggregate_flows(company: CompanyRecord, flows: list[Flow]) -> Flows:
+    result = Flows(company=company, pairs=defaultdict(Pair), had_flows=bool(flows))
     for flow in flows:
         if flow.counterparty_id == company.id:
-            self_payments += 1
+            result.self_payments += 1
             continue
         if company.revenue and flow.amount > company.revenue * OUTLIER_REVENUE_RATIO:
-            outliers.add(flow.counterparty_id)
+            result.outliers.add(flow.counterparty_id)
             continue
         if flow.amount <= 0:
             continue
-        pair = pairs[flow.counterparty_id]
+        pair = result.pairs[flow.counterparty_id]
         if flow.direction == "out":
             pair.out_amount += flow.amount
         else:
             pair.in_amount += flow.amount
         pair.payments += flow.payments
         pair.counterparty = pair.counterparty or flow.counterparty
+    result.pairs = dict(result.pairs)
+    return result
 
-    if self_payments:
+
+def payment_structure(agg: Flows) -> PaymentStructure | None:
+    """Структура оборота: стороны без группы, по классам ОКВЭД, с покрытием; нет оборота — None."""
+    turnover = agg.turnover
+    if not turnover:
+        return None
+    company = agg.company
+    intra = sum(p.out_amount + p.in_amount for p in agg.pairs.values() if agg.in_group(p.counterparty))
+    external = agg.external()
+    return PaymentStructure(
+        turnover=round(turnover, 2),
+        counterparties=len(agg.pairs),
+        intra_group_amount=round(intra, 2),
+        intra_group_share=round(intra / turnover, 4),
+        customers=_side([(p.in_amount, p.counterparty) for p in external if p.in_amount]),
+        suppliers=_side([(p.out_amount, p.counterparty) for p in external if p.out_amount]),
+        revenue_coverage=round(turnover / company.revenue, 4) if company.revenue else None,
+        excluded_self_payments=agg.self_payments,
+        excluded_outliers=len(agg.outliers),
+    )
+
+
+def _counterparties(
+    company: CompanyRecord, flows: list[Flow], b: _Builder
+) -> tuple[list[Counterparty], PaymentStructure | None]:
+    agg = aggregate_flows(company, flows)
+    pairs = agg.pairs
+    if agg.self_payments:
         b.notes.append("платежи компании самой себе не учитываются в контрагентах")
-    if outliers:
+    if agg.outliers:
         b.notes.append(
-            f"отброшено контрагентов с суммой больше годовой выручки: {len(outliers)}"
+            f"отброшено контрагентов с суммой больше годовой выручки: {len(agg.outliers)}"
             " — вероятно, внутренние переводы"
         )
 
-    turnover = sum(p.out_amount + p.in_amount for p in pairs.values())
+    structure = payment_structure(agg)
     sources = ["payments", "feat:REVENUE_COMPANY"]
-    if not turnover:
+    if structure is None:
         reason = "нет платежей в выгрузке" if not flows else "все платежи — самой себе или выбросы"
         for name, label in (
             ("payments_turnover", "Платёжный оборот"),
@@ -358,30 +464,13 @@ def _counterparties(
             b.derived(name, label, None, sources, reason=reason)
         return [], None
 
-    def in_group(cp: CompanyRecord | None) -> bool:
-        return bool(cp and company.group_id and cp.group_id == company.group_id)
-
-    intra = sum(p.out_amount + p.in_amount for p in pairs.values() if in_group(p.counterparty))
-    external = [p for p in pairs.values() if not in_group(p.counterparty)]
-    customers = _side([(p.in_amount, p.counterparty) for p in external if p.in_amount])
-    suppliers = _side([(p.out_amount, p.counterparty) for p in external if p.out_amount])
-    revenue_coverage = round(turnover / company.revenue, 4) if company.revenue else None
-    structure = PaymentStructure(
-        turnover=round(turnover, 2),
-        counterparties=len(pairs),
-        intra_group_amount=round(intra, 2),
-        intra_group_share=round(intra / turnover, 4),
-        customers=customers,
-        suppliers=suppliers,
-        revenue_coverage=revenue_coverage,
-        excluded_self_payments=self_payments,
-        excluded_outliers=len(outliers),
-    )
-
+    turnover = structure.turnover
+    intra = structure.intra_group_amount
+    revenue_coverage = structure.revenue_coverage
     display = f"{format_rub(turnover)}, контрагентов: {len(pairs)}"
     if revenue_coverage is not None:
         display += f"; {format_share(revenue_coverage)} выручки"
-    b.derived("payments_turnover", "Платёжный оборот", round(turnover, 2), sources, display=display)
+    b.derived("payments_turnover", "Платёжный оборот", turnover, sources, display=display)
     if revenue_coverage is not None and revenue_coverage < LOW_COVERAGE:
         b.notes.append(
             f"платежи в выгрузке — {format_share(revenue_coverage)} выручки: картина контрагентов неполная"
@@ -390,15 +479,15 @@ def _counterparties(
         b.derived(
             "intra_group_share",
             "Оборот внутри группы",
-            round(intra / turnover, 4),
+            structure.intra_group_share,
             ["payments", "feat:GROUP_ID"],
             display=(
                 f"{format_share(intra / turnover)} платёжного оборота"
                 " — в отрасли покупателей и поставщиков не входит"
             ),
         )
-    _side_features(customers, "customer_sectors", "Отрасли покупателей", "поступлений", b)
-    _side_features(suppliers, "supplier_sectors", "Отрасли поставщиков", "платежей", b)
+    _side_features(structure.customers, "customer_sectors", "Отрасли покупателей", "поступлений", b)
+    _side_features(structure.suppliers, "supplier_sectors", "Отрасли поставщиков", "платежей", b)
 
     ranked = sorted(pairs.items(), key=lambda item: (-(item[1].out_amount + item[1].in_amount), item[0]))
     result = []
@@ -422,8 +511,8 @@ def _counterparties(
                 role=role,
                 amount=round(amount, 2),
                 payments=pair.payments,
-                share=round(amount / turnover, 4),
-                intra_group=in_group(cp),
+                share=round(amount / agg.turnover, 4),
+                intra_group=agg.in_group(cp),
             )
         )
 
