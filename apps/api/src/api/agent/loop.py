@@ -15,8 +15,11 @@ from api.agent.checks import Checker, Report
 from api.agent.context import AgentContext
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
-from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
+from api.agent.ports import CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
+from api.agent.relevance import combine as relevance_combine
+from api.agent.relevance import formula as relevance_formula
+from api.agent.relevance import terms_for as relevance_terms
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
 from api.agent.trace import TraceRecorder
 from api.contract import (
@@ -210,6 +213,16 @@ class Agent:
         clean = _without(draft, report)
         dropped = len(draft.statements()) - len(clean.statements()) + len(draft.actions) - len(clean.actions)
         final = Checker(ctx).run(clean)
+        # значимость — согласованная с объяснением: формальная оценка и факторы, на которых строится карточка
+        formal = self.company.relevance(ctx.persona, ctx.event.source) or relevance_formula(ctx)
+        terms = relevance_terms(ctx, Checker(ctx).covered_factors(clean))
+        score, basis = relevance_combine(formal, terms)
+        trace.tool(
+            "relevance",
+            {"formal": formal.score},
+            [],
+            f"итог {score:.2f} — {basis}; " + "; ".join(t.describe() for t in terms[:5]),
+        )
         trace.check(final.ok, f"итог после очистки (убрано {dropped}): " + final.summary())
         sources = ctx.sources()
 
@@ -266,11 +279,10 @@ class Agent:
             if not issue.hard:
                 warnings.append(f"самопроверка: {issue.message}")
 
-        relevance = self.company.relevance(ctx.persona, ctx.event.source) or _fallback_relevance(ctx)
         relevance = Relevance(
-            score=relevance.score,
-            reason=clean.relevance_reason or relevance.reason,
-            refs=[r for r in dict.fromkeys([*relevance.refs, *clean.relevance_refs]) if r in known],
+            score=score,
+            reason=clean.relevance_reason or formal.reason,
+            refs=[r for r in dict.fromkeys([*formal.refs, *clean.relevance_refs]) if r in known],
         )
         published = ctx.event.source.published_at
         insight = Insight(
@@ -349,23 +361,4 @@ def _page_source(ref: str, page_text: str) -> Source:
         publisher="Альфа-Банк",
         page=int(m.group(1)) if m else None,
         fragment=snippet or None,
-    )
-
-
-def _fallback_relevance(ctx: AgentContext) -> Relevance:
-    """Пока нет ранжирования: сила события по фактору × сила фактора у компании, лучший канал."""
-    exposure = {f.code: f for f in ctx.exposure}
-    best, refs = 0.0, []
-    for tag in ctx.event.factors:
-        f = exposure.get(tag.code)
-        if f is None:
-            continue
-        strength = f.strength if f.strength is not None else LEVEL_RANK.get(f.level, 0) / 3
-        if tag.strength * strength > best:
-            best, refs = tag.strength * strength, f.refs
-    for ch in ctx.chain.channels:
-        if (ch.strength or 0) > best:
-            best, refs = ch.strength or 0, ch.refs
-    return Relevance(
-        score=round(min(best, 1.0), 2), reason="совпадение факторов события и карты компании", refs=refs
     )

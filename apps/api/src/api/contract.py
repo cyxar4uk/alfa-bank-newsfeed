@@ -20,7 +20,11 @@ Role = Literal["owner", "ceo", "cfo", "chief_accountant", "treasury", "other"]
 BankProduct = Literal["rko", "guarantee", "credit", "leasing", "deposit", "salary_project", "factoring", "fx"]
 
 # обязателен по ответам организаторов (Q49): в каждом инсайте и ответе на вопрос
-DISCLAIMER = "Не является инвестиционной рекомендацией. Оценки и выводы модели требуют проверки."
+# тот же текст, что в интерфейсе (apps/web/src/components/Disclaimer.tsx)
+DISCLAIMER = (
+    "Материалы носят информационный характер и не являются инвестиционной рекомендацией. Решения принимайте"
+    " с учётом собственного анализа."
+)
 
 ROLE_LABELS: dict[str, str] = {
     "owner": "Собственник",
