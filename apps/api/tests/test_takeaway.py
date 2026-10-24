@@ -59,7 +59,7 @@ def test_act_has_event_number_and_action():
     act = takeaway(item(0.6, short=short), "cfo")
     assert act.level == "act"
     assert act.text == (
-        "Ставка 14 % продержится дольше — долг дороже: собственный кредит в банке, кредиты у 11 компаний"
+        "Ставка 14,0 % продержится дольше — долг дороже: собственный кредит в банке, кредиты у 11 компаний"
         " группы. Что делать: сверьте сроки пересмотра ставок."
     )
 
@@ -105,7 +105,7 @@ def test_consequence_direction_and_side():
         exposure.factors[0].channel = ExposureChannel(kind="direct", text=channel)
         return consequence(item(0.6, title=title), key, exposure)
 
-    assert cons("ЦБ сохранил ставку 14,00%", "rate") == "Ставка 14 % продержится дольше — долг дороже"
+    assert cons("ЦБ сохранил ставку 14,00%", "rate") == "Ставка 14,0 % продержится дольше — долг дороже"
     assert cons("ЦБ снизил ключевую ставку", "rate") == "Ставка снижается — долг подешевеет"
     oil_up = "Цена Brent обновила полугодовой максимум"
     assert (
@@ -211,7 +211,7 @@ def test_consequence_does_not_flip_meaning():
     assert cons(pause, "rate") == "Ставка продержится дольше — долг дороже"
     assert cons("ЦБ снизил ставку, сохранив жесткий сигнал", "rate") == "Ставка снижается — долг подешевеет"
     assert cons("ЦБ не повысил ставку", "rate") == "Ставка не меняется — долг остаётся дорогим"
-    assert cons("Инфляция 9,5 %: ЦБ сохранил ставку 16 %", "rate").startswith("Ставка 16 %")
+    assert cons("Инфляция 9,5 %: ЦБ сохранил ставку 16 %", "rate").startswith("Ставка 16,0 %")
     # без предмета рядом с глаголом и при неясной стороне — не гадаем
     assert cons("Инфляция замедлилась, ЦБ обсудит ставку", "rate") is None
     assert cons("ОПЕК+ сократит добычу нефти", "commodity_oil", "своя отрасль — нефть") is None

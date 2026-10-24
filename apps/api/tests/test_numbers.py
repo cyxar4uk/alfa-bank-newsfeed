@@ -18,7 +18,7 @@ def test_numbers_in_russian():
 
 def test_model_text_fixed():
     assert russian_numbers("выручка 149.0 млрд ₽ и 34.0 млрд ₽") == "выручка 149 млрд ₽ и 34 млрд ₽"
-    assert russian_numbers("ставка 14.0 % и 16.5 %") == "ставка 14 % и 16,5 %"
+    assert russian_numbers("ставка 14.0 % и 16.5 %") == "ставка 14,0 % и 16,5 %"
     assert russian_numbers("127,1 млрд ₽") == "127,1 млрд ₽"
     # даты и номера не трогаем
     assert russian_numbers("заседание 23.10.2026, версия 1.2") == "заседание 23.10.2026, версия 1.2"
