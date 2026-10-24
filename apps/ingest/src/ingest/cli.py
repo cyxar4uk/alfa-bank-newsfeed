@@ -136,11 +136,15 @@ def connect_db(url: str, attempts: int = 30, delay: float = 2.0):
     raise RuntimeError("unreachable")
 
 
-def run_load(data: Path, url: str) -> dict:
+# столько новостей за круг дозаполняем картинкой и полным текстом со страниц материалов
+MEDIA_BATCH = 200
+
+
+def run_load(data: Path, url: str, media_limit: int = MEDIA_BATCH) -> dict:
     from ingest.db.load import load_all
 
     with connect_db(url) as conn:
-        result = load_all(conn, data)
+        result = load_all(conn, data, media_limit)
     _print_load(result)
     return result
 
@@ -153,6 +157,11 @@ def _print_load(result: dict) -> None:
                 f"  {name:<9} прочитано {s['read']:>4} · новых {s['inserted']:>4} · обновлено {s['updated']:>4}"
                 f" · без изменений {s['unchanged']:>4} · дописано к событиям {s['merged']:>3}"
             )
+    if m := result.get("media"):
+        print(
+            f"  страницы материалов: проверено {m['checked']} · картинок {m['images']} · полных текстов {m['texts']}"
+            f" · убрано заглушек {m['placeholders']}"
+        )
     if result.get("retagged"):
         print(f"  разметка: словари изменились — переразмечено новостей {result['retagged']}")
     a = result.get("analytics", {})
@@ -174,7 +183,7 @@ def run_serve(data: Path, url: str, every: float, iterations: int | None = None)
 
     import psycopg
 
-    from ingest.db.load import load_news
+    from ingest.db.load import enrich_news, load_news
 
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     loaded = False
@@ -197,6 +206,12 @@ def run_serve(data: Path, url: str, every: float, iterations: int | None = None)
             if news:
                 with connect_db(url, attempts=3) as conn:
                     _print_load({"news": load_news(conn, news).__dict__})
+                    try:
+                        _print_load({"media": enrich_news(conn, MEDIA_BATCH).__dict__})
+                    except psycopg.Error:
+                        raise
+                    except Exception as exc:  # noqa: BLE001 — картинки не должны останавливать сбор новостей
+                        print(f"  страницы материалов: сбой {exc!r} — повтор на следующем круге")
             else:
                 print("  ленты не ответили — в базе остаётся загруженное")
         except (psycopg.Error, OSError) as exc:
