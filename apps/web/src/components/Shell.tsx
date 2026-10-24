@@ -46,6 +46,13 @@ function Decorative({ icon, label }: { icon: IconName; label: string }) {
   );
 }
 
+// Лента и карточка показывают дисклеймер сами, в своей раскладке (макет «Итог»).
+const SERVICE_PAGES = new Set(['map', 'weekly', 'analyze', 'trace']);
+function ownDisclaimer(pathname: string) {
+  const [, radar, page] = pathname.split('/');
+  return radar === 'radar' && (page === undefined || page === '' || !SERVICE_PAGES.has(page));
+}
+
 export function Shell() {
   const { pathname } = useLocation();
   return (
@@ -95,7 +102,7 @@ export function Shell() {
             <ErrorBoundary key={pathname}>
               <Outlet />
             </ErrorBoundary>
-            {pathname.startsWith('/radar') && <Disclaimer />}
+            {pathname.startsWith('/radar') && !ownDisclaimer(pathname) && <Disclaimer />}
           </main>
         </div>
       </div>
