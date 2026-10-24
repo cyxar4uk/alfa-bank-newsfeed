@@ -185,3 +185,144 @@ def test_bank_position_cites_the_checked_page():
     insight = build(good_draft(bank_position=page))
     assert insight.bank_position.source_id == "src:alfa:keyrate-2026-09#p1"
     assert insight.unresolved_refs() == set()
+
+
+BUDGET_FRAGMENT = "src:alfa:tactics-2026-07#p3-2"
+BUDGET_TEXT = (
+    "При слабой цене на нефть бюджету приходится менять правила: обсуждалось снижение цены отсечения."
+)
+
+
+class TwoMaterials(FakeLibrary):
+    """Аналитика из двух материалов: ставка (11.09) и бюджет (22.07)."""
+
+    def __init__(self):
+        super().__init__()
+        self.pages["src:alfa:tactics-2026-07#p3"] = BUDGET_TEXT
+
+    def search_alfa_analytics(self, query, *, factors=None, limit=5, material=None):
+        import datetime as dt
+
+        from api.agent.ports import AnalyticsHit
+        from api.contract import Source
+
+        budget = AnalyticsHit(
+            source=Source(
+                id=BUDGET_FRAGMENT,
+                kind="alfa_analytics",
+                title="Тактический взгляд на 3-й квартал 2026 года",
+                publisher="Альфа-Банк",
+                page=3,
+                fragment=BUDGET_TEXT,
+            ),
+            page_ref="src:alfa:tactics-2026-07#p3",
+            material_date=dt.date(2026, 7, 22),
+        )
+        return [*super().search_alfa_analytics(query), budget]
+
+
+def test_bank_position_label_comes_from_the_quoted_material():
+    # фраза и цитата — из материала про бюджет, а в контексте первым идёт материал про ставку
+    bp = DraftBankPosition(
+        statement="Альфа-Банк считает, что при слабой цене на нефть бюджету приходится менять правила.",
+        refs=[BUDGET_FRAGMENT],
+        quote="бюджету приходится менять правила",
+    )
+    insight = build(good_draft(bank_position=bp), library=TwoMaterials())
+    pos = insight.bank_position
+    assert pos.source_id == BUDGET_FRAGMENT
+    assert pos.material.startswith("Тактический взгляд") and pos.date.isoformat() == "2026-07-22"
+
+
+def test_bank_position_from_two_materials_or_wrong_date_is_rejected():
+    from test_agent_checks import make_ctx
+
+    from api.agent.checks import Checker
+
+    ctx = make_ctx(analytics=TwoMaterials().search_alfa_analytics(""))
+    ctx.page_texts["src:alfa:tactics-2026-07#p3"] = BUDGET_TEXT
+    mixed = DraftBankPosition(
+        statement="Альфа-Банк считает, что бюджету приходится менять правила.",
+        refs=[FRAGMENT, BUDGET_FRAGMENT],
+        quote="бюджету приходится менять правила",
+    )
+    assert ("bank_position", 0) in Checker(ctx).run(good_draft(bank_position=mixed)).hard_at()
+    wrong_date = DraftBankPosition(
+        statement="Альфа-Банк считает, что бюджету приходится менять правила (материал от 11.09.2026).",
+        refs=[BUDGET_FRAGMENT],
+        quote="бюджету приходится менять правила",
+    )
+    assert ("bank_position", 0) in Checker(ctx).run(good_draft(bank_position=wrong_date)).hard_at()
+
+
+def test_progress_speaks_human():
+    from api.agent.ports import ExposureFactor
+    from api.agent.tools import _chain_found, _depends_found
+
+    exposure = [
+        ExposureFactor(code="commodity_oil", label="Сырьё: нефть, газ и топливо", level="high"),
+        ExposureFactor(code="rate", label="Стоимость заёмных денег", level="medium"),
+        ExposureFactor(code="fx", label="Курс валют", level="low"),
+    ]
+    assert _depends_found(exposure) == [
+        "Сильнее всего на ваш бизнес влияют: цены на нефть, газ и топливо; стоимость заёмных денег"
+    ]
+    assert _chain_found("событие → недвижимость (68) → компании вашей группы: 5 компаний → вы") == (
+        "Как дойдёт до вас: недвижимость, затем компании вашей группы: 5 компаний"
+    )
+    seen = []
+    agent, _ = make_agent(reply(GOOD_PLAN), reply(good_draft()))
+    agent.run(PERSONA, make_event(), on_progress=seen.append)
+    first = seen[-1][0]
+    assert first.found == [PERSONA.company_name]  # «Оптовик топлива», а не «Компания №1 · …»
+
+
+def test_cited_fragment_is_where_the_quote_is():
+    from test_agent_checks import make_ctx
+
+    from api.agent.loop import _cited_hit
+
+    ctx = make_ctx(analytics=TwoMaterials().search_alfa_analytics(""))
+    ctx.page_texts["src:alfa:tactics-2026-07#p3"] = BUDGET_TEXT
+    # раньше подпись бралась у первого найденного фрагмента из refs — материала про ставку
+    ref, hit = _cited_hit(ctx, [FRAGMENT, BUDGET_FRAGMENT], "бюджету приходится менять правила")
+    assert ref == BUDGET_FRAGMENT and hit.material_date.isoformat() == "2026-07-22"
+
+
+def test_second_revision_only_when_worth_it():
+    from agent_fakes import fact
+
+    # одно неподтверждённое утверждение после первого круга — дешевле убрать, чем переписывать всё
+    one_bad = good_draft(what_happened=[fact(refs=[]), fact()])
+    agent, transport = make_agent(reply(GOOD_PLAN), reply(one_bad), reply(one_bad), reply(one_bad))
+    insight = agent.run(PERSONA, make_event()).insight
+    assert len(transport.bodies) == 3  # план, черновик, один круг доработки
+    assert all(s.refs for s in insight.what_happened)
+
+
+def test_failed_revision_keeps_the_best_draft():
+    from agent_fakes import fact
+
+    from api.llm import TransportResponse
+
+    error = TransportResponse(400, {"error": "x"}, '{"error": "x"}')
+    agent, _ = make_agent(reply(GOOD_PLAN), reply(good_draft(what_happened=[fact(refs=[]), fact()])), error)
+    insight = agent.run(PERSONA, make_event()).insight  # доработка упала — карточка всё равно есть
+    assert insight.verdict is not None and all(s.refs for s in insight.what_happened)
+
+
+def test_bank_view_from_two_materials_is_rejected():
+    from test_agent_checks import make_ctx
+
+    from api.agent.checks import Checker
+
+    ctx = make_ctx(analytics=TwoMaterials().search_alfa_analytics(""))
+    ctx.page_texts["src:alfa:tactics-2026-07#p3"] = BUDGET_TEXT
+    mixed = DraftStatement(
+        text="Альфа-Банк в материале от 11.09.2026 считает, что бюджету приходится менять правила.",
+        origin="bank",
+        refs=[FRAGMENT, BUDGET_FRAGMENT],
+        quote="бюджету приходится менять правила",
+    )
+    report = Checker(ctx).run(good_draft(bank_view=[mixed], bank_position=None))
+    assert ("bank_view", 0) in report.hard_at()

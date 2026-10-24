@@ -45,7 +45,7 @@ MAX_REVISIONS = 2
 MAX_ANALYTICS_QUERIES = 4
 # рассуждения DeepSeek занимают 4–7 тыс. токенов до ответа; меньший предел обрезает JSON и стоит лишней
 # попытки
-DRAFT_MAX_TOKENS = 12000
+DRAFT_MAX_TOKENS = 8000  # без рассуждений черновик — 3–5 тыс. токенов
 
 
 class AgentError(RuntimeError):
@@ -88,7 +88,7 @@ class Agent:
         profile = self.company.profile(persona.company_id)
         if profile is None:
             raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
-        trace.found(profile.display_name)
+        trace.found(persona.company_name or "")
         trace.tool(
             "get_profile", {"company_id": profile.id}, [f.id for f in profile.features], profile.display_name
         )
@@ -218,12 +218,18 @@ class Agent:
             extra = self.dig(ctx, tools, report, plan)
             trace.retry(f"круг {n}: {len(report.issues)} проблем(ы). {extra}".strip())
             trace.stage(f"Исправляю неточности (круг {n} из {MAX_REVISIONS})")
-            completion = self.llm.complete(
-                "revise",
-                revise_messages(ctx, draft, report, extra),
-                schema=Draft,
-                max_tokens=DRAFT_MAX_TOKENS,
-            )
+            try:
+                completion = self.llm.complete(
+                    "revise",
+                    revise_messages(ctx, draft, report, extra),
+                    schema=Draft,
+                    max_tokens=DRAFT_MAX_TOKENS,
+                )
+            except LlmError as exc:
+                # доработка не удалась (обрыв, сбой модели) — карточка из лучшего черновика, а не ошибка
+                trace.llm("revise", exc.calls)
+                trace.check(False, f"доработка не удалась: {exc}; карточка — из лучшего черновика")
+                break
             trace.llm("revise", completion.calls)
             draft = completion.value
             report = self.check(ctx, draft, trace)
@@ -394,25 +400,37 @@ def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> 
     return Verdict(level=level, headline=headline, why=why, actions=steps)
 
 
-def _hit_for(ctx: AgentContext, refs: list[str]):
-    return next((h for h in ctx.analytics if h.source.id in refs or h.page_ref in refs), None)
+def _cited_hit(ctx: AgentContext, refs: list[str], quote: str | None):
+    """Фрагмент аналитики, на который опирается позиция: где найдена её цитата, а не первый попавшийся.
+
+    Возвращает (ссылка, фрагмент). Подпись (материал, дата) берётся из него же — иначе фраза из одного
+    материала подписывается другим.
+    """
+    checker = Checker(ctx)
+    alfa = [r for r in refs if r.startswith("src:alfa:")]
+    quoted = [r for r in alfa if quote and quote_in(quote, checker.source_text(r))]
+    for ref in [*quoted, *alfa]:
+        page = ctx.page_ref_of(ref) or ref
+        hit = next((h for h in ctx.analytics if ref in (h.source.id, h.page_ref) or h.page_ref == page), None)
+        if hit is not None:
+            return ref, hit
+    return (alfa[0] if alfa else None), None
 
 
 def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
     """Позиция банка одной фразой с материалом и датой; нет позиции — так и сказано."""
     bp = draft.bank_position
     if bp is not None:
-        statement, refs = bp.statement, bp.refs
+        statement, refs, quote = bp.statement, bp.refs, bp.quote
     elif draft.bank_view:
-        statement, refs = draft.bank_view[0].text, draft.bank_view[0].refs
+        first = draft.bank_view[0]
+        statement, refs, quote = first.text, first.refs, first.quote
     elif any(not h.stale for h in ctx.analytics):
         # материал банка был, но позиция не подтвердилась самопроверкой — это не «банк не публиковал»
         return BankPosition(found=False, statement=UNCONFIRMED_BANK_POSITION)
     else:
         return BankPosition(found=False, statement=NO_BANK_POSITION)
-    hit = _hit_for(ctx, refs)
-    # ссылка — та, что процитирована и проверена (страница или фрагмент), а не id найденного фрагмента
-    cited = next((r for r in refs if r.startswith("src:alfa:")), None)
+    cited, hit = _cited_hit(ctx, refs, quote)
     return BankPosition(
         found=True,
         statement=statement,
@@ -455,7 +473,14 @@ def _worth_revising(ctx: AgentContext, report: Report, round_no: int) -> bool:
 
     Двух факторов не станет, если их нет в данных; позицию банка не стоит выжимать из нерелевантной аналитики
     дважды — после первого круга такие проблемы остаются предупреждениями.
+
+    Второй круг — полный черновик заново (~0,2 ₽, ~15 с) — только ради итога, позиции банка или нескольких
+    неподтверждённых утверждений: одно такое утверждение дешевле убрать из карточки, чем переписывать всё.
     """
+    if round_no > 1:
+        hard = report.hard_at()  # утверждения, а не проблемы: у одного их бывает несколько
+        if len(hard) < 2 and not any(i.block == "verdict" and i.hard for i in report.issues):
+            return False
     for issue in report.issues:
         if issue.hard:
             return True
