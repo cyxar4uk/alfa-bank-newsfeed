@@ -286,3 +286,26 @@ def test_serve_retries_initial_load(conn, tmp_path, monkeypatch, capsys):
     cli.run_serve(tmp_path, URL, every=0, iterations=3)
     assert len(calls) == 2  # упала — повторили на следующем круге, удалась — больше не грузим
     assert "БД ещё не поднялась" in capsys.readouterr().out
+
+
+def test_changed_dictionaries_retag_stored_news(conn):
+    from ingest.db.load import retag_news
+
+    old = news("u", "Минпромторг предложил ввести утильсбор на буровое оборудование")
+    stale = old.tags.model_copy(update={"okved": ["45"], "factors": [], "sector_links": []})
+    llm = news("l", "Продажи легковых автомобилей в сентябре выросли на 12%")
+    load_news(conn, [old.model_copy(update={"tags": stale}), llm])
+    # разметка моделью: правила её не трогают
+    conn.execute(
+        "UPDATE news SET tags = jsonb_set(tags, '{tagged_by}', '[\"rules\", \"llm\"]'), okved = '{45}'"
+        " WHERE id = 'src:news:l'"
+    )
+    conn.execute("DELETE FROM search_loads WHERE name = 'tagging'")
+
+    assert retag_news(conn) == 1
+    assert conn.execute("SELECT okved FROM news WHERE id = 'src:news:u'").fetchone()[0] == old.tags.okved
+    assert "45" not in old.tags.okved and "28" in old.tags.okved
+    assert conn.execute("SELECT okved FROM news WHERE id = 'src:news:l'").fetchone()[0] == ["45"]
+    assert retag_news(conn) == 0  # словари не менялись — второй проход ничего не делает
+    # следующая загрузка той же новости из ленты — без изменений: отпечаток после переразметки тот же
+    assert load_news(conn, [old]).unchanged == 1
