@@ -60,12 +60,22 @@ services:
       context: ./apps/api
       additional_contexts:
         ingest: ./apps/ingest
+    # ключ и адрес моделей (LLM_API_KEY, LLM_BASE_URL) — из .env в корне; без них агент отвечает 503, остальное работает
+    env_file:
+      - path: .env
+        required: false
     environment:
       <<: *api-env
-      # снимок новостей — источник ленты, когда базы новостей нет
+      DATA_DIR: /data
       NEWS_SNAPSHOT: /demo/news_snapshot.jsonl
+      LLM_CACHE_DIR: /cache/llm
+      LLM_JOURNAL: /cache/llm_calls.jsonl
+      LLM_DAILY_BUDGET_RUB: ${LLM_DAILY_BUDGET_RUB:-150}
     volumes:
+      # разобранные новости и аналитика (data/raw/derived) — только чтение; кэш и журнал моделей — свой том
+      - ${DATA_DIR:-./data/raw}:/data:ro
       - ./data/demo:/demo:ro
+      - llmcache:/cache
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -81,3 +91,4 @@ services:
 
 volumes:
   pgdata:
+  llmcache:
