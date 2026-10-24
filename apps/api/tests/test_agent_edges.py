@@ -119,7 +119,7 @@ def test_unfixable_soft_issue_does_not_burn_revisions():
     agent, transport = make_agent(reply(GOOD_PLAN), reply(good_draft()), company=company)
     insight = agent.run(PERSONA, make_event()).insight
     assert len(transport.bodies) == 2
-    assert any("меньше двух факторов" in w for w in insight.quality.warnings)
+    assert any("только одна связь" in w for w in insight.quality.warnings)
 
 
 def test_worse_revision_is_not_taken():

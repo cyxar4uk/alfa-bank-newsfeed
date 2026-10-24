@@ -102,12 +102,12 @@ class AgentService:
             )
         return agent
 
-    def _run(self, persona: Persona, event: Event, on_stage=None) -> Insight:
+    def _run(self, persona: Persona, event: Event, on_progress=None) -> Insight:
         agent = self._ready()
         if not self._runs.acquire(timeout=RUN_WAIT_SECONDS):
             raise AgentError("сервис занят: собирается слишком много карточек, повторите через минуту")
         try:
-            result = agent.run(persona, event, on_stage=on_stage)
+            result = agent.run(persona, event, on_progress=on_progress)
         except AgentError as exc:
             if exc.trace is not None:
                 self.store.save_trace(exc.trace)
@@ -136,8 +136,8 @@ class AgentService:
             return active
         self._ready()  # нет моделей или бюджета — ошибка сразу, а не задача, которая упадёт
 
-        def run(on_stage) -> str | None:
-            return self._run(persona, event, on_stage=on_stage).trace_id
+        def run(on_progress) -> str | None:
+            return self._run(persona, event, on_progress=on_progress).trace_id
 
         return self.jobs.submit(key, event.id, persona.id, run)
 

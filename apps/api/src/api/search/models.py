@@ -20,6 +20,14 @@ class NewsItem(Source):
     reliability: Reliability | None = Field(
         default=None, description="надёжность источника: official, agency, business_media, other"
     )
+    image_url: str | None = Field(
+        default=None, description="картинка материала: ссылка из ленты или og:image страницы (файл не храним)"
+    )
+    source_icon_url: str | None = Field(default=None, description="значок издания")
+    text: str | None = Field(
+        default=None,
+        description="полный текст — только у одной новости по id и только где его разрешают условия издателя",
+    )
     factors: list[FactorLink] = Field(
         default_factory=list, description="факторы каталога карты чувствительности с силой и доказательствами"
     )

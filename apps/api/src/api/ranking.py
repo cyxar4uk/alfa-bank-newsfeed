@@ -130,6 +130,10 @@ class NewsEvent:
     # страны из разметки; в правиле о зарубежье не участвуют — метку «Россия» ставят не всякой российской
     # новости, страны берутся из заголовка (`title_countries`)
     countries: list[str] = field(default_factory=list)
+    # то, что сохранит парсер: картинка новости, значок издания, полный текст (где получен законно)
+    image_url: str | None = None
+    source_icon_url: str | None = None
+    text: str | None = None
 
     def source(self) -> Source:
         return Source(
@@ -190,6 +194,9 @@ def event_from(item: Any) -> NewsEvent:
             regions=_get(tags, "regions") or [],
         ),
         countries=list(_get(item, "countries") or _get(tags, "countries") or []),
+        image_url=_get(item, "image_url"),
+        source_icon_url=_get(item, "source_icon_url"),
+        text=_get(item, "text"),
     )
 
 
@@ -495,6 +502,8 @@ def score_event(
         channel=top.channel,
         channel_text=top.channel_text,
         short=top.short,
+        image_url=event.image_url,
+        source_icon_url=event.source_icon_url,
     )
 
 

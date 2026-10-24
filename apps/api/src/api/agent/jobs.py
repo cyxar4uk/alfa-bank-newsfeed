@@ -18,6 +18,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel, Field
 
+from api.agent.trace import ProgressStep
+
 JobState = Literal["queued", "running", "done", "failed"]
 DEFAULT_ETA_SECONDS = 75.0  # средняя сборка карточки по живым прогонам — 55–115 с
 RESTART_ERROR = "API перезапущен во время сборки — запросите карточку заново"
@@ -36,6 +38,9 @@ class JobStatus(BaseModel):
     status: JobState = Field(description="queued — ждёт очереди, running — собирается, done — готово, failed")
     stage: str = Field(default="", description="текущий этап человеческим текстом")
     stages_done: list[str] = Field(default_factory=list, description="пройденные этапы по порядку")
+    steps: list[ProgressStep] = Field(
+        default_factory=list, description="ход разбора: шаги с тем, что найдено, по мере работы"
+    )
     elapsed_s: float = Field(default=0.0, description="сколько секунд идёт сборка")
     eta_s: float | None = Field(default=None, description="примерно сколько секунд осталось")
     queue_position: int | None = Field(default=None, description="место в очереди, если status=queued")
@@ -53,7 +58,7 @@ class JobStore(Protocol):
     def fail_unfinished(self, error: str) -> int: ...
 
 
-Run = Callable[[Callable[[str], None]], str | None]  # (on_stage) → trace_id
+Run = Callable[[Callable[[list[ProgressStep]], None]], str | None]  # (on_progress) → trace_id
 
 
 def _now() -> dt.datetime:
@@ -144,14 +149,15 @@ class Jobs:
                 self._started[insight_id] = time.monotonic()
             self._save(job)
 
-            def on_stage(text: str) -> None:
+            def on_progress(steps: list[ProgressStep]) -> None:
                 with self._lock:
-                    if job.stage:
-                        job.stages_done.append(job.stage)
-                    job.stage = text
+                    job.steps = steps
+                    running = [s.title for s in steps if s.state == "running"]
+                    job.stage = running[-1] if running else ""
+                    job.stages_done = [s.title for s in steps if s.state != "running"]
                 self._save(job)
 
-            trace_id = run(on_stage)
+            trace_id = run(on_progress)
             status, error = "done", None
         except Exception as exc:  # сбой сборки — статус failed с понятным текстом
             error = str(exc) or type(exc).__name__
@@ -173,8 +179,10 @@ class Jobs:
                 job.elapsed_s = round(time.monotonic() - started, 1)
                 if status == "done":
                     self._durations = [*self._durations[-19:], job.elapsed_s]
-            if job.stage:
-                job.stages_done.append(job.stage)
+            for step in job.steps:
+                if step.state == "running":
+                    step.state = "done" if status == "done" else "error"
+            job.stages_done = [s.title for s in job.steps] or ([job.stage] if job.stage else [])
             job.status, job.stage, job.error, job.trace_id = status, "", error, trace_id
             job.finished_at, job.eta_s = _now(), None
             self._finished[insight_id] = job

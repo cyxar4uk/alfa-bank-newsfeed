@@ -42,6 +42,12 @@ NEWS = [
         "Совет директоров Банка России принял решение сохранить ключевую ставку. Кредиты не подешевеют.",
         days=1,
         publisher="Банк России",
+    ).model_copy(
+        update={
+            "image_url": "https://www.cbr.ru/p.jpg",
+            "source_icon_url": "https://www.cbr.ru/favicon.ico",
+            "text": "Полный текст пресс-релиза Банка России.",
+        }
     ),
     news("mortgage", "Ставки по ипотеке выросли до максимума с весны", days=2),
     news("usd", "Курс доллара опустился ниже 81 рубля впервые с августа", days=1),
@@ -167,6 +173,19 @@ def test_news_is_contract_source(repo):
     assert item.kind == "news" and item.fragment.startswith("Совет директоров")
     assert item.url == "https://example.ru/rate" and item.published_at.utcoffset() == timedelta(hours=3)
     assert "rate" in [f.code for f in item.factors] and item.tags.topics
+
+
+def test_news_image_icon_and_full_text(repo, client):
+    item = repo.search_news("ключевая ставка", limit=1)[0]
+    assert (item.image_url, item.source_icon_url) == (
+        "https://www.cbr.ru/p.jpg",
+        "https://www.cbr.ru/favicon.ico",
+    )
+    assert item.text is None  # полный текст — только у одной новости по id, не в списках
+    assert repo.get_source("src:news:rate").text == "Полный текст пресс-релиза Банка России."
+    assert client.get("/api/sources/src:news:rate").json()["image_url"] == "https://www.cbr.ru/p.jpg"
+    other = repo.get_source("src:news:usd")
+    assert (other.image_url, other.source_icon_url, other.text) == (None, None, None)
 
 
 def test_alfa_search_returns_page_and_file(repo):

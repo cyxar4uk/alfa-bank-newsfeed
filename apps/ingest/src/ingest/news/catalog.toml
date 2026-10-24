@@ -1,0 +1,353 @@
+# Каталог источников для бизнеса: что уже подключено и что можно подключить. Отдаёт GET /api/sources/catalog.
+# Проверено 24.10.2026 по официальным страницам из docs_url; чего не нашли в документации — так и написано в note.
+#
+# country — ru | intl; kind — free (открытая лента или бесплатный API) | paid_api (доступ по договору или подписке).
+# reliability — те же уровни, что у лент в sources.toml: official, agency, business_media, other.
+# feeds — id лент из sources.toml: источник подключён, если включена хотя бы одна.
+# key_env — у платных: переменная в .env на сервере, куда кладут ключ. В прототипе ключи не принимаем, а коннекторов
+#   к платным API нет: источник из этого раздела подключается доработкой парсера.
+
+# --- российские: подключены ---
+
+[[source]]
+id = "cbr"
+name = "Банк России"
+country = "ru"
+kind = "free"
+reliability = "official"
+topics = ["ключевая ставка", "денежно-кредитная политика", "банковский надзор", "курсы валют"]
+feeds = ["cbr-press", "cbr-events"]
+docs_url = "https://www.cbr.ru/about/"
+how_to_connect = [
+    "Подключён: пресс-релизы и события из RSS www.cbr.ru/rss, полный текст — со страницы материала.",
+    "Условия (cbr.ru/about): воспроизведение с указанием источника и ссылкой на страницу.",
+    "Курсы и ставки отдают бесплатные веб-сервисы без ключа: www.cbr.ru/development/dws/ (в прототипе не используются).",
+]
+
+[[source]]
+id = "government"
+name = "Правительство России"
+country = "ru"
+kind = "free"
+reliability = "official"
+topics = ["постановления", "госпрограммы", "регулирование отраслей"]
+feeds = ["government"]
+docs_url = "http://government.ru/about/"
+how_to_connect = [
+    "Подключён: RSS government.ru/all/rss/, полный текст — со страницы материала.",
+    "Условия: материалы сайта по лицензии Creative Commons Attribution 4.0.",
+]
+
+[[source]]
+id = "nalog"
+name = "ФНС России"
+country = "ru"
+kind = "free"
+reliability = "official"
+topics = ["налоги", "налоговое администрирование", "отчётность бизнеса"]
+feeds = ["nalog"]
+docs_url = "https://www.nalog.gov.ru/rn77/copyright/"
+how_to_connect = [
+    "Подключён: RSS www.nalog.gov.ru/rn77/rss/, полный текст — со страницы материала.",
+    "Условия: воспроизведение без согласия и без ограничения объёма, со ссылкой на первоисточник.",
+]
+
+[[source]]
+id = "interfax"
+name = "Интерфакс"
+country = "ru"
+kind = "free"
+reliability = "agency"
+topics = ["экономика", "финансы", "компании", "политика"]
+feeds = ["interfax"]
+docs_url = "https://www.interfax.ru/rss.asp"
+how_to_connect = [
+    "Подключён: публичный RSS www.interfax.ru/rss.asp — заголовок, лид и ссылка.",
+    "Условия (interfax.ru/license): цитирование в информационных целях со ссылкой; полный текст не храним.",
+]
+note = "Платную ленту или API Интерфакса по открытой документации подтвердить не удалось."
+
+[[source]]
+id = "ria"
+name = "РИА Новости"
+country = "ru"
+kind = "free"
+reliability = "agency"
+topics = ["экономика", "общество", "политика", "мир"]
+feeds = ["ria"]
+docs_url = "https://ria.ru/docs/about/copyright.html"
+how_to_connect = [
+    "Подключён: RSS ria.ru/export/rss2/archive/index.xml — заголовок, лид, картинка и ссылка.",
+    "Полный текст — только с письменного разрешения редакции (ria.ru/docs/about/copyright.html).",
+]
+
+[[source]]
+id = "kommersant"
+name = "Коммерсантъ"
+country = "ru"
+kind = "free"
+reliability = "business_media"
+topics = ["экономика", "бизнес", "финансы", "потребительский рынок"]
+feeds = ["kommersant-economics", "kommersant-business", "kommersant-finance"]
+docs_url = "https://www.kommersant.ru/copyright"
+how_to_connect = [
+    "Подключён: RSS разделов «Экономика», «Бизнес», «Финансы» (www.kommersant.ru/rss).",
+    "Условия: до 30 % материала без переработки, с автором и ссылкой; больше — по лицензии через представителя со страницы copyright.",
+]
+note = "API нет, только RSS."
+
+[[source]]
+id = "forbes"
+name = "Forbes"
+country = "ru"
+kind = "free"
+reliability = "business_media"
+topics = ["бизнес", "компании", "рынки", "предприниматели"]
+feeds = ["forbes"]
+docs_url = "https://www.forbes.ru/newrss.xml"
+how_to_connect = [
+    "Подключён: RSS www.forbes.ru/newrss.xml; издатель сам кладёт в ленту полный текст — показываем его с автором, датой и ссылкой.",
+]
+
+[[source]]
+id = "rg"
+name = "Российская газета"
+country = "ru"
+kind = "free"
+reliability = "other"
+topics = ["законы и документы", "экономика", "регионы"]
+feeds = ["rg"]
+docs_url = "https://rg.ru/pages/webpartner"
+how_to_connect = [
+    "Подключён: лента анонсов rg.ru/xml/index.xml со ссылкой на полный текст на rg.ru.",
+]
+
+[[source]]
+id = "izvestia"
+name = "Известия"
+country = "ru"
+kind = "free"
+reliability = "other"
+topics = ["экономика", "общество", "политика"]
+feeds = ["izvestia"]
+docs_url = "https://iz.ru/xml/rss/all.xml"
+how_to_connect = [
+    "Подключён: RSS iz.ru/xml/rss/all.xml; условия — частичное цитирование с гиперссылкой на iz.ru.",
+]
+
+# --- российские: нужен договор или разрешение ---
+
+[[source]]
+id = "rbc"
+name = "РБК"
+country = "ru"
+kind = "free"
+reliability = "business_media"
+topics = ["бизнес", "экономика", "финансы", "компании"]
+feeds = ["rbc"]
+docs_url = "https://rbc.ru/legal/v13"
+how_to_connect = [
+    "Получить письменное разрешение АО «РОСБИЗНЕСКОНСАЛТИНГ»: пользовательское соглашение запрещает автоматическое извлечение без него.",
+    "После разрешения включить ленту rbc в apps/ingest/src/ingest/news/sources.toml (enabled = true).",
+]
+note = "API и партнёрскую ленту по открытым страницам подтвердить не удалось."
+
+[[source]]
+id = "vedomosti"
+name = "Ведомости"
+country = "ru"
+kind = "free"
+reliability = "business_media"
+topics = ["экономика", "бизнес", "финансы", "компании"]
+feeds = ["vedomosti-economics"]
+docs_url = "https://www.vedomosti.ru/rss/news"
+how_to_connect = [
+    "Получить разрешение редакции: автоматически извлечённые материалы можно использовать только с ним.",
+    "После разрешения включить ленту vedomosti-economics в sources.toml.",
+]
+note = "API нет, только RSS."
+
+[[source]]
+id = "tass"
+name = "ТАСС"
+country = "ru"
+kind = "free"
+reliability = "agency"
+topics = ["экономика", "политика", "общество", "мир"]
+feeds = ["tass"]
+docs_url = "https://tass.ru/rss/v2.xml"
+how_to_connect = [
+    "Уточнить у ТАСС условия использования ленты: в RSS и на открытых страницах их не нашли.",
+    "После согласования включить ленту tass в sources.toml.",
+]
+note = "Ленту для подписчиков и API по открытым страницам подтвердить не удалось."
+
+[[source]]
+id = "prime"
+name = "ПРАЙМ"
+country = "ru"
+kind = "free"
+reliability = "agency"
+topics = ["финансы", "рынки", "компании"]
+feeds = ["prime"]
+docs_url = "https://1prime.ru/export/rss2/index.xml"
+how_to_connect = [
+    "Согласовать с агентством коммерческое использование: по условиям сайта материалы — только для личного некоммерческого использования.",
+    "После согласования включить ленту prime в sources.toml.",
+]
+
+[[source]]
+id = "moex"
+name = "Московская биржа (ISS)"
+country = "ru"
+kind = "free"
+reliability = "official"
+topics = ["биржевые новости", "торги", "риск-параметры"]
+feeds = ["moex"]
+docs_url = "https://iss.moex.com/iss/reference/"
+how_to_connect = [
+    "Новости биржи без ключа: https://iss.moex.com/iss/sitenews.json (поля id, tag, title, published_at, modified_at).",
+    "Заключить договор с ПАО Московская Биржа: по условиям (www.moex.com/a2193) любое использование, кроме ознакомления, — только по договору.",
+    "Данные в реальном времени — по подписке: www.moex.com/ru/orders?realtime.",
+]
+note = "В ленте биржи в основном технические сообщения, не деловые новости."
+
+[[source]]
+id = "cbonds"
+name = "Cbonds"
+country = "ru"
+kind = "paid_api"
+reliability = "other"
+topics = ["облигации", "эмиссии", "котировки", "кривые доходности"]
+docs_url = "https://cbonds.ru/api/"
+key_env = "CBONDS_LOGIN, CBONDS_PASSWORD"
+how_to_connect = [
+    "Заполнить форму «Запросить доступ»: https://cbonds.ru/api/reg/ — Cbonds настраивает тестовый доступ под задачу.",
+    "Получить логин и пароль: API принимает их параметрами запроса login и password (документация: data.cbonds.info/files/api/API_documentation_rus.pdf).",
+    "Положить логин и пароль на сервер в .env рядом с compose.yaml: CBONDS_LOGIN и CBONDS_PASSWORD (в репозиторий не коммитить).",
+]
+note = "Это данные по облигациям; новостей среди методов API в документации не нашли. Цены на сайте не указаны."
+
+[[source]]
+id = "spark"
+name = "СПАРК-Интерфакс"
+country = "ru"
+kind = "paid_api"
+reliability = "other"
+topics = ["проверка контрагентов", "риски компаний", "корпоративные события"]
+docs_url = "https://www.spark-interfax.ru/integration"
+key_env = "SPARK_LOGIN, SPARK_PASSWORD"
+how_to_connect = [
+    "Нажать «Заказать доступ» или «Демо-доступ» на www.spark-interfax.ru/integration (для демо нужна корпоративная почта).",
+    "Заключить договор и получить документацию SOAP-сервиса и учётные данные у Интерфакса.",
+    "Положить учётные данные на сервер в .env: SPARK_LOGIN и SPARK_PASSWORD.",
+]
+note = "Веб-сервис SOAP, 50+ методов по компаниям. Выдачу публикаций СМИ через API подтвердить не удалось; способ авторизации на странице не описан."
+
+# --- иностранные ---
+
+[[source]]
+id = "reuters"
+name = "Reuters (LSEG Data Platform)"
+country = "intl"
+kind = "paid_api"
+reliability = "agency"
+topics = ["мировые рынки", "макроэкономика", "компании", "сырьё"]
+docs_url = "https://developers.lseg.com/en/api-catalog/refinitiv-data-platform/news-API"
+key_env = "LSEG_CLIENT_ID, LSEG_USERNAME, LSEG_PASSWORD"
+how_to_connect = [
+    "Запросить пробный доступ («Request Free Trial») или связаться с отделом продаж LSEG.",
+    "Заключить договор и получить учётные данные Data Platform с правами на новости.",
+    "Положить их на сервер в .env: LSEG_CLIENT_ID, LSEG_USERNAME, LSEG_PASSWORD.",
+    "News API: REST (заголовки, тексты, главные новости) и поток через очередь сообщений, ответы в JSON.",
+]
+note = "В марте 2022 LSEG приостановил новостные продукты для России, затем — все услуги в РФ (по сообщениям СМИ); отмены не нашли. Для российской компании доступ сейчас нереалистичен."
+
+[[source]]
+id = "bloomberg"
+name = "Bloomberg"
+country = "intl"
+kind = "paid_api"
+reliability = "agency"
+topics = ["мировые рынки", "макроэкономика", "компании"]
+how_to_connect = [
+    "Доступ к данным — по договору с Bloomberg (Terminal, Data License, B-PIPE).",
+]
+note = "Документации по выдаче новостей через API не нашли. В марте 2022 Bloomberg приостановил работу в России и Беларуси: терминал, Data License и data feed клиентам из этих стран недоступны."
+
+[[source]]
+id = "factiva"
+name = "Dow Jones Factiva"
+country = "intl"
+kind = "paid_api"
+reliability = "business_media"
+topics = ["деловые новости", "компании", "архив мировой прессы"]
+docs_url = "https://developer.dowjones.com/"
+key_env = "FACTIVA_USER_KEY"
+how_to_connect = [
+    "Заключить договор с Dow Jones через отдел продаж.",
+    "Получить user-key у Developer Support или client ID и логин из приветственного письма (для OAuth: токен, затем JWT в заголовке Authorization: Bearer).",
+    "Положить ключ на сервер в .env: FACTIVA_USER_KEY.",
+]
+note = "Способ авторизации проверен по документации открытой библиотеки factiva-analytics-python; официальный портал из сети разработки не открылся. Цены и доступность для России не проверены."
+
+[[source]]
+id = "ft"
+name = "Financial Times"
+country = "intl"
+kind = "paid_api"
+reliability = "business_media"
+topics = ["мировая экономика", "компании", "финансы"]
+docs_url = "https://developer.ft.com/"
+key_env = "FT_API_KEY"
+how_to_connect = [
+    "Войти на портал разработчиков FT, в каталоге API запросить ключ («Request an API Key»); нужна подписка FT.",
+    "Положить ключ на сервер в .env: FT_API_KEY.",
+]
+note = "Порядок получения ключа — по руководству 2019 года; актуальные условия и цены подтвердить не удалось, портал из сети разработки не открылся."
+
+[[source]]
+id = "newsapi"
+name = "NewsAPI.org"
+country = "intl"
+kind = "paid_api"
+reliability = "other"
+topics = ["мировые новости", "бизнес", "агрегатор изданий"]
+docs_url = "https://newsapi.org/docs/authentication"
+key_env = "NEWSAPI_KEY"
+how_to_connect = [
+    "Зарегистрироваться на newsapi.org/register и получить ключ.",
+    "Купить тариф Business (449 $ в месяц) или выше: бесплатный Developer нельзя использовать в тестовой и рабочей среде, даже внутри компании.",
+    "Положить ключ на сервер в .env: NEWSAPI_KEY; в запросах он передаётся в заголовке X-Api-Key.",
+]
+note = "Отдаёт заголовки, описания и ссылки, без полного текста. Охват российских изданий не проверяли."
+
+[[source]]
+id = "marketaux"
+name = "Marketaux"
+country = "intl"
+kind = "paid_api"
+reliability = "other"
+topics = ["финансовые новости", "рынки", "компании", "тональность"]
+docs_url = "https://www.marketaux.com/documentation"
+key_env = "MARKETAUX_API_TOKEN"
+how_to_connect = [
+    "Зарегистрироваться на marketaux.com (без платёжных данных) — токен появится в личном кабинете.",
+    "Бесплатно — 100 запросов в сутки по 3 статьи; для рабочей нагрузки — платный тариф от 29 $ в месяц (www.marketaux.com/pricing).",
+    "Положить токен на сервер в .env: MARKETAUX_API_TOKEN; в запросах он передаётся параметром api_token.",
+]
+note = "Условия коммерческого использования на странице тарифов не указаны. Охват российских изданий не проверяли."
+
+[[source]]
+id = "gdelt"
+name = "GDELT"
+country = "intl"
+kind = "free"
+reliability = "other"
+topics = ["мировые СМИ", "события", "тональность"]
+docs_url = "https://blog.gdeltproject.org/gdelt-doc-2-0-api-debuts/"
+how_to_connect = [
+    "Ключ не нужен: GET https://api.gdeltproject.org/api/v2/doc/doc?query=…&mode=artlist&format=json.",
+    "Поиск за последние 3 месяца, до 250 статей на запрос; отдаёт ссылки и метаданные, без текста.",
+]
+note = "Условия использования на странице API не указаны."

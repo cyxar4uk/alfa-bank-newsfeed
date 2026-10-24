@@ -378,3 +378,180 @@ def test_feed_marks_ready_insights(client):
     assert items[0]["insight_ready"] is True
     # агента нет — неизвестно
     assert client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]["insight_ready"] is None
+
+
+class PictureNews(FakeNews):
+    """Новости с картинкой, значком и полным текстом — как их сохранит парсер."""
+
+    def events(self, since, limit):
+        events = super().events(since, limit)
+        for e in events:
+            e.image_url, e.source_icon_url, e.text = (
+                f"https://img/{e.id}.jpg",
+                "https://ico/x.png",
+                f"Текст {e.title}",
+            )
+        return events
+
+    def event(self, event_id):
+        return next((e for e in self.events(None, 10) if e.id == event_id), None)
+
+    def search(self, query, limit):
+        return [e for e in self.events(None, 10) if query.casefold() in e.title.casefold()][:limit]
+
+
+def test_feed_items_have_takeaway_and_pictures(client):
+    app.dependency_overrides[news_provider] = PictureNews
+    item = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]
+    assert item["takeaway"]["level"] in ("act", "watch", "info")
+    assert 0 < len(item["takeaway"]["text"]) <= 160
+    assert (item["image_url"], item["source_icon_url"]) == (
+        "https://img/src:news:rate.jpg",
+        "https://ico/x.png",
+    )
+
+
+def test_search_in_feed_format(client):
+    app.dependency_overrides[news_provider] = PictureNews
+    body = client.get("/api/search", params={"q": "ставка", "persona": "p-u1-cfo"}).json()
+    assert [i["event_id"] for i in body["items"]] == ["src:news:rate"]
+    assert body["items"][0]["relevance"]["score"] > 0
+    # найденное, но не задевающее компанию — следом, с оценкой 0 и выводом «к сведению»
+    gold = client.get("/api/search", params={"q": "золото", "persona": "p-u1-cfo"}).json()["items"][0]
+    assert (gold["event_id"], gold["relevance"]["score"], gold["takeaway"]["level"]) == (
+        "src:news:gold",
+        0,
+        "info",
+    )
+    assert gold["takeaway"]["text"] == "Напрямую вас не касается. Действий не нужно."
+    assert client.get("/api/search", params={"q": "ставка", "persona": "p-u404-cfo"}).status_code == 404
+    assert client.get("/api/search", params={"q": "с", "persona": "p-u1-cfo"}).status_code == 422
+
+
+def test_event_detail(client):
+    app.dependency_overrides[news_provider] = PictureNews
+    body = client.get("/api/events/src:news:rate").json()
+    assert (body["id"], body["text"], body["image_url"]) == (
+        "src:news:rate",
+        "Текст Ставка",
+        "https://img/src:news:rate.jpg",
+    )
+    assert body["source"]["title"] == "Ставка"
+    assert client.get("/api/events/src:news:нет").status_code == 404
+
+
+def test_sources_catalog_and_connect(client):
+    import api.main as main
+    from api.sources import MemoryConnections, catalog_entries
+
+    connections = MemoryConnections()
+    app.dependency_overrides[main.get_connections] = lambda: connections
+    catalog = client.get("/api/sources/catalog", params={"persona": "p-u1-cfo"}).json()
+    names = [s["name"] for s in catalog]
+    assert "Банк России" in names and names.count("Банк России") == 1  # две ленты — один источник
+    cbr = next(s for s in catalog if s["name"] == "Банк России")
+    assert (cbr["kind"], cbr["connected"], cbr["reliability"], cbr["country"]) == (
+        "free",
+        True,
+        "official",
+        "ru",
+    )
+    assert cbr["how_to_connect"]
+    assert all(s["id"] != "minfin" for s in catalog)  # выключенная лента не предлагается
+    first = catalog_entries()[0]["id"]
+    done = client.post(f"/api/sources/{first}/connect", params={"persona": "p-u1-cfo"}).json()
+    assert done["source"]["connected"] is True and done["message"]
+    assert client.post("/api/sources/нет/connect", params={"persona": "p-u1-cfo"}).status_code == 404
+    # вторая лента издателя ведёт к его записи в каталоге
+    events = client.post("/api/sources/cbr-events/connect", params={"persona": "p-u1-cfo"}).json()
+    assert events["source"]["id"] == cbr["id"]
+    # пользователь должен быть действующим клиентом: отметки для несуществующих не пишутся
+    assert client.post(f"/api/sources/{first}/connect", params={"persona": "p-u404-cfo"}).status_code == 404
+    assert client.get("/api/sources/catalog", params={"persona": "p-u5-cfo"}).status_code == 404
+    assert client.get("/api/sources/catalog", params={"persona": "кто-то"}).status_code == 404
+
+
+def test_paid_source_is_connected_per_user(monkeypatch):
+    import api.sources as sources
+
+    feeds = [{"id": "paid-x", "publisher": "Платный сервис", "kind": "paid_api", "hosts": ["paid.com"]}]
+    monkeypatch.setattr(sources, "_feeds", lambda: feeds)
+    monkeypatch.setattr(sources, "_parser_catalog", lambda: None)  # запасной путь: каталог по лентам
+    connections = sources.MemoryConnections()
+    entry = sources.catalog(connections, "p-u1-cfo")[0]
+    assert (entry.kind, entry.country, entry.connected) == ("paid_api", "intl", False)
+    assert any("SOURCE_PAID_X_API_KEY" in step for step in entry.how_to_connect)
+    connections.connect("p-u1-cfo", "paid-x")
+    assert sources.catalog(connections, "p-u1-cfo")[0].connected is True
+    assert sources.catalog(connections, "p-u2-cfo")[0].connected is False
+
+
+def test_snapshot_search(tmp_path):
+    import json
+
+    from api.news import SnapshotNews
+
+    path = tmp_path / "news.jsonl"
+    rows = [
+        {
+            "id": "src:news:a",
+            "title": "Ключевая ставка сохранена",
+            "published_at": "2026-10-23T10:00:00+03:00",
+        },
+        {
+            "id": "src:news:b",
+            "title": "Курс рубля",
+            "fragment": "ставка ЦБ",
+            "published_at": "2026-10-22T10:00",
+        },
+    ]
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in rows), "utf-8")
+    news = SnapshotNews(path)
+    assert [e.id for e in news.search("ставка", 10)] == ["src:news:a", "src:news:b"]
+    assert [e.id for e in news.search("ключевая ставка", 10)] == ["src:news:a"]
+    assert news.search("", 10) == []
+
+
+def test_catalog_from_parser_catalog(monkeypatch):
+    import api.sources as sources
+
+    rows = [
+        {
+            "id": "reuters",
+            "name": "Reuters",
+            "country": "intl",
+            "kind": "paid_api",
+            "reliability": "agency",
+            "topics": ["рынки"],
+            "how_to_connect": ["Получите ключ.", "Перезапустите парсер."],
+            "docs_url": None,
+            "icon_url": None,
+            "note": "только по подписке",
+            "key_env": "REUTERS_API_KEY",
+            "feeds": [],
+            "connected": False,
+        },
+        {
+            "id": "cbr",
+            "name": "Банк России",
+            "country": "ru",
+            "kind": "free",
+            "reliability": "official",
+            "topics": [],
+            "how_to_connect": [],
+            "docs_url": None,
+            "icon_url": None,
+            "note": None,
+            "key_env": None,
+            "feeds": ["cbr-press", "cbr-events"],
+            "connected": True,
+        },
+    ]
+    monkeypatch.setattr(sources, "_parser_catalog", lambda: rows)
+    connections = sources.MemoryConnections()
+    entries = sources.catalog(connections, "p-u1-cfo")
+    assert [e.id for e in entries] == ["cbr", "reuters"]  # подключённые — первыми
+    assert entries[1].note == "только по подписке" and entries[1].connected is False
+    assert sources.entry_id("cbr-events") == "cbr"
+    message = sources.connect_message(rows[0])
+    assert "REUTERS_API_KEY" in message and message.endswith("Перезапустите парсер.")

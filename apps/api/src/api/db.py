@@ -63,6 +63,14 @@ CREATE TABLE IF NOT EXISTS person_links (
     company_id  text NOT NULL
 );
 
+-- отметки «подключён» в каталоге источников (api.sources); данные пользователей — импорт их не пересоздаёт
+CREATE TABLE IF NOT EXISTS source_connections (
+    persona_id  text NOT NULL,
+    source_id   text NOT NULL,
+    connected_at timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (persona_id, source_id)
+);
+
 CREATE TABLE IF NOT EXISTS imported_files (
     file        text PRIMARY KEY,
     signature   text NOT NULL,

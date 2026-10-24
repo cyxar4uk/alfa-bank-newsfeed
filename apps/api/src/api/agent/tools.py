@@ -25,10 +25,8 @@ BANK_RATE = {
     "end_2027": 12.0,
     "previous_end_2026": 13.5,
     "material": "«Ключевая ставка ЦБ РФ: ставка без изменения на 14,0 %, риторика стала жестче», 11.09.2026",
-    "pages": {
-        "src:alfa:keyrate-2026-09#p1": ["14,0%", "13,5%"],
-        "src:alfa:keyrate-2026-09#p2": ["14,0%", "12,0%"],
-    },
+    # прогноз целиком — в тексте первой страницы; таблица на второй распознаётся с ошибками
+    "pages": {"src:alfa:keyrate-2026-09#p1": ["14,0%", "13,5%", "12,0%"]},
 }
 
 
@@ -76,7 +74,13 @@ class Tools:
         self.rules = product_rules if product_rules is not None else load_product_rules()
 
     def _call(
-        self, name: str, args: dict, fn: Callable, refs: Callable[[object], list[str]], summary: Callable
+        self,
+        name: str,
+        args: dict,
+        fn: Callable,
+        refs: Callable[[object], list[str]],
+        summary: Callable,
+        found: Callable[[object], list[str]] | None = None,
     ):
         if name in TOOL_STAGES:
             self.trace.stage(TOOL_STAGES[name])
@@ -87,6 +91,11 @@ class Tools:
             self.trace.tool(name, args, [], f"ошибка инструмента: {type(exc).__name__}")
             return None
         self.trace.tool(name, args, refs(result), summary(result))
+        if found is not None and result is not None:
+            try:
+                self.trace.found(*found(result))
+            except Exception:  # подпись находки не должна ронять инструмент
+                pass
         return result
 
     # --- модуль профиля ----------------------------------------------------------------------------
@@ -105,10 +114,17 @@ class Tools:
                     or "нет значимых"
                 )
             ),
+            lambda r: [
+                f"Заметно зависит: {f.label}"
+                for f in sorted(r, key=lambda f: -LEVEL_RANK.get(f.level, 0))
+                if LEVEL_RANK.get(f.level, 0) >= 2
+            ][:3],
         )
         ctx.exposure = result or []
         if result is None:
-            ctx.warnings.append("карта чувствительности недоступна — вывод опирается только на профиль")
+            ctx.warnings.append(
+                "не удалось понять, от чего зависит бизнес компании, — вывод только по профилю"
+            )
 
     def counterparty_chain(self, ctx: AgentContext) -> None:
         cid = ctx.profile.id
@@ -121,6 +137,14 @@ class Tools:
                 | {c.id for ch in r.channels for c in ch.counterparties}
             ),
             lambda r: "; ".join(ch.text for ch in r.channels) or ("каналов нет: " + "; ".join(r.gaps)),
+            lambda r: (
+                [ch.text for ch in r.channels][:3]
+                or [
+                    "Оценить влияние через покупателей и поставщиков не удалось — данных мало"
+                    if r.gaps
+                    else "Через покупателей и поставщиков не доходит"
+                ]
+            ),
         )
         if result is not None:
             ctx.chain = result
@@ -134,6 +158,7 @@ class Tools:
             lambda: self.company.group_impact(cid, ctx.event.source),
             lambda r: [] if r is None else [*r.refs, *(m.id for m in r.members)],
             lambda r: "группы нет" if r is None else r.text or f"задето {len(r.members)} из {r.size}",
+            lambda r: [f"Касается {len(r.members)} компаний группы из {r.size}"] if r and r.members else [],
         )
         ctx.group = result
 
@@ -149,6 +174,7 @@ class Tools:
             lambda: self.library.search_alfa_analytics(query, factors=factors, limit=5, material=material),
             lambda r: [h.source.id for h in r],
             lambda r: f"найдено {len(r)}: " + ", ".join(sorted({h.page_ref for h in r})),
+            lambda r: [_material_found(h) for h in r if not h.stale],
         )
         added = 0
         known = {h.source.id for h in ctx.analytics}
@@ -168,6 +194,7 @@ class Tools:
             lambda: self.library.search_news(query, factors=factors, before=before, limit=3),
             lambda r: [e.id for e in r],
             lambda r: f"найдено {len(r)}",
+            lambda r: [f"Новость: {e.source.title[:110]}" for e in r if e.id != ctx.event.id][:2],
         )
         known = {ctx.event.id, *(e.id for e in ctx.news)}
         for e in result or []:
@@ -228,6 +255,8 @@ class Tools:
             if offer:
                 break
         ctx.offer = offer
+        if offer:
+            self.trace.found(offer.text)
         self.trace.tool(
             "get_products_for_risk",
             {"factors": [f.code for f in candidates]},
@@ -337,9 +366,10 @@ class Tools:
                 )
             )
         ctx.estimates = out
+        self.trace.found(*(_short(e.statement.text) for e in out))
         if rate_relevant and not verified:
             ctx.warnings.append(
-                "прогноз ставки банка не сверился с текстом страницы — расчёт в рублях не показан"
+                "расчёт в рублях не показан: прогноз банка по ставке не удалось сверить с материалом"
             )
         self.trace.tool(
             "estimate_rate_impact",
@@ -347,6 +377,15 @@ class Tools:
             sorted({r for e in out for r in e.statement.refs}),
             "; ".join(e.id for e in out) or "честной формулы для события нет — расчёта нет",
         )
+
+
+def _short(text: str, limit: int = 150) -> str:
+    return text if len(text) <= limit else text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def _material_found(hit: AnalyticsHit) -> str:
+    date = f" от {hit.material_date:%d.%m.%Y}" if hit.material_date else ""
+    return f"Материал банка «{hit.source.title[:90]}»{date}"
 
 
 def _number_on_page(number: str, text: str) -> bool:
