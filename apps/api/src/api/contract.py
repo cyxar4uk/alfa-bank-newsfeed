@@ -562,6 +562,15 @@ class GroupImpact(BaseModel):
     refs: list[str] = Field(default_factory=list)
 
 
+class Takeaway(BaseModel):
+    """Вывод по событию для компании и роли: важно ли, почему (с числом), что делать — без техники."""
+
+    level: Literal["act", "watch", "info"] = Field(
+        description="act — важно, стоит действовать; watch — может задеть, следить; info — к сведению"
+    )
+    text: str = Field(max_length=160)
+
+
 class FeedItem(BaseModel):
     """Событие в ленте пользователя: почему оно здесь — без полного инсайта."""
 
@@ -587,11 +596,46 @@ class FeedItem(BaseModel):
         default=None,
         description="карточка уже собрана — GET /api/insights/{event_id} ответит из кэша; null — агента нет",
     )
+    takeaway: Takeaway | None = Field(default=None, description="вывод: важно ли, почему, что делать")
+    image_url: str | None = Field(default=None, description="картинка новости (og:image источника)")
+    source_icon_url: str | None = Field(default=None, description="значок издания")
     group_impact: GroupImpact | None = Field(
         default=None,
         description="для собственника и гендиректора: каких компаний группы касается событие;"
         " null — группы нет или событие её не касается",
     )
+
+
+class EventDetail(BaseModel):
+    """Новость целиком: полный текст, если парсер получил его законно (полный RSS, открытая страница)."""
+
+    id: str
+    source: Source
+    text: str | None = Field(default=None, description="полный текст; нет — только лид в source.fragment")
+    url: str | None = None
+    image_url: str | None = None
+    source_icon_url: str | None = None
+
+
+class SourceEntry(BaseModel):
+    """Источник новостей в каталоге: насколько надёжен, подключён ли у пользователя и как подключить."""
+
+    id: str
+    name: str
+    country: Literal["ru", "intl"]
+    kind: Literal["free", "paid_api"]
+    reliability: Literal["official", "agency", "business_media", "other"] | None = None
+    topics: list[str] = Field(default_factory=list)
+    connected: bool
+    how_to_connect: list[str] = Field(default_factory=list, description="шаги подключения")
+    docs_url: str | None = None
+    icon_url: str | None = None
+    note: str | None = Field(default=None, description="ограничения: что не подтвердилось, условия")
+
+
+class SourceConnection(BaseModel):
+    source: SourceEntry
+    message: str = Field(description="что произошло и что сделать дальше")
 
 
 class Feed(BaseModel):

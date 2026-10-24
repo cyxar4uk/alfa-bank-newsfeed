@@ -24,6 +24,8 @@ class NewsProvider(Protocol):
 
     def event(self, event_id: str) -> NewsEvent | None: ...
 
+    def search(self, query: str, limit: int) -> list[NewsEvent]: ...
+
 
 @lru_cache(maxsize=4)
 def _snapshot(path: str, mtime: float) -> tuple[NewsEvent, ...]:
@@ -61,6 +63,17 @@ class SnapshotNews:
     def event(self, event_id: str) -> NewsEvent | None:
         items = _snapshot(str(self.path), self.path.stat().st_mtime)
         return next((e for e in items if e.id == event_id), None)
+
+    def search(self, query: str, limit: int) -> list[NewsEvent]:
+        """Все слова запроса — в заголовке или лиде (без учёта регистра), свежие первыми."""
+        words = query.casefold().replace("ё", "е").split()
+        items = _snapshot(str(self.path), self.path.stat().st_mtime)
+        found = []
+        for e in items:
+            text = f"{e.title} {e.fragment or ''}".casefold().replace("ё", "е")
+            if words and all(w in text for w in words):
+                found.append(e)
+        return found[:limit]
 
 
 class SearchNews:
@@ -104,6 +117,13 @@ class SearchNews:
         item = self.search.get_source(event_id)
         return event_from(item) if item is not None else None
 
+    def search(self, query: str, limit: int) -> list[NewsEvent]:
+        """Новости по запросу — полнотекстовым поиском базы, по убыванию совпадения."""
+        if not query.strip():
+            return []
+        page = self.search.list_news(query=query, limit=min(self.PAGE, limit))
+        return [event_from(item) for item in page.items]
+
 
 class FallbackNews:
     """База новостей, а если в ней пусто — снимок: лента не пустеет, пока новости не загружены."""
@@ -133,4 +153,11 @@ class FallbackNews:
             found = None
         if found is None and self.fallback is not None:
             found = self.fallback.event(event_id)
+        return found
+
+    def search(self, query: str, limit: int) -> list[NewsEvent]:
+        found = self.primary.search(query, limit)
+        # снимок — только пока база пуста: иначе «ничего не найдено» — честный ответ
+        if not found and self.fallback is not None and not self.primary.events(None, 1):
+            found = self.fallback.search(query, limit)
         return found

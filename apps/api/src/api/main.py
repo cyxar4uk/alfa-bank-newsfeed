@@ -3,7 +3,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
@@ -15,23 +15,36 @@ from api.contract import (
     ROLE_LABELS,
     CompanyProfile,
     CompanySummary,
+    EventDetail,
     ExposureMap,
     Feed,
     GroupImpact,
     Health,
     InfluenceChain,
     Persona,
+    SourceConnection,
+    SourceEntry,
 )
 from api.db import connect, ensure_schema
 from api.importer import DATA_FILES
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
-from api.personas import personas_for
+from api.personas import parse_persona_id, personas_for
 from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
 from api.search.repo import SearchRepo
 from api.search.routes import router as search_router
 from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
+from api.sources import (
+    Connections,
+    MemoryConnections,
+    PgConnections,
+    catalog,
+    catalog_entries,
+    connect_message,
+    entry_id,
+)
+from api.takeaway import takeaway
 
 logger = logging.getLogger("api")
 
@@ -47,6 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     pool = ConnectionPool(settings.database_url, min_size=1, max_size=10, timeout=5, open=True)
     app.state.repo = PgCompanyRepo(pool)
     app.state.search = SearchRepo(pool)
+    app.state.connections = PgConnections(pool)
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
@@ -77,10 +91,6 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
-app.include_router(search_router)
-
-
-app.include_router(agent_router)
 
 
 def get_repo(request: Request) -> CompanyRepo:
@@ -88,6 +98,65 @@ def get_repo(request: Request) -> CompanyRepo:
 
 
 Repo = Annotated[CompanyRepo, Depends(get_repo)]
+
+
+# каталог источников — раньше роутера материалов: его /api/sources/{id} иначе поймал бы /api/sources/catalog
+sources_router = APIRouter(prefix="/api/sources", tags=["источники"])
+
+
+def get_connections(request: Request) -> Connections:
+    return getattr(request.app.state, "connections", None) or _memory_connections
+
+
+_memory_connections = MemoryConnections()  # без базы (тесты) — отметки в памяти процесса
+
+
+def _persona_or_404(repo: CompanyRepo, persona: str) -> str:
+    """Пользователь — действующий клиент банка, как у ленты: отметки не пишутся для несуществующих."""
+    parsed = parse_persona_id(persona)
+    company = repo.get_company(parsed[0]) if parsed else None
+    if company is None or company.client_type != "CLIENT":
+        raise HTTPException(status_code=404, detail=f"пользователь {persona} не найден")
+    return persona
+
+
+@sources_router.get("/catalog", response_model=list[SourceEntry])
+def sources_catalog(
+    repo: Repo,
+    connections: Annotated[Connections, Depends(get_connections)],
+    persona: Annotated[
+        str, Query(description="id тестового пользователя: какие источники у него подключены")
+    ],
+) -> list[SourceEntry]:
+    """Пул источников: российские и зарубежные, открытые и платные по API, подключён ли у пользователя и как
+    подключить. Открытые ленты подключены всем — парсер их уже читает."""
+    return catalog(connections, _persona_or_404(repo, persona))
+
+
+@sources_router.post("/{source_id}/connect", response_model=SourceConnection)
+def connect_source(
+    repo: Repo,
+    source_id: str,
+    connections: Annotated[Connections, Depends(get_connections)],
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+) -> SourceConnection:
+    """Отметить источник подключённым. Ключи API в прототипе не принимаются: в ответе — куда ключ кладётся
+    на сервере."""
+    persona = _persona_or_404(repo, persona)
+    source_id = entry_id(source_id)  # любая лента издателя — его запись в каталоге
+    if not any(e["id"] == source_id for e in catalog_entries()):
+        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
+    connections.connect(persona, source_id)
+    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
+    raw = next(e for e in catalog_entries() if e["id"] == source_id)
+    return SourceConnection(source=entry, message=connect_message(raw))
+
+
+app.include_router(sources_router)
+app.include_router(search_router)
+
+
+app.include_router(agent_router)
 
 
 @app.get("/api/health", response_model=Health, tags=["служебное"])
@@ -259,21 +328,69 @@ def get_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     agent = getattr(request.app.state, "agent", None)
-    if agent is not None:
-        # какие карточки уже собраны — экрану не нужно спрашивать статус по каждому событию
-        try:
-            ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
-            for item in feed.items:
-                item.insight_ready = item.event_id in ready
-        except Exception:
-            logger.warning("не удалось проверить готовые карточки ленты", exc_info=True)
+    _mark_ready(agent, feed)
     if llm and settings.feed_llm_top and agent is not None and agent.llm is not None:
         exposure = company_exposure(repo, feed.company_id)
         if exposure is not None:
             feed = rerank(
                 feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""), top_n=settings.feed_llm_top
             )
+            # оценка модели меняет вывод: «не задевает» — только «к сведению»
+            for item in feed.items:  # пересортировка могла сдвинуть оценённые моделью ниже верха
+                item.takeaway = takeaway(item, feed.role)
     return feed
+
+
+def _mark_ready(agent, feed: Feed) -> None:
+    """Какие карточки уже собраны — экрану не нужно спрашивать статус по каждому событию."""
+    if agent is None:
+        return
+    try:
+        ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
+        for item in feed.items:
+            item.insight_ready = item.event_id in ready
+    except Exception:
+        logger.warning("не удалось проверить готовые карточки ленты", exc_info=True)
+
+
+@app.get("/api/search", response_model=Feed, tags=["лента"])
+def search_feed(
+    request: Request,
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    q: Annotated[str, Query(min_length=2, max_length=200, description="что искать в новостях")],
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> Feed:
+    """Поиск по новостям в формате ленты: задевающие компанию пользователя — первыми, с оценкой и выводом;
+    остальные найденные — следом с оценкой 0 и выводом «к сведению»."""
+    settings = get_settings()
+    feed = persona_feed(
+        repo, news, persona, limit=limit, candidates=min(settings.feed_candidates, 100), query=q
+    )
+    if feed is None:
+        raise HTTPException(
+            status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
+        )
+    _mark_ready(getattr(request.app.state, "agent", None), feed)
+    return feed
+
+
+@app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])
+def get_event(event_id: str, news: Annotated[NewsProvider, Depends(news_provider)]) -> EventDetail:
+    """Новость целиком: полный текст (если парсер получил его законно — полный RSS или открытая страница),
+    картинка, ссылка на первоисточник; нет полного текста — `text: null`, лид в `source.fragment`."""
+    event = news.event(event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail=f"событие {event_id} не найдено")
+    return EventDetail(
+        id=event.id,
+        source=event.source(),
+        text=event.text,
+        url=event.url,
+        image_url=event.image_url,
+        source_icon_url=event.source_icon_url,
+    )
 
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
