@@ -1,5 +1,6 @@
 from api.contract import (
     Evidence,
+    ExposureChannel,
     ExposureMap,
     FactorExposure,
     FeedItem,
@@ -58,14 +59,14 @@ def test_act_has_event_number_and_action():
     act = takeaway(item(0.6, short=short), "cfo")
     assert act.level == "act"
     assert act.text == (
-        "ЦБ сохранил ставку 14 % — собственный кредит в банке, кредиты у 11 компаний группы."
-        " Что делать: проверьте, когда пересматриваются ставки по кредитам и лизингу."
+        "Ставка 14 % продержится дольше — долг дороже: собственный кредит в банке, кредиты у 11 компаний"
+        " группы. Что делать: сверьте сроки пересмотра ставок."
     )
 
 
 def test_number_from_company_data_when_no_short_line():
     text = takeaway(item(0.6), "cfo", exposure_map()).text
-    assert "кредиты в банке у других компаний группы: 3 из 368" in text
+    assert "кредиты у 3 из 368 компаний группы" in text
 
 
 def test_group_number_for_owner():
@@ -84,9 +85,49 @@ def test_group_number_for_owner():
         text="",
         refs=[],
     )
-    assert takeaway(it, "owner", exposure_map()).text.startswith(
-        "ЦБ не спешит — касается 178 компаний группы с выручкой 149,0 млрд ₽. Что делать: учтите"
+    # в заголовке «ЦБ не спешит» направления нет — так и сказано, число и действие на месте
+    assert takeaway(it, "owner", exposure_map()).text == (
+        "ЦБ не спешит — направление пока неясно. 178 компаний группы с выручкой 149,0 млрд ₽"
+        " зависят от кредитов. Что делать: сверьте сроки пересмотра ставок."
     )
+    it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
+    assert takeaway(it, "owner", exposure_map()).text.startswith(
+        "Ставка продержится дольше — долг группы дороже: 178 компаний группы с выручкой 149,0 млрд ₽"
+    )
+
+
+def test_consequence_direction_and_side():
+    from api.consequence import consequence
+
+    def cons(title, key, channel=""):
+        exposure = exposure_map()
+        exposure.factors[0].code = key
+        exposure.factors[0].channel = ExposureChannel(kind="direct", text=channel)
+        return consequence(item(0.6, title=title), key, exposure)
+
+    assert cons("ЦБ сохранил ставку 14,00%", "rate") == "Ставка 14 % продержится дольше — долг дороже"
+    assert cons("ЦБ снизил ключевую ставку", "rate") == "Ставка снижается — долг подешевеет"
+    oil_up = "Цена Brent обновила полугодовой максимум"
+    assert (
+        cons(oil_up, "commodity_oil", "своя отрасль — нефть, газ и топливо")
+        == "Нефть дорожает — выручка от топлива выше"
+    )
+    assert (
+        cons(oil_up, "commodity_oil", "перевозки: топливо в себестоимости")
+        == "Нефть дорожает — топливо для вас дороже"
+    )
+    assert cons("Курс доллара опустился ниже 81 рубля", "fx", "ВЭД: Китай; направление — импорт") == (
+        "Рубль крепче — импорт дешевле"
+    )
+    # направление не определить — не гадаем
+    assert cons("Новак заявил о готовности экспортировать дизель", "commodity_oil") is None
+    assert cons("Курс доллара. Прогноз на неделю", "fx", "экспорт") is None
+
+
+def test_unclear_direction_is_said_honestly():
+    it = item(0.6, title="Новак заявил о готовности экспортировать дизель", code="commodity_oil")
+    text = takeaway(it, "ceo", exposure_map()).text
+    assert "направление пока неясно" in text
 
 
 def test_role_changes_action():
@@ -150,9 +191,36 @@ def test_facts_skip_okved_lists_and_shorten_group_lines():
         ),
     ]
     assert facts(item(0.6), "rate", exposure) == [
-        "компании группы: 48 компаний, 116,8 млрд ₽ — 59 % выручки группы"
+        "48 компаний группы с выручкой 116,8 млрд ₽ зависят от кредитов"
     ]
     text = takeaway(
         item(0.6, title="ЦБ сохранил ключевую ставку на уровне 14 % годовых и дал сигнал"), "cfo", exposure
     )
     assert "48 компаний" in text.text and len(text.text) <= TEXT_MAX
+
+
+def test_consequence_does_not_flip_meaning():
+    from api.consequence import consequence
+
+    def cons(title, key, channel=""):
+        exposure = exposure_map()
+        exposure.factors[0].code = key
+        exposure.factors[0].channel = ExposureChannel(kind="direct", text=channel)
+        return consequence(item(0.6, title=title), key, exposure)
+
+    pause = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
+    assert cons(pause, "rate") == "Ставка продержится дольше — долг дороже"
+    assert cons("ЦБ снизил ставку, сохранив жесткий сигнал", "rate") == "Ставка снижается — долг подешевеет"
+    assert cons("ЦБ не повысил ставку", "rate") == "Ставка не меняется — долг остаётся дорогим"
+    assert cons("Инфляция 9,5 %: ЦБ сохранил ставку 16 %", "rate").startswith("Ставка 16 %")
+    # без предмета рядом с глаголом и при неясной стороне — не гадаем
+    assert cons("Инфляция замедлилась, ЦБ обсудит ставку", "rate") is None
+    assert cons("ОПЕК+ сократит добычу нефти", "commodity_oil", "своя отрасль — нефть") is None
+    assert cons("Цена Brent обновила максимум", "commodity_oil", "") is None
+    assert cons("Ростех подписал контракт", "gov") is None
+    assert cons("Рубль не смог укрепиться", "fx", "импорт") is None
+    assert cons("Курс доллара вырос", "fx", "ВЭД: экспорт и импорт") is None
+    assert (
+        cons("Минпромторг предложил ввести утильсбор", "tax_regulation")
+        == "Налоги и пошлины растут — нагрузка выше"
+    )
