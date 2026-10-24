@@ -17,7 +17,7 @@ import math
 from api.contract import ChainChannel, ChainNode, InfluenceChain
 from api.exposure import Catalog, Context, default_catalog
 from api.okved import SECTOR_BY_CODE, okved_prefix, sector_for
-from api.profile import Pair, aggregate_flows, display_name, format_rub, format_share
+from api.profile import Pair, aggregate_flows, companies, display_name, format_rub, format_share
 from api.records import CompanyRecord, Flow
 
 NODES_SHOWN = 5
@@ -32,17 +32,6 @@ def event_classes(okved: list[str]) -> list[str]:
         if prefix and prefix not in result:
             result.append(prefix)
     return result
-
-
-def companies(n: int) -> str:
-    """«1 компания», «3 компании», «12 компаний»."""
-    if n % 10 == 1 and n % 100 != 11:
-        word = "компания"
-    elif n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
-        word = "компании"
-    else:
-        word = "компаний"
-    return f"{n} {word}"
 
 
 def _sector(okved: str) -> str:

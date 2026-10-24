@@ -89,7 +89,13 @@ def test_demo_client_map(repo, company_id):
 
 
 def test_all_large_companies(repo):
-    for company in repo.list_companies(large=True, limit=500, offset=0):
+    # крупнейшая компания каждой крупной группы (клиенты) и все компании со своей выручкой > 15 млрд
+    leaders = repo.list_companies(large=True, limit=5000, offset=0, clients_only=True, per_group=True)
+    with repo.pool.connection() as conn:
+        own = [r[0] for r in conn.execute("SELECT id FROM companies WHERE revenue > 15e9").fetchall()]
+    assert len(own) == 115
+    companies = {c.id: c for c in leaders} | {cid: repo.get_company(cid) for cid in own}
+    for company in companies.values():
         result = exposure(repo, company.id)
         assert result.factors
         for factor in result.factors:
@@ -119,3 +125,71 @@ def test_demo_chains_match_manual_csv_count(repo):
     road = chain(repo, "U_26030", ["42"])[("buyers", "42")]
     assert round(road.share, 3) == 0.506
     assert road.nodes[0].id == "U_196945"
+
+
+def test_self_payments_are_most_of_volume_and_excluded(repo):
+    # ответ организаторов: ~82 % объёма платежей — переводы самому себе; в профиле и карте их нет
+    with repo.pool.connection() as conn:
+        self_share = conn.execute(
+            "SELECT sum(amount) FILTER (WHERE payer = beneficiary) / sum(amount) FROM payments"
+        ).fetchone()[0]
+    assert 0.78 < self_share < 0.86
+    from api.profile import aggregate_flows
+
+    for company_id in ("U_26030", "U_34911"):  # у обоих самоплатежи на миллиарды
+        company = repo.get_company(company_id)
+        flows = aggregate_flows(company, repo.flows(company_id))
+        assert company_id not in flows.pairs
+        assert flows.self_payments == 1
+
+
+def test_large_by_group_revenue(repo):
+    # крупный бизнес — по выручке группы: все прежние 115 остаются, добавляются компании крупных групп
+    leaders = repo.list_companies(large=True, limit=5000, offset=0, clients_only=True, per_group=True)
+    assert len(leaders) > 115
+    ids = {c.id for c in leaders}
+    assert {"U_8318", "U_57706", "U_34911", "U_258116"} <= ids
+    assert all(c.client_type == "CLIENT" for c in leaders)
+    stats = repo.group_stats(["group_133141_sb"])["group_133141_sb"]  # группа U_8318
+    assert round(stats.revenue / 1e9, 1) == 55.7
+
+
+def test_demo_feeds_differ_by_company_and_role(repo):
+    import datetime as dt
+    import itertools
+    from pathlib import Path
+
+    from api.news import SnapshotNews
+    from api.ranking import MSK
+    from api.service import persona_feed
+
+    news = SnapshotNews(Path(__file__).resolve().parents[3] / "data" / "demo" / "news_snapshot.jsonl")
+    now = dt.datetime(2026, 10, 24, 12, tzinfo=MSK)
+
+    def top(persona):
+        return [i.event_id for i in persona_feed(repo, news, persona, limit=5, now=now).items]
+
+    main = {p: top(p) for p in ("p-u8318-cfo", "p-u57706-owner", "p-u34911-ceo", "p-u258116-ceo")}
+    # у основных пользователей четырёх демо-клиентов топ-5 различаются минимум на 3 события из 5
+    for a, b in itertools.combinations(main, 2):
+        assert len(set(main[a]) & set(main[b])) <= 2, (a, b)
+    # смена роли без смены компании меняет порядок
+    assert top("p-u8318-cfo") != top("p-u8318-acc")
+    assert top("p-u57706-owner") != top("p-u57706-tre")
+
+
+def test_demo_group_impact(repo):
+    from api.service import company_group_impact
+
+    # топливный холдинг: событие про дороги и госрасходы задевает дорожных строителей группы
+    _, impact = company_group_impact(repo, "U_57706", ["42"], ["gov"])
+    ids = {m.id for m in impact.affected}
+    assert {"U_191099", "U_417124"} <= ids
+    assert impact.companies_total == 369
+    # оптовик автозапчастей: событие по авторынку — импортёры группы, платежи с ними отдельно
+    _, auto = company_group_impact(repo, "U_8318", ["45"], [])
+    importers = {m.id: m for m in auto.affected if m.id in ("U_92457", "U_52177")}
+    assert set(importers) == {"U_92457", "U_52177"}
+    assert importers["U_92457"].intra_payments > 7e9
+    # зернотрейдер вне группы — блока нет
+    assert company_group_impact(repo, "U_34911", ["01"], []) == (True, None)

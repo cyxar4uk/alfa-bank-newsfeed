@@ -1,18 +1,37 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
+from api.agent.routes import router as agent_router
+from api.agent.service import build_service
 from api.config import get_settings
-from api.contract import CompanyProfile, CompanySummary, ExposureMap, Health, InfluenceChain, Persona
+from api.contract import (
+    CompanyProfile,
+    CompanySummary,
+    ExposureMap,
+    Feed,
+    GroupImpact,
+    Health,
+    InfluenceChain,
+    Persona,
+)
 from api.db import connect, ensure_schema
+from api.importer import DATA_FILES
+from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
-from api.personas import make_personas
-from api.profile import display_name
+from api.personas import personas_for
+from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
-from api.service import company_chain, company_exposure, company_profile
+from api.search.repo import SearchRepo
+from api.search.routes import router as search_router
+from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
+
+logger = logging.getLogger("api")
 
 
 @asynccontextmanager
@@ -20,10 +39,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     with connect(settings.database_url) as conn:
         ensure_schema(conn)
+        ensure_search_schema(conn)  # таблицы новостей и аналитики банка (api.search); пересоздаёт загрузчик
         conn.commit()
     # короткое ожидание соединения: /api/health должен быстро ответить 503, а не висеть
     pool = ConnectionPool(settings.database_url, min_size=1, max_size=10, timeout=5, open=True)
     app.state.repo = PgCompanyRepo(pool)
+    app.state.search = SearchRepo(pool)
+    # агент ищет новости и аналитику банка через app.state.search
+    try:
+        app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
+    except Exception:
+        # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
+        logger.exception("агент не запустился")
+        app.state.agent = None
     try:
         yield
     finally:
@@ -32,13 +60,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Новостная аналитика для бизнес-решений",
-    description="API сервиса: профиль компании по данным банка, тестовые пользователи, контракт инсайта.",
+    description=(
+        "API сервиса: профиль компании по данным банка, тестовые пользователи, инсайты агента, трассы и "
+        "отзывы."
+    ),
     version="0.1.0",
     openapi_url="/api/openapi.json",
     docs_url="/api/docs",
     redoc_url=None,
     lifespan=lifespan,
 )
+app.include_router(search_router)
+
+
+app.include_router(agent_router)
 
 
 def get_repo(request: Request) -> CompanyRepo:
@@ -54,29 +89,56 @@ def health(repo: Repo, response: Response) -> Health:
         files = repo.imported_files()
     except Exception:
         response.status_code = 503
-        return Health(status="degraded", db="unavailable")
-    return Health(status="ok", db="ok", data=files)
+        return Health(status="degraded", db="unavailable", warnings=["база данных недоступна"])
+    loaded = {f.file: f for f in files}
+    warnings = []
+    for name in DATA_FILES:
+        if name not in loaded:
+            warnings.append(
+                f"файл {name} не загружен: положите CSV кейса в DATA_DIR/companies"
+                " (по умолчанию data/raw/companies) и перезапустите импорт — `docker compose up import`"
+            )
+        elif not loaded[name].rows_loaded:
+            warnings.append(f"файл {name} загружен, но в нём нет ни одной годной строки")
+    # API живо — отвечаем 200, а нехватку данных показываем в статусе и предупреждениях
+    return Health(status="degraded" if warnings else "ok", db="ok", data=files, warnings=warnings)
 
 
 @app.get("/api/companies", response_model=list[CompanySummary], tags=["компании"])
 def list_companies(
     repo: Repo,
-    large: Annotated[bool, Query(description="только крупные: выручка больше 15 млрд ₽")] = False,
+    large: Annotated[
+        bool, Query(description="только крупный бизнес: выручка группы (или своя вне группы) > 15 млрд ₽")
+    ] = False,
+    clients_only: Annotated[bool, Query(description="только действующие клиенты банка (CLIENT)")] = True,
+    per_group: Annotated[bool, Query(description="от каждой группы одна компания — крупнейшая")] = False,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[CompanySummary]:
-    return [
-        CompanySummary(
-            id=c.id,
-            display_name=display_name(c, c.id),
-            sector=sector_for(c.okved_code),
-            okved=c.okved_code,
-            revenue=c.revenue,
-            region=c.region,
-            client_type=c.client_type,
+    companies = repo.list_companies(
+        large=large, limit=limit, offset=offset, clients_only=clients_only, per_group=per_group
+    )
+    groups = repo.group_stats([c.group_id for c in companies if c.group_id])
+    result = []
+    for c in companies:
+        stats = groups.get(c.group_id) if c.group_id else None
+        basis = stats.revenue if stats and stats.revenue else c.revenue
+        result.append(
+            CompanySummary(
+                id=c.id,
+                display_name=display_name(c, c.id),
+                sector=sector_for(c.okved_code),
+                okved=c.okved_code,
+                revenue=c.revenue,
+                group_id=c.group_id,
+                group_revenue=stats.revenue if stats else None,
+                group_size=stats.size if stats else None,
+                large=bool(basis and basis > LARGE_REVENUE),
+                region=c.region,
+                client_type=c.client_type,
+            )
         )
-        for c in repo.list_companies(large=large, limit=limit, offset=offset)
-    ]
+    return result
 
 
 @app.get("/api/companies/{company_id}", response_model=CompanyProfile, tags=["компании"])
@@ -114,6 +176,54 @@ def get_chain(
     return chain
 
 
+@app.get("/api/companies/{company_id}/group-impact", response_model=GroupImpact | None, tags=["компании"])
+def get_group_impact(
+    company_id: str,
+    repo: Repo,
+    okved: Annotated[list[str], Query(description="отрасли события, например 42 или 41,42")] = [],  # noqa: B006
+    factor: Annotated[list[str], Query(description="факторы события, например rate или gov")] = [],  # noqa: B006
+) -> GroupImpact | None:
+    """Какие компании группы задевает событие, через что и на какую выручку; нет группы — null."""
+    codes = [c for value in okved for c in value.split(",") if c.strip()]
+    factors = [f for value in factor for f in value.split(",") if f.strip()]
+    found, impact = company_group_impact(repo, company_id, codes, factors)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
+    return impact
+
+
+def news_provider(request: Request) -> NewsProvider:
+    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo."""
+    path = get_settings().news_snapshot
+    snapshot = SnapshotNews(path) if path.is_file() else None
+    search = getattr(request.app.state, "search", None)
+    if search is not None:
+        return FallbackNews(SearchNews(search), snapshot)
+    if snapshot is None:
+        raise HTTPException(status_code=503, detail=f"нет новостей: ни базы поиска, ни снимка {path}")
+    return snapshot
+
+
+@app.get("/api/feed", response_model=Feed, tags=["лента"])
+@app.get("/api/briefing", response_model=Feed, tags=["лента"], summary="Брифинг — то же, что лента")
+def get_feed(
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> Feed:
+    """Лента пользователя: события, которые задевают его компанию, с оценкой и её разложением."""
+    settings = get_settings()
+    feed = persona_feed(
+        repo, news, persona, limit=limit, candidates=settings.feed_candidates, days=settings.feed_days
+    )
+    if feed is None:
+        raise HTTPException(
+            status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
+        )
+    return feed
+
+
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
 def list_personas(repo: Repo) -> list[Persona]:
-    return make_personas(repo.list_companies(large=True, limit=500, offset=0))
+    return personas_for(repo)
