@@ -5,6 +5,9 @@
 // Оценки значимости и их разложение — тестовые.
 import type {
   BankVsMarket,
+  ExposureMap,
+  SensitivityFactor,
+  Strength,
   ChannelKind,
   CompanyProfile,
   Confidence,
@@ -47,6 +50,11 @@ const F = {
   agro: { code: 'commodity_agro', label: 'Зерно и агро' },
   gold: { code: 'commodity_gold', label: 'Золото' },
   growth: { code: 'growth', label: 'Рост экономики и инвестиции' },
+  inflation: { code: 'inflation', label: 'Инфляция издержек' },
+  region: { code: 'region', label: 'События региона' },
+  demand45: { code: 'demand_45', label: 'Спрос покупателей-оптовиков' },
+  demand: { code: 'demand', label: 'Спрос покупателей' },
+  supply: { code: 'supply', label: 'Поставщики' },
 } satisfies Record<string, FactorRef>;
 
 // ─── Компании ────────────────────────────────────────────────────────────────
@@ -72,11 +80,14 @@ export const companies: CompanyProfile[] = [
       { id: 'feat:REGION', label: 'Регион', value: 'Москва', source: 'dataset' },
       { id: LOA, label: 'Кредит в банке', value: true, source: 'dataset' },
       { id: ZPP, label: 'Зарплатный проект', value: true, source: 'dataset' },
+      { id: DEP, label: 'Депозит в банке', value: false, source: 'dataset' },
+      { id: GAR, label: 'Гарантии банка', value: false, source: 'dataset' },
       { id: WORKERS, label: 'Сотрудники', value: 'более 251', source: 'dataset' },
       { id: GROUP, label: 'Группа', value: '29 компаний, 55,7 млрд ₽, почти вся — автобизнес', source: 'derived', derived_from: ['GROUP_ID'] },
       { id: 'feat:group_loans', label: 'Кредиты в группе', value: 'у 12 из 29 компаний группы', source: 'derived', derived_from: ['GROUP_ID', LOA] },
       { id: 'feat:intra_group_suppliers', label: 'Закупки внутри группы', value: '43 % платежей (8,2 из 18,9 млрд ₽) — двум импортёрам группы', source: 'derived', derived_from: ['payments'] },
       { id: 'feat:group_fts_countries', label: 'ВЭД компаний группы', value: 'ОАЭ, Индия, Китай; Китай, Турция, Камбоджа', source: 'derived', derived_from: ['GROUP_ID', 'FTS_COUNTRY_NAME'] },
+      { id: 'feat:supply_45', label: 'Поставщики', value: 'оптовики запчастей — 50,9 % внешних платежей, покрытие 71 %', source: 'derived', derived_from: ['payments'] },
       { id: 'feat:payers_coverage', label: 'Покупатели', value: 'отрасль известна у 24 % поступлений; 46 % — один плательщик вне данных банка', source: 'derived', derived_from: ['payments'] },
       { id: 'feat:position', label: 'Положение в отрасли', value: '№ 1 по выручке из 422 компаний с ОКВЭД 45.31.1 в данных банка', source: 'derived', derived_from: [OKVED, 'feat:REVENUE_COMPANY'] },
     ],
@@ -95,6 +106,7 @@ export const companies: CompanyProfile[] = [
       { id: LEA, label: 'Лизинг', value: true, source: 'dataset' },
       { id: LOA, label: 'Кредит в банке', value: false, source: 'dataset' },
       { id: FTS, label: 'ВЭД', value: 'Киргизия, Казахстан', source: 'dataset' },
+      { id: WORKERS, label: 'Сотрудники', value: '16–100', source: 'dataset' },
       { id: GROUP, label: 'Группа', value: '369 компаний, 302,7 млрд ₽: топливо, генерация, дороги, жильё', source: 'derived', derived_from: ['GROUP_ID'] },
       { id: 'feat:group_products', label: 'Продукты в группе', value: 'лизинг у 41 компании, гарантии у 7, кредит у 3', source: 'derived', derived_from: ['GROUP_ID'] },
       { id: 'feat:payments_coverage', label: 'Платежи в данных', value: 'меньше 1 % выручки', source: 'derived', derived_from: ['payments'] },
@@ -111,6 +123,9 @@ export const companies: CompanyProfile[] = [
       { id: 'feat:REVENUE_COMPANY', label: 'Выручка', value: '53,9 млрд ₽', source: 'dataset' },
       { id: 'feat:REGION', label: 'Регион', value: 'Ростовская область', source: 'dataset' },
       { id: LOA, label: 'Кредит в банке', value: true, source: 'dataset' },
+      { id: GAR, label: 'Гарантии банка', value: false, source: 'dataset' },
+      { id: DEP, label: 'Депозит в банке', value: false, source: 'dataset' },
+      { id: WORKERS, label: 'Сотрудники', value: '16–100', source: 'dataset' },
       { id: FTS, label: 'ВЭД', value: 'ОАЭ, Алжир, Индия', source: 'dataset' },
       { id: 'feat:fts_direction', label: 'Направление ВЭД', value: 'экспорт — оценка по отрасли и странам', source: 'derived', derived_from: [OKVED, FTS] },
       { id: 'feat:payments_gap', label: 'Платежи в данных', value: 'внутренних поступлений 0,01 млрд ₽; отрасль известна у 12 % платежей поставщикам', source: 'derived', derived_from: ['payments'] },
@@ -129,6 +144,8 @@ export const companies: CompanyProfile[] = [
       { id: LEA, label: 'Лизинг', value: true, source: 'dataset' },
       { id: ZPP, label: 'Зарплатный проект', value: true, source: 'dataset' },
       { id: FACTORING, label: 'Факторинг', value: false, source: 'dataset' },
+      { id: GAR, label: 'Гарантии банка', value: false, source: 'dataset' },
+      { id: DEP, label: 'Депозит в банке', value: false, source: 'dataset' },
       { id: WORKERS, label: 'Сотрудники', value: 'более 251', source: 'dataset' },
       { id: FTS, label: 'ВЭД', value: 'Китай, Индонезия, Узбекистан', source: 'dataset' },
       { id: 'feat:demand_56', label: 'Покупатели', value: 'рестораны и кафе — 53 % поступлений, 1 058 плательщиков', source: 'derived', derived_from: ['payments'] },
@@ -579,7 +596,13 @@ export const details: Record<string, MockDetail> = {
       ai('Автосалоны группы первыми почувствуют дорогие автокредиты и лимиты по ним с 1 октября', [GROUP, CON1]),
     ],
     opportunities: [
-      ai('Падение продаж новых автомобилей удлиняет срок жизни парка — спрос на запчасти может держаться лучше, чем на машины. Гипотеза, данными компании не подтверждена', [OKVED, M7_1], 'low'),
+      {
+        ...ai('Падение продаж новых автомобилей удлиняет срок жизни парка — спрос на запчасти может держаться лучше, чем на машины. Данными компании не подтверждено', [OKVED, M7_1], 'low'),
+        check: {
+          confirm: 'рост поступлений от автосервисов и оптовиков запчастей в следующих выгрузках платежей',
+          refute: 'их падение',
+        },
+      },
     ],
     factors: [ai('Решения ЦБ 23 октября и 18 декабря; курс юаня — закупки из Китая; продажи авто и автокредиты', [KR1, KR2, CON1])],
     actions: [
@@ -697,7 +720,12 @@ export const details: Record<string, MockDetail> = {
       ai('Рестораны платят персоналу больше — их маржа сжимается, давление на ваши цены', ['feat:demand_56', M7_2]),
       ai('Импорт из Китая дорожает с курсом: 13,0 → 13,8 ₽/¥ по прогнозу банка', [FTS, KR2]),
     ],
-    opportunities: [ai('Спрос перетекает из услуг в товары — розничный канал группы может компенсировать часть просадки. Гипотеза', [GROUP, H2], 'low')],
+    opportunities: [
+      {
+        ...ai('Спрос перетекает из услуг в товары — розничный канал группы может компенсировать часть просадки', [GROUP, H2], 'low'),
+        check: { confirm: 'рост доли поступлений от розницы (47) против общепита (56)' },
+      },
+    ],
     factors: [ai('Трафик и средний чек общепита; курс юаня; стоимость логистики из Азии', ['feat:demand_56', KR2, 'feat:supply_52'])],
     actions: [
       { text: 'Какая доля дебиторки — у ресторанов, как менялись сроки оплаты с лета?', kind: 'question', refs: ['feat:demand_56'] },
@@ -786,7 +814,7 @@ export const details: Record<string, MockDetail> = {
         result_label: 'Изменение рублёвой выручки за год',
         scenarios: [
           { id: 'base', label: 'Прогноз банка: 87,2 → 93,0 ₽/$', multiplier: 0.0665, basis: bank('Рубль 87,2 ₽/$ на конец 2026 года и 93,0 ₽/$ на конец 2027 года: ослабление на 6,65 % за 2027 год', [KR2]) },
-          { id: 'hard', label: 'Рубль слабее на 10 %', multiplier: 0.1, basis: est('Допущение сервиса: ослабление рубля на 10 % — на каждые 100 млн ₽ выручки +10 млн ₽') },
+          { id: 'hard', label: 'Рубль слабее на 10 %', multiplier: 0.1, basis: est('Допущение сервиса: ослабление рубля на 10 % — на каждые 100 млн ₽ выручки +10 млн ₽') },
           { id: 'soft', label: 'Курс не меняется', multiplier: 0, basis: est('Допущение сервиса: курс остаётся 87,2 ₽/$') },
         ],
         assumptions: [
@@ -795,6 +823,180 @@ export const details: Record<string, MockDetail> = {
           'Без учёта пошлин и логистики',
         ],
       },
+    ],
+  },
+};
+
+// ─── Карты чувствительности (по ожидаемым картам демо-клиентов) ──────────────
+
+const FX_BANK = bank('Рубль: 87,2 ₽/$ и 13,0 ₽/¥ на конец 2026 года, 93,0 ₽/$ и 13,8 ₽/¥ на конец 2027 года', [KR2]);
+const RATE_BANK = bank('Ставка 14,0 % до конца 2026 года и 12,0 % к концу 2027 года', [KR1, KR2]);
+const VED_BANK = bank('Выгода от экспорта может не реализоваться из-за логистики и санкционных рисков', [H3]);
+const INFL_BANK = bank('Топливо и ослабление рубля — главные проинфляционные риски', [INF1]);
+const LABOR_FACT = fact('Номинальные зарплаты в июне выросли на 9,6 % г/г', [M7_2]);
+const LABOR_BANK = bank('Рынок труда не охлаждается — главный аргумент против быстрого снижения ставки', [M7_1]);
+
+const sf = (
+  factor: FactorRef,
+  strength: Strength,
+  channel_text: string,
+  evidence: Statement[],
+  coverage: number | null = null,
+): SensitivityFactor => ({ factor, strength, channel_text, evidence, coverage, recent_event_ids: [] });
+
+export const exposureMaps: Record<string, ExposureMap> = {
+  U_8318: {
+    company_id: 'U_8318',
+    position: { okved: '45.31.1', rank: 1, total: 422 },
+    factors: [
+      sf(F.fx, 'high', 'через поставщиков-импортёров своей группы: 43 % всех платежей', [
+        data('43 % платежей (8,2 из 18,9 млрд ₽) — двум компаниям группы с ВЭД: Китай, ОАЭ, Индия, Турция', ['feat:intra_group_suppliers', 'feat:group_fts_countries']),
+        ai('Направление «импорт» — оценка по отрасли: в данных ВЭД нет направления', ['feat:group_fts_countries']),
+        FX_BANK,
+      ]),
+      sf(F.rate, 'high', 'собственный кредит и кредиты у 12 компаний группы', [
+        data('Кредит в банке есть у компании и ещё у 12 из 29 компаний группы', [LOA, 'feat:group_loans']),
+        RATE_BANK,
+      ]),
+      sf(F.consumer, 'high', 'своя отрасль — авторынок; в группе автосалоны и автосервисы', [
+        data('Основная деятельность — опт автозапчастями; в группе автосалоны и автосервисы', [OKVED, GROUP]),
+        bank('Продажи автомобилей уходят в минус, лимиты по автокредитам ужесточены с 1 октября', [CON1]),
+      ]),
+      sf(F.ved, 'medium', 'через импортёров группы: Китай, ОАЭ, Индия, Турция, Камбоджа', [
+        data('ВЭД ведут две компании группы', ['feat:group_fts_countries']),
+        VED_BANK,
+      ]),
+      sf(F.supply45, 'medium', 'половина внешних закупок — у других оптовиков запчастей', [
+        data('Оптовики запчастей — 50,9 % внешних платежей поставщикам', ['feat:supply_45']),
+      ], 0.71),
+      sf(F.demand45, 'low', 'известные покупатели — оптовики запчастей, 21,6 % поступлений', [
+        data('Отрасль известна лишь у 24 % поступлений; 46 % — один плательщик вне данных банка', ['feat:payers_coverage']),
+      ], 0.24),
+      sf(F.labor, 'medium', 'больше 251 сотрудника, зарплатный проект', [
+        data('Больше 251 сотрудника по данным ФНС, зарплатный проект в банке', [WORKERS, ZPP]),
+        LABOR_FACT,
+        LABOR_BANK,
+      ]),
+      sf(F.inflation, 'medium', 'торговля импортными товарами с длинной цепочкой поставок', [
+        ai('Импортные запчасти дорожают вместе с курсом и логистикой', [OKVED], 'medium'),
+        INFL_BANK,
+      ]),
+      sf(F.gov, 'none', 'отрасль не бюджетная, гарантий банка нет', [data('Гарантий банка нет, отрасль — торговля', [GAR, OKVED])]),
+      sf(F.deposit, 'none', 'депозитов в банке нет', [data('Депозитов в банке нет', [DEP])]),
+    ],
+  },
+  U_57706: {
+    company_id: 'U_57706',
+    position: { okved: '46.71', rank: 1, total: 661 },
+    factors: [
+      sf(F.oil, 'high', 'своя отрасль — оптовая торговля топливом', [
+        data('Основная деятельность — оптовая торговля топливом', [OKVED]),
+        fact('Бензин подорожал на 26 % за 12 месяцев на 27 июля', [H2]),
+        bank('Топливный кризис — сокращение переработки и рост цен — один из главных проинфляционных рисков', [FI13]),
+      ]),
+      sf(F.deposit, 'high', 'свои депозиты: высокая ставка дольше — это доход', [
+        data('Депозит в банке есть, кредита нет', [DEP, LOA]),
+        bank('Ставка 14,0 % до конца 2026 года; для ликвидности — защитный портфель 12–16 % годовых', [KR1, FI3, FI24]),
+      ]),
+      sf(F.gov, 'high', 'через группу: два дорожных строителя, жильё и застройщики; свои гарантии', [
+        data('В группе дорожные и жилищные строители, у компании — гарантии банка', [GROUP, GAR]),
+        bank('Бюджет — главный риск для снижения ставки; госпроекты — главный источник роста промышленности', [FI9, KR1, H3]),
+      ]),
+      sf(F.rate, 'medium', 'у самой компании только лизинг; капиталоёмкие компании группы', [
+        data('Лизинг у компании и у 41 компании группы, кредит — у 3', [LEA, 'feat:group_products']),
+        RATE_BANK,
+      ]),
+      sf(F.fx, 'medium', 'ВЭД с Казахстаном и Киргизией; направление — оценка по отрасли', [
+        data('ВЭД: Киргизия, Казахстан', [FTS]),
+        ai('Вероятно, поставки топлива в ЕАЭС — оценка по отрасли', [OKVED, FTS], 'low'),
+        FX_BANK,
+      ]),
+      sf(F.ved, 'low', 'страны ЕАЭС', [data('ВЭД: Киргизия, Казахстан', [FTS])]),
+      sf(F.labor, 'low', '16–100 сотрудников', [data('16–100 сотрудников по данным ФНС', [WORKERS])]),
+      sf(F.demand, 'no_data', 'платежи компании в данных — меньше 1 % выручки', [
+        data('Платежи компании покрывают меньше 1 % выручки — цепочек через покупателей не строим', ['feat:payments_coverage']),
+      ], 0.11),
+      sf(F.supply, 'no_data', 'платежи компании в данных — меньше 1 % выручки', [
+        data('Платежи компании покрывают меньше 1 % выручки — цепочек через поставщиков не строим', ['feat:payments_coverage']),
+      ], 0),
+    ],
+  },
+  U_34911: {
+    company_id: 'U_34911',
+    position: { okved: '46.21', rank: 1, total: 204 },
+    factors: [
+      sf(F.fx, 'high', 'ВЭД с ОАЭ, Алжиром, Индией; «экспорт» — оценка по отрасли', [
+        data('ВЭД: ОАЭ, Алжир, Индия', [FTS]),
+        ai('По отрасли и странам вероятен экспорт; внутренних поступлений почти нет', ['feat:fts_direction', 'feat:payments_gap']),
+        FX_BANK,
+      ]),
+      sf(F.agro, 'high', 'своя отрасль — зерно', [
+        data('Основная деятельность — опт зерном', [OKVED]),
+        bank('Продовольствие может пойти ниже из-за сложностей с экспортом урожая', [INF1]),
+      ]),
+      sf(F.ved, 'high', 'экспорт в Северную Африку, Ближний Восток, Индию', [data('ВЭД: ОАЭ, Алжир, Индия', [FTS]), VED_BANK]),
+      sf(F.rate, 'high', 'собственный кредит; торговля зерном — оборотный капитал', [
+        data('Кредит в банке', [LOA]),
+        ai('Торговля зерном держится на оборотном кредите', [OKVED], 'medium'),
+        RATE_BANK,
+      ]),
+      sf(F.inflation, 'medium', 'цены на продовольствие внутри страны', [
+        data('Основная деятельность — опт зерном: цены продажи внутри страны', [OKVED]),
+        INFL_BANK,
+      ]),
+      sf(F.oil, 'medium', 'логистика зерна — грузовые перевозки', [
+        ai('Доставка зерна до портов дорожает вместе с топливом', [OKVED], 'medium'),
+        INFL_BANK,
+      ]),
+      sf(F.region, 'medium', 'юг России, порты Азово-Черноморского бассейна', [
+        data('Регион — Ростовская область', ['feat:REGION']),
+        ai('Экспорт идёт через порты юга', ['feat:REGION'], 'low'),
+      ]),
+      sf(F.demand, 'no_data', 'внутренних поступлений в данных почти нет', [
+        data('Внутренних поступлений 0,01 млрд ₽', ['feat:payments_gap']),
+      ]),
+      sf(F.supply, 'low', 'поставщики известны лишь частично', [
+        data('Отрасль известна у 12 % платежей поставщикам', ['feat:payments_gap']),
+      ], 0.12),
+      sf(F.labor, 'low', '16–100 сотрудников', [data('16–100 сотрудников по данным ФНС', [WORKERS])]),
+      sf(F.gov, 'none', 'гарантий нет, отрасль не бюджетная', [data('Гарантий банка нет', [GAR])]),
+      sf(F.deposit, 'none', 'депозитов в банке нет', [data('Депозитов в банке нет', [DEP])]),
+    ],
+  },
+  U_258116: {
+    company_id: 'U_258116',
+    position: { okved: '46.90', rank: 8, total: 3151 },
+    factors: [
+      sf(F.demand56, 'high', 'через покупателей: рестораны и кафе — 53 % поступлений, 1 058 плательщиков', [
+        data('Рестораны и кафе — 53 % поступлений в видимом банку обороте', ['feat:demand_56', 'feat:payers_coverage']),
+        fact('Потребление услуг в июне выросло лишь на 1,7 % г/г', [H2]),
+        bank('Потребление на пике: в 4К26 — около нуля г/г', [CON1]),
+      ], 0.66),
+      sf(F.consumer, 'high', 'через покупателей из общепита', [
+        data('Рестораны и кафе — 53 % поступлений', ['feat:demand_56']),
+        bank('Потребление в 4К26 — около нуля г/г', [CON1]),
+      ]),
+      sf(F.fx, 'high', 'ВЭД с Китаем, Индонезией, Узбекистаном; «импорт» — оценка по отрасли', [
+        data('ВЭД: Китай, Индонезия, Узбекистан', [FTS]),
+        FX_BANK,
+      ]),
+      sf(F.labor, 'medium', 'больше 251 сотрудника; у покупателей-ресторанов зарплаты растут', [
+        data('Больше 251 сотрудника, зарплатный проект', [WORKERS, ZPP]),
+        LABOR_FACT,
+        LABOR_BANK,
+      ]),
+      sf(F.supply52, 'medium', 'логистика — 17,5 % платежей', [
+        data('Логистика — 17,5 % платежей поставщикам', ['feat:supply_52']),
+        INFL_BANK,
+      ], 0.74),
+      sf(F.rate, 'medium', 'лизинг', [data('Лизинг в банке', [LEA]), RATE_BANK]),
+      sf(F.ved, 'medium', 'Китай, Индонезия, Узбекистан', [data('ВЭД: Китай, Индонезия, Узбекистан', [FTS]), VED_BANK]),
+      sf(F.inflation, 'medium', 'импортные товары и перенос издержек покупателями', [
+        ai('Покупатели переносят свои издержки в цены закупки', ['feat:demand_56'], 'low'),
+        INFL_BANK,
+      ]),
+      sf(F.gov, 'none', 'отрасль не бюджетная', [data('Гарантий банка нет', [GAR])]),
+      sf(F.deposit, 'none', 'депозитов в банке нет', [data('Депозитов в банке нет', [DEP])]),
     ],
   },
 };

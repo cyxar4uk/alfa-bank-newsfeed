@@ -294,3 +294,42 @@ def test_reliability_is_stored(conn):
     )
     load_news(conn, [item])
     assert conn.execute("SELECT reliability FROM news WHERE id = 'src:news:r'").fetchone()[0] == "official"
+    # переразметка сохраняет надёжность: следующая загрузка из ленты — без изменений
+    from ingest.db.load import retag_news
+
+    conn.execute("DELETE FROM search_loads WHERE name = 'tagging'")
+    retag_news(conn)
+    assert load_news(conn, [item]).unchanged == 1
+
+
+def test_changed_dictionaries_retag_stored_news(conn):
+    from ingest.db.load import retag_news
+
+    old = news("u", "Минпромторг предложил ввести утильсбор на буровое оборудование")
+    stale = old.tags.model_copy(update={"okved": ["45"], "factors": [], "sector_links": []})
+    llm = news("l", "Продажи легковых автомобилей в сентябре выросли на 12%")
+    load_news(conn, [old.model_copy(update={"tags": stale}), llm])
+    # разметка моделью: правила её не трогают
+    conn.execute(
+        "UPDATE news SET tags = jsonb_set(tags, '{tagged_by}', '[\"rules\", \"llm\"]'), okved = '{45}'"
+        " WHERE id = 'src:news:l'"
+    )
+    conn.execute("DELETE FROM search_loads WHERE name = 'tagging'")
+
+    assert retag_news(conn) == 1
+    assert conn.execute("SELECT okved FROM news WHERE id = 'src:news:u'").fetchone()[0] == old.tags.okved
+    assert "45" not in old.tags.okved and "28" in old.tags.okved
+    assert conn.execute("SELECT okved FROM news WHERE id = 'src:news:l'").fetchone()[0] == ["45"]
+    assert retag_news(conn) == 0  # словари не менялись — второй проход ничего не делает
+    # следующая загрузка той же новости из ленты — без изменений: отпечаток после переразметки тот же
+    assert load_news(conn, [old]).unchanged == 1
+
+
+def test_reliability_backfilled_by_publisher(conn):
+    from ingest.db.load import backfill_reliability
+
+    load_news(conn, [news("old", "Банк России сохранил ключевую ставку 14%", publisher="Банк России")])
+    assert conn.execute("SELECT reliability FROM news").fetchone()[0] is None
+    assert backfill_reliability(conn) == 1
+    assert conn.execute("SELECT reliability FROM news").fetchone()[0] == "official"
+    assert backfill_reliability(conn) == 0

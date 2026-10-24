@@ -35,3 +35,10 @@ def test_items_from_other_hosts_are_skipped_and_reliability_is_carried():
     assert [i.link for i in items] == ["http://government.ru/news/1/"]
     src = normalize(items[0])
     assert (src.publisher, src.reliability) == ("Правительство России", "official")
+
+
+def test_www_prefix_does_not_drop_items():
+    rss = """<?xml version="1.0"?><rss><channel>
+<item><title>Новость</title><link>https://forbes.ru/news/1</link></item></channel></rss>""".encode()
+    feed = Feed(id="forbes", publisher="Forbes", url="https://www.forbes.ru/newrss.xml", hosts=("www.forbes.ru",))
+    assert len(parse_feed(feed, rss)) == 1

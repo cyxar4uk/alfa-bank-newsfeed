@@ -7,6 +7,7 @@
 """
 
 import datetime as dt
+import re
 import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from ingest.tagging.rules import load_dictionaries, prepare
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.contract import (
@@ -30,6 +32,7 @@ from api.contract import (
     Source,
     SourceTags,
 )
+from api.okved import SECTOR_BY_CODE, okved_prefix
 
 ROLES_PATH = Path(__file__).with_name("roles.toml")
 MSK = dt.timezone(dt.timedelta(hours=3))
@@ -50,6 +53,10 @@ class Scoring(BaseModel):
     repeat_factor: float = Field(default=0.9, gt=0, le=1)
     # второе по силе слагаемое события — × next_term, третье — × next_term², …
     next_term: float = Field(default=1.0, gt=0, le=1)
+    # событие за рубежом без связи компании с этими странами: внутренние факторы — × foreign_factor
+    foreign_factor: float = Field(default=1.0, ge=0, le=1)
+    # событие без факторов: сумма сил его отраслей (по укрупнённым отраслям), выше которой каждой — доля
+    sector_focus: float = Field(default=0.0, ge=0)
 
 
 class RoleConfig(BaseModel):
@@ -76,6 +83,11 @@ class RankingConfig(BaseModel):
     sources: dict[str, float] = Field(default_factory=lambda: {"default": 0.9})
     # по уровню надёжности ленты — для издателей, которых нет в sources
     source_tiers: dict[str, float] = Field(default_factory=dict)
+    # факторы, которые задаёт российская экономика и регулирование: зарубежное событие их не меняет
+    domestic: list[str] = Field(default_factory=list)
+    # факторы внешней торговли: событие между другими странами (без России) касается их, только если у
+    # компании ВЭД с этими странами
+    trade: list[str] = Field(default_factory=list)
     roles: dict[Role, RoleConfig]
 
     def quality(self, publisher: str | None, reliability: str | None = None) -> float:
@@ -114,6 +126,9 @@ class NewsEvent:
     factors: list[tuple[str, float, str]] = field(default_factory=list)  # код, сила, название
     sectors: list[tuple[str, float]] = field(default_factory=list)  # двузначный ОКВЭД, сила
     tags: SourceTags = field(default_factory=SourceTags)
+    # страны из разметки; в правиле о зарубежье не участвуют — метку «Россия» ставят не всякой российской
+    # новости, страны берутся из заголовка (`title_countries`)
+    countries: list[str] = field(default_factory=list)
 
     def source(self) -> Source:
         return Source(
@@ -173,6 +188,7 @@ def event_from(item: Any) -> NewsEvent:
             event_type=_get(tags, "event_type"),
             regions=_get(tags, "regions") or [],
         ),
+        countries=list(_get(item, "countries") or _get(tags, "countries") or []),
     )
 
 
@@ -208,6 +224,85 @@ def _place(value: str) -> str:
     return value.casefold().removeprefix("г. ").strip()
 
 
+HOME = "Россия"
+# с кем торгует компания → о ком пишет новость: ФТС пишет страны ЕС поимённо, разметка — «Евросоюз»
+EU = (
+    "Австрия Бельгия Болгария Венгрия Германия Греция Дания Ирландия Испания Италия Кипр Латвия Литва"
+    " Люксембург Мальта Нидерланды Польша Португалия Румыния Словакия Словения Финляндия Франция Хорватия"
+    " Чехия Швеция Эстония"
+).split()
+_ALSO = {"Гонконг": "Китай", **{country: "Евросоюз" for country in EU}}
+
+
+def linked_countries(countries: Iterable[str]) -> set[str]:
+    """Страны ВЭД компании в названиях разметки новостей (casefold): Литва — и Евросоюз, Гонконг — и Китай."""
+    result = set()
+    for country in countries:
+        result.add(country.casefold())
+        if country in _ALSO:
+            result.add(_ALSO[country].casefold())
+    return result
+
+
+# российские ведомства и лица в заголовке — это Россия: «Минфин предложил пошлины на ввоз из Китая»
+_RUSSIAN_ACTORS = re.compile(
+    r"(?<![\w-])(?:минфин|минпромторг|минэнерго|минэкономразвития|минсельхоз|минтранс|минцифры|мид|цб|"
+    r"банк россии|центробанк|госдум|совфед|совет федерации|правительств|кабмин|кремл|фнс|фас|фтс|росстат|"
+    r"путин|мишустин|новак|силуанов|набиуллин|песков|решетников|володин)\w*"
+)
+
+
+@lru_cache(maxsize=4096)
+def title_countries(title: str) -> tuple[str, ...]:
+    """Страны, названные в заголовке, по порядку упоминания — по словарю стран разметки новостей (ingest).
+
+    Российское ведомство или лицо — тоже Россия, если сразу за ним не названа другая страна («Минфин США»).
+    """
+    text = prepare(title)
+    countries = [e for e in load_dictionaries().countries if e.strong]
+    found = []
+    for entry in countries:
+        if m := entry.strong.search(text):
+            found.append((m.start(), entry.name))
+    for m in _RUSSIAN_ACTORS.finditer(text):
+        after = len(text[m.end() :]) - len(text[m.end() :].lstrip())
+        if not any(e.strong.match(text, m.end() + after) for e in countries):
+            found.append((m.start(), HOME))
+            break
+    return tuple(dict.fromkeys(name for _, name in sorted(found)))
+
+
+def foreign_countries(event: NewsEvent) -> set[str]:
+    """Зарубежные страны, если событие происходит за рубежом; иначе — пустое множество.
+
+    За рубежом — если первой в заголовке названа зарубежная страна: «В Конгресс США внесён законопроект об
+    энергоносителях РФ», «Франция притормаживает». Россия первой («Россия нарастила импорт шин из Китая») или
+    страны только в тексте — событие российское: метку «Россия» разметка ставит не всякой российской новости.
+    """
+    named = title_countries(event.title)
+    if not named or named[0] == HOME:
+        return set()
+    return {c for c in named if c != HOME}
+
+
+def _focused(weights: dict[str, float], focus: float) -> dict[str, float]:
+    """Событие сразу о многих отраслях — каждой доля: сумма сил по укрупнённым отраслям не выше focus.
+
+    Утильсбор на буровое оборудование с метками «нефтесервис, добыча, машиностроение, автомобили» не
+    становится событием отрасли автозапчастей в полную силу.
+    """
+    if not focus:
+        return weights
+    families: dict[str, float] = {}
+    for okved, strength in weights.items():
+        family = SECTOR_BY_CODE.get(okved_prefix(okved) or "", okved)
+        families[family] = max(families.get(family, 0.0), strength)
+    total = sum(families.values())
+    if total <= focus:
+        return weights
+    return {okved: strength * focus / total for okved, strength in weights.items()}
+
+
 def _factor_basis(factor: FactorExposure) -> str:
     kind = factor.channel.kind if factor.channel else "direct"
     if kind == "direct":
@@ -231,10 +326,15 @@ def score_event(
     bank_view: BankViewFn | None = None,
     config: RankingConfig | None = None,
     regions: set[str] | None = None,
+    countries: set[str] | None = None,
 ) -> FeedItem | None:
     """Оценка события для компании (карта и цепочка) и роли; не касается компании — None.
 
     `regions` — регион и город компании: фактор «События региона» считается, только если событие про них.
+    `countries` — страны ВЭД компании, её группы и контрагентов (None — неизвестны, правило не применяется):
+    событие за рубежом в других странах ослабляет в `foreign_factor` раз внутренние факторы (`domestic`) и
+    каналы события только об отраслях, событие между другими странами без России — и внешнюю торговлю
+    (`trade`).
     `bank_view(коды факторов)` — есть ли аналитика Альфа-Банка по факторам, которыми событие задевает
     компанию.
     """
@@ -243,6 +343,13 @@ def score_event(
     by_code = {f.code: f for f in exposure.factors}
     company_places = {_place(r) for r in regions or set() if r}
     event_places = {_place(r) for r in event.tags.regions if r}
+    # без стран ВЭД (None — неизвестны) правило не применяется: у компании может быть любая внешняя торговля
+    foreign = foreign_countries(event) if countries is not None else set()
+    abroad = bool(foreign) and not ({c.casefold() for c in foreign} & linked_countries(countries or ()))
+    # событие между другими странами: в заголовке две зарубежные, России нет — «США отменят пошлины Канаде»
+    elsewhere = abroad and len(foreign) >= 2 and HOME not in title_countries(event.title)
+    discount = config.scoring.foreign_factor if abroad else 1.0
+    abroad_note = f" (событие за рубежом: {', '.join(sorted(foreign))})" if discount < 1 else ""
     terms: list[_Term] = []
     matched: list[FeedFactor] = []
 
@@ -254,6 +361,11 @@ def score_event(
             continue
         if code == "region" and not (company_places & event_places):
             continue  # событие про другой регион
+        note = ""
+        if code in config.domestic or (elsewhere and code in config.trade):
+            # законопроект в Конгрессе США не меняет российские налоги, спрос или ставку
+            strength *= discount
+            note = abroad_note
         weight = role_cfg.weight(code)
         raw = strength * factor.strength * weight
         if raw <= 0:
@@ -265,7 +377,7 @@ def score_event(
                 ScoreTerm(
                     kind="factor",
                     code=code,
-                    label=f"{factor.label}: {text}",
+                    label=f"{factor.label}: {text}{note}",
                     value=0.0,
                     event_strength=round(strength, 4),
                     exposure=factor.strength,
@@ -284,6 +396,13 @@ def score_event(
         weights: dict[str, float] = {}
         for okved, strength in event.sectors:
             weights[okved] = max(weights.get(okved, 0.0), strength)
+        chain_note = ""
+        if not event.factors:
+            # событие только об отраслях: держится на метках отраслей, и чем их больше, тем меньше каждой;
+            # у события с факторами отрасли выводятся из факторов, делить их не нужно. Такое событие
+            # за рубежом («Венгрия игнорирует запросы Росатома») задевает российскую отрасль слабее
+            weights = {k: v * discount for k, v in _focused(weights, config.scoring.sector_focus).items()}
+            chain_note = abroad_note
         result = chain(list(weights), weights)
         for c in result.channels:
             weight = role_cfg.weight(f"chain:{c.kind}")
@@ -295,7 +414,7 @@ def score_event(
                     ScoreTerm(
                         kind="chain",
                         code=f"chain:{c.kind}:{c.okved}",
-                        label=c.text,
+                        label=c.text + chain_note,
                         value=0.0,
                         event_strength=c.weight,
                         exposure=c.share,
@@ -387,6 +506,7 @@ def rank(
     bank_view: BankViewFn | None = None,
     config: RankingConfig | None = None,
     regions: set[str] | None = None,
+    countries: set[str] | None = None,
 ) -> list[FeedItem]:
     """События по убыванию оценки; не касающиеся компании отброшены.
 
@@ -404,7 +524,9 @@ def rank(
     items = []
     for event in events:
         try:
-            item = score_event(event, exposure, cached_chain, role, now, bank_view, config, regions)
+            item = score_event(
+                event, exposure, cached_chain, role, now, bank_view, config, regions, countries
+            )
         except ValueError:
             continue  # битая запись новости (не тот id, пустой заголовок) не роняет ленту
         if item:

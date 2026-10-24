@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Feature, Origin, Source, Statement } from '../api/types';
-import { confidenceLabel, featureValue, formatDate, originHint, originLabel } from '../state/labels';
+import { bankConflictOf, confidenceLabel, displayOrigin, featureText, formatDate, originHint, originLabel, sourcePage } from '../state/labels';
 import { Icon, type IconName } from './Icon';
 
 export interface RefIndex {
@@ -15,6 +15,7 @@ const originIcon: Record<Origin, IconName> = {
   ai: 'model',
   estimate: 'calc',
   offer: 'offer',
+  hypothesis: 'hypothesis',
 };
 
 export function OriginTag({ origin }: { origin: Origin }) {
@@ -26,19 +27,15 @@ export function OriginTag({ origin }: { origin: Origin }) {
   );
 }
 
-/** Номер страницы из id вида src:alfa:<материал>#p<стр.> */
-function pageOf(id: string): string | null {
-  const m = /#p(\d+)$/.exec(id);
-  return m ? m[1] : null;
-}
-
 export function SourceView({ source }: { source: Source }) {
-  const page = pageOf(source.id);
+  const page = sourcePage(source);
   return (
     <div className={`ref ref--${source.kind === 'alfa_analytics' ? 'bank' : 'news'}`}>
       <p className="ref__head">
-        <span className="ref__publisher">{source.publisher}</span>
-        <time dateTime={source.published_at}>{formatDate(source.published_at)}</time>
+        <span className="ref__publisher">
+          {source.publisher ?? (source.kind === 'alfa_analytics' ? 'Аналитика Альфа-Банка' : 'Новость')}
+        </span>
+        {source.published_at && <time dateTime={source.published_at}>{formatDate(source.published_at)}</time>}
       </p>
       <p className="ref__title">
         {source.title}
@@ -69,7 +66,7 @@ export function FeatureView({ feature }: { feature: Feature }) {
         <span>{feature.source === 'dataset' ? 'из данных банка' : 'вычислен по данным банка'}</span>
       </p>
       <p className="ref__title">
-        {feature.label}: {featureValue(feature.value)}
+        {feature.label}: {featureText(feature)}
       </p>
     </div>
   );
@@ -101,29 +98,88 @@ function refsCount(n: number) {
   return `${n} источников`;
 }
 
+/** В печати раскрыть источник нельзя — показываем номера из списка источников. */
+function Footnote({ refs, footnotes }: { refs: string[]; footnotes: Record<string, number> }) {
+  const numbers = [...new Set(refs.map((r) => footnotes[r]).filter((n): n is number => n !== undefined))].sort((a, b) => a - b);
+  if (numbers.length === 0) return null;
+  return <sup className="stmt__footnote print-only"> [{numbers.join(', ')}]</sup>;
+}
+
 /** Утверждение с меткой происхождения и раскрываемыми источниками. */
 export function StatementItem({
   statement,
   index,
   caption,
+  footnotes,
 }: {
   statement: Statement;
   index: RefIndex;
   /** подпись роли утверждения в блоке, например «Рынок» */
   caption?: string;
+  /** номера источников для печатной версии: id источника → номер в списке */
+  footnotes?: Record<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
-  const { origin, refs, confidence } = statement;
+  const { refs, confidence } = statement;
+  const origin = displayOrigin(statement.origin, confidence);
+  const conflict = bankConflictOf(statement);
+  const conflictSources = [
+    ...new Set(
+      (conflict?.refs ?? [])
+        .map((r) => index.sources[r])
+        .filter(Boolean)
+        .map((s) =>
+          [s.title, sourcePage(s) ? `стр. ${sourcePage(s)}` : null, s.published_at ? formatDate(s.published_at) : null]
+            .filter(Boolean)
+            .join(', '),
+        ),
+    ),
+  ];
 
   return (
     <li className={`stmt stmt--${origin}`}>
       <div className="stmt__meta">
         {caption && <span className="stmt__caption">{caption}</span>}
         <OriginTag origin={origin} />
-        {origin === 'ai' && confidence && <span className="stmt__confidence">{confidenceLabel[confidence]}</span>}
+        {(origin === 'ai' || origin === 'hypothesis') && confidence && (
+          <span className="stmt__confidence">{confidenceLabel[confidence]}</span>
+        )}
       </div>
-      <p className="stmt__text">{statement.text}</p>
+      {conflict && (
+        <p className="stmt__conflict">
+          <Icon name="warning" size={16} />
+          <span>
+            Расходится с позицией Альфа-Банка: {conflict.text}
+            {conflictSources.length > 0 && (
+              <span className="stmt__conflict-src">
+                {' '}
+                ({conflictSources.join('; ')})
+              </span>
+            )}
+          </span>
+        </p>
+      )}
+      <p className="stmt__text">
+        {statement.text}
+        {footnotes && <Footnote refs={refs} footnotes={footnotes} />}
+      </p>
+      {statement.check && (statement.check.confirm || statement.check.refute) && (
+        <dl className="stmt__check">
+          {statement.check.confirm && (
+            <div>
+              <dt>Подтвердит</dt>
+              <dd>{statement.check.confirm}</dd>
+            </div>
+          )}
+          {statement.check.refute && (
+            <div>
+              <dt>Опровергнет</dt>
+              <dd>{statement.check.refute}</dd>
+            </div>
+          )}
+        </dl>
+      )}
       {refs.length > 0 ? (
         <button
           type="button"
@@ -136,28 +192,36 @@ export function StatementItem({
           <Icon name="chevronDown" size={14} className={open ? 'flip' : undefined} />
         </button>
       ) : (
-        <p className={`stmt__no-refs ${origin === 'ai' || origin === 'estimate' ? '' : 'stmt__no-refs--warn'}`}>
-          {origin === 'ai'
+        <p className={`stmt__no-refs ${origin === 'fact' || origin === 'bank' ? 'stmt__no-refs--warn' : ''}`}>
+          {origin === 'ai' || origin === 'hypothesis'
             ? 'Источника нет — общее рассуждение модели'
             : origin === 'estimate'
               ? 'Допущение сервиса, источника нет'
-              : 'Ссылки на источник нет — утверждение не проверено'}
+              : origin === 'data'
+                ? 'Из данных банка о компании, без ссылки на отдельный признак'
+                : 'Ссылки на источник нет — утверждение не проверено'}
         </p>
       )}
-      {open && (
-        <div id={panelId}>
-          <RefList refs={refs} index={index} />
-        </div>
-      )}
+      <div id={panelId} hidden={!open}>
+        {open && <RefList refs={refs} index={index} />}
+      </div>
     </li>
   );
 }
 
-export function StatementList({ items, index }: { items: Statement[]; index: RefIndex }) {
+export function StatementList({
+  items,
+  index,
+  footnotes,
+}: {
+  items: Statement[];
+  index: RefIndex;
+  footnotes?: Record<string, number>;
+}) {
   return (
     <ul className="stmt-list">
       {items.map((s, i) => (
-        <StatementItem key={`${i}-${s.text}`} statement={s} index={index} />
+        <StatementItem key={`${i}-${s.text}`} statement={s} index={index} footnotes={footnotes} />
       ))}
     </ul>
   );

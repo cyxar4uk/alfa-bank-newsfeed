@@ -67,8 +67,8 @@ def parse_feed(feed: Feed, content: bytes) -> list[RawItem]:
     parsed = feedparser.parse(content)
     items = []
     for entry in parsed.entries:
-        host = urlsplit(entry.get("link", "")).hostname or ""
-        if feed.hosts and host not in feed.hosts:
+        host = (urlsplit(entry.get("link", "")).hostname or "").removeprefix("www.")
+        if feed.hosts and host not in {h.removeprefix("www.") for h in feed.hosts}:
             continue
         items.append(
             RawItem(

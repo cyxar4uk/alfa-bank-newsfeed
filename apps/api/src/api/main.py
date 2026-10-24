@@ -183,17 +183,42 @@ def get_chain(
     return chain
 
 
+def optional_news(request: Request) -> NewsProvider | None:
+    """Источник новостей, если он есть: без него эндпоинт работает по явно переданным отраслям и факторам."""
+    try:
+        return news_provider(request)
+    except HTTPException:
+        return None
+
+
 @app.get("/api/companies/{company_id}/group-impact", response_model=GroupImpact | None, tags=["компании"])
 def get_group_impact(
     company_id: str,
     repo: Repo,
+    news: Annotated[NewsProvider | None, Depends(optional_news)],
+    event_id: Annotated[
+        str | None, Query(description="событие из ленты (src:news:…): отрасли и факторы — из его разметки")
+    ] = None,
     okved: Annotated[list[str], Query(description="отрасли события, например 42 или 41,42")] = [],  # noqa: B006
     factor: Annotated[list[str], Query(description="факторы события, например rate или gov")] = [],  # noqa: B006
 ) -> GroupImpact | None:
-    """Какие компании группы задевает событие, через что и на какую выручку; нет группы — null."""
+    """Какие компании группы задевает событие, через какие факторы и на какую выручку; нет группы — null.
+
+    Событие — по `event_id` (как в карточке ленты) или явно: отрасли `okved` и факторы `factor`.
+    """
     codes = [c for value in okved for c in value.split(",") if c.strip()]
     factors = [f for value in factor for f in value.split(",") if f.strip()]
-    found, impact = company_group_impact(repo, company_id, codes, factors)
+    event = None
+    if event_id:
+        if news is None:
+            raise HTTPException(status_code=503, detail="нет новостей: ни базы поиска, ни снимка")
+        event = news.event(event_id)
+        if event is None:
+            raise HTTPException(status_code=404, detail=f"событие {event_id} не найдено")
+    elif not codes and not factors:
+        # без события ответ «группу не касается» был бы ложным: спрашивать не о чем
+        raise HTTPException(status_code=422, detail="укажите событие: event_id, okved или factor")
+    found, impact = company_group_impact(repo, company_id, codes, factors, event)
     if not found:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
     return impact

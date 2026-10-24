@@ -5,14 +5,15 @@
 
 import datetime as dt
 
-from api.chain import build_chain
+from api.chain import MIN_SHARE, build_chain
 from api.contract import CompanyProfile, ExposureMap, Feed, GroupImpact, InfluenceChain
 from api.exposure import build_exposure
 from api.group import group_context, group_impact
 from api.news import NewsProvider
 from api.personas import parse_persona_id
-from api.profile import GROUP_MEMBERS_SHOWN, build_profile
-from api.ranking import MSK, default_ranking, rank
+from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
+from api.ranking import MSK, NewsEvent, default_ranking, rank
+from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
 
 # роли, которым в ленте показывается влияние на группу
@@ -60,6 +61,18 @@ def company_chain(
     return build_chain(company, repo.flows(company.id), group, okved, weights)
 
 
+def ved_countries(company: CompanyRecord, group: list[CompanyRecord], flows: list[Flow]) -> set[str] | None:
+    """Страны ВЭД компании, её группы и заметных контрагентов (от 1 % оборота) — через них зарубежное событие
+    задевает компанию. ВЭД есть, а страны не указаны — None: связь с любой страной возможна."""
+    if company.fts_flag and not company.fts_countries:
+        return None
+    turnover = sum(f.amount for f in flows)
+    major = [
+        f.counterparty for f in flows if f.counterparty and turnover and f.amount >= MIN_SHARE * turnover
+    ]
+    return {c for r in [company, *group, *major] if r.fts_countries for c in countries(r.fts_countries)}
+
+
 def persona_feed(
     repo: CompanyRepo,
     news: NewsProvider,
@@ -94,6 +107,7 @@ def persona_feed(
         now,
         bank_view=news.has_bank_view,
         regions={r for r in (company.region, company.city) if r},
+        countries=ved_countries(company, group, flows),
     )
     items = items[:limit]
     # собственнику и гендиректору — блок «Ваша группа»: какие компании группы задевает событие
@@ -119,11 +133,17 @@ def persona_feed(
 
 
 def company_group_impact(
-    repo: CompanyRepo, company_id: str, okved: list[str], factors: list[str]
+    repo: CompanyRepo,
+    company_id: str,
+    okved: list[str],
+    factors: list[str],
+    event: NewsEvent | None = None,
 ) -> tuple[bool, GroupImpact | None]:
     """Как событие с отраслями `okved` и факторами `factors` задевает группу компании.
 
-    (найдена ли компания, влияние); у компании без группы влияние — None: блока «Ваша группа» нет.
+    `event` — событие из ленты: его факторы и отрасли с силами из разметки добавляются к `okved` и `factors`
+    (у тех сила 1), так блок совпадает с карточкой ленты. (найдена ли компания, влияние); у компании без
+    группы влияние — None: блока «Ваша группа» нет.
     """
     company = repo.get_company(company_id)
     if company is None:
@@ -134,7 +154,12 @@ def company_group_impact(
     ctx = group_context(company, group, repo.flows(company.id))
     if ctx is None:
         return True, None
+    event_factors = [(c, s) for c, s, _ in event.factors] if event else []
+    event_sectors = list(event.sectors) if event else []
     impact = group_impact(
-        ctx, [(f, 1.0) for f in factors], [(o, 1.0) for o in okved], default_ranking().aliases
+        ctx,
+        [*((f, 1.0) for f in factors), *event_factors],
+        [*((o, 1.0) for o in okved), *event_sectors],
+        default_ranking().aliases,
     )
     return True, impact

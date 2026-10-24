@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type KeyboardEvent } from 'react';
-import type { BankVsMarket, Estimate, Exposure, GroupImpact, ScoreTerm } from '../api/types';
+import type { BankVsMarket, Estimate, Exposure, ExposureChannel, GroupImpact, ScoreTerm } from '../api/types';
 import { channelLabel } from '../state/labels';
 import { factorIcon } from './factorIcon';
 import { Icon } from './Icon';
@@ -20,54 +20,74 @@ function plural(n: number, one: string, few: string, many: string) {
 
 // ─── Через кого вас задевает (раздел A) ──────────────────────────────────────
 
+function ChainLane({ ch }: { ch: ExposureChannel }) {
+  const [open, setOpen] = useState(false);
+  const panelId = useId();
+  const label = channelLabel[ch.kind] ?? 'Канал';
+  const n = ch.counterparties.length;
+  // Узел контрагентов кликабелен: раскрывает список компаний с долями.
+  const middle = ch.kind !== 'direct' && (ch.sector || n > 0) ? (ch.sector ?? label) : null;
+  return (
+    <li className={`chain chain--${ch.kind}`}>
+      <p className="chain__kind">{label}</p>
+      <div className="chain__body">
+        <ol className="chain__path" aria-label={`Цепочка: ${label.toLowerCase()}`}>
+          <li className="chain__node">
+            <Icon name="fact" size={16} />
+            Событие
+          </li>
+          <li className="chain__node">
+            <Icon name={factorIcon(ch.factor.code)} size={16} />
+            {ch.factor.label}
+          </li>
+          {middle && (
+            <li className={`chain__node ${n > 0 ? 'chain__node--button' : ''}`}>
+              {n > 0 ? (
+                <button type="button" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen((v) => !v)}>
+                  {middle} · {n} {plural(n, 'компания', 'компании', 'компаний')}
+                  <Icon name="chevronDown" size={14} className={open ? 'flip' : undefined} />
+                </button>
+              ) : (
+                middle
+              )}
+            </li>
+          )}
+          <li className="chain__node chain__node--you">Вы</li>
+        </ol>
+        <p className="chain__text">{ch.text}</p>
+        {(ch.share != null || ch.coverage != null) && (
+          <p className="chain__numbers">
+            {ch.share != null && <span>Доля в видимом банку обороте: {percent.format(ch.share)}</span>}
+            {ch.coverage != null && <span>Отрасль контрагента известна у {percent.format(ch.coverage)} оборота</span>}
+          </p>
+        )}
+        {n > 0 && (
+          <ul className="chain__parties" id={panelId} hidden={!open}>
+            {ch.counterparties.map((c) => (
+              <li key={c.id}>
+                <span className="chain__party-id">{c.id}</span>
+                <span>{c.label}</span>
+                {c.amount_bn != null && <span className="chain__party-num">{billions(c.amount_bn)}</span>}
+                {c.share != null && <span className="chain__party-num">{percent.format(c.share)}</span>}
+                {c.intra_group && <span className="tag">внутри группы</span>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </li>
+  );
+}
+
 export function ExposureChain({ exposure }: { exposure: Exposure }) {
   return (
     <div className="exposure">
       <h3 className="sub-title">Через кого вас задевает</h3>
       {exposure.channels.length > 0 ? (
         <ul className="chains">
-          {exposure.channels.map((ch, i) => {
-            const label = channelLabel[ch.kind] ?? 'Канал';
-            return (
-              <li key={`${ch.kind}-${ch.factor.code}-${i}`} className={`chain chain--${ch.kind}`}>
-                <p className="chain__kind">{label}</p>
-                <div className="chain__body">
-                  <ol className="chain__path" aria-label={`Цепочка: ${label.toLowerCase()}`}>
-                    <li className="chain__node">
-                      <Icon name="fact" size={16} />
-                      Событие
-                    </li>
-                    <li className="chain__node">
-                      <Icon name={factorIcon(ch.factor.code)} size={16} />
-                      {ch.factor.label}
-                    </li>
-                    {ch.kind !== 'direct' && ch.sector && <li className="chain__node">{ch.sector}</li>}
-                    <li className="chain__node chain__node--you">Вы</li>
-                  </ol>
-                  <p className="chain__text">{ch.text}</p>
-                  {(ch.share != null || ch.coverage != null) && (
-                    <p className="chain__numbers">
-                      {ch.share != null && <span>Доля в видимом банку обороте: {percent.format(ch.share)}</span>}
-                      {ch.coverage != null && <span>Отрасль контрагента известна у {percent.format(ch.coverage)} оборота</span>}
-                    </p>
-                  )}
-                  {ch.counterparties.length > 0 && (
-                    <ul className="chain__parties">
-                      {ch.counterparties.map((c) => (
-                        <li key={c.id}>
-                          <span className="chain__party-id">{c.id}</span>
-                          <span>{c.label}</span>
-                          {c.amount_bn != null && <span className="chain__party-num">{billions(c.amount_bn)}</span>}
-                          {c.share != null && <span className="chain__party-num">{percent.format(c.share)}</span>}
-                          {c.intra_group && <span className="tag">внутри группы</span>}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </li>
-            );
-          })}
+          {exposure.channels.map((ch, i) => (
+            <ChainLane key={`${ch.kind}-${ch.factor.code}-${i}`} ch={ch} />
+          ))}
         </ul>
       ) : (
         <p className="muted">Событие не связано с вашими контрагентами</p>

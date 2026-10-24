@@ -23,7 +23,7 @@ export function ErrorState({ title, error, onRetry }: { title: string; error?: E
 
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="state state--empty">
+    <div className="state state--empty" role="status" tabIndex={-1}>
       <p className="state__title">{title}</p>
       {children && <div className="state__text">{children}</div>}
     </div>

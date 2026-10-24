@@ -3,21 +3,26 @@ import { Link, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CompanyProfile, Insight, Statement } from '../api/types';
 import { AnalysisSteps } from '../components/AnalysisSteps';
+import { AskBox } from '../components/AskBox';
 import { RelevanceMeter } from '../components/FeedParts';
 import { FeedbackBox } from '../components/FeedbackBox';
+import { NextSteps } from '../components/NextSteps';
+import { RelevanceLegend } from '../components/RelevanceLegend';
 import { Icon } from '../components/Icon';
 import { BankVsMarketView, EstimateView, ExposureChain, GroupImpactView, ScoreBreakdown } from '../components/InsightBlocks';
 import { EmptyState, ErrorState } from '../components/States';
 import { FeatureView, OriginTag, SourceView, StatementList, type RefIndex } from '../components/Statement';
 import {
   actionKindLabel,
-  featureValue,
+  featureText,
+  bankConflictOf,
   formatDate,
   legendOrigins,
-  missingLabel,
+  missingText,
   originHint,
   roleLabel,
 } from '../state/labels';
+import { tracePath } from '../state/routes';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
 
@@ -63,33 +68,95 @@ function bankMaterialDate(insight: Insight, index: RefIndex): string | null {
   return dates.length > 0 ? dates[dates.length - 1] : null;
 }
 
-function InsightView({ insight, company, personaId }: { insight: Insight; company: CompanyProfile; personaId: string }) {
+/** Расхождения вывода модели или гипотезы с позицией банка — по всем утверждениям разбора. */
+function bankConflicts(value: unknown, found: string[] = []): string[] {
+  if (Array.isArray(value)) value.forEach((v) => bankConflicts(v, found));
+  else if (value && typeof value === 'object') {
+    const s = value as Partial<Statement>;
+    if (typeof s.text === 'string' && s.origin) {
+      const c = bankConflictOf(s as Statement);
+      if (c && !found.includes(c.text)) found.push(c.text);
+    } else Object.values(value).forEach((v) => bankConflicts(v, found));
+  }
+  return found;
+}
+
+export function InsightView({
+  insight,
+  company,
+  personaId,
+  eventId = null,
+  back = <BackLink />,
+}: {
+  insight: Insight;
+  company: CompanyProfile;
+  personaId: string;
+  /** событие брифинга; null — своя новость, её нечего скрывать */
+  eventId?: string | null;
+  /** ссылка «назад» над заголовком; у своей новости — своя */
+  back?: ReactNode;
+}) {
   const index: RefIndex = {
     sources: Object.fromEntries(insight.sources.map((s) => [s.id, s])),
     features: Object.fromEntries(company.features.map((f) => [f.id, f])),
   };
   const { risks, opportunities, factors } = insight.consequences;
   const usedFeatures = insight.features_used.map((id) => index.features[id]).filter(Boolean);
-  const missing = company.missing.map((code) => missingLabel[code] ?? code);
+  const missing = company.missing.map(missingText);
   const news = insight.sources.filter((s) => s.kind === 'news');
   const analytics = insight.sources.filter((s) => s.kind === 'alfa_analytics');
   const steps = insight.actions.filter((a) => a.kind !== 'product');
   // Предложение продукта — отдельно от анализа и не больше одного на карточку.
   const offer = insight.actions.find((a) => a.kind === 'product');
   const bankDate = bankMaterialDate(insight, index);
+  // Первоисточник — первая новость со ссылкой: на неё ведёт кнопка в шапке.
+  const primary = insight.sources.find((s) => s.kind === 'news' && s.url);
+  const conflicts = bankConflicts(insight);
 
   return (
     <div className="insight">
       <div className="insight__main">
         <header className="insight-head">
-          <BackLink />
+          {back}
           <p className="insight-head__date">{formatDate(insight.event.date)}</p>
-          <h1 className="insight-head__title">{insight.event.title}</h1>
+          <h1 className="insight-head__title" tabIndex={-1}>
+            {insight.event.title}
+          </h1>
           <div className="insight-head__relevance">
-            <RelevanceMeter score={insight.relevance.score} />
+            {insight.relevance.score > 0 && <RelevanceMeter score={insight.relevance.score} />}
             <span>{insight.relevance.reason}</span>
           </div>
+          {(primary || insight.trace_id) && (
+            <p className="insight-head__links">
+              {primary?.url && (
+                <a href={primary.url} target="_blank" rel="noreferrer" className="link-action">
+                  Открыть первоисточник
+                  <Icon name="external" size={14} />
+                </a>
+              )}
+              {insight.trace_id && (
+                <Link to={tracePath(insight.trace_id)} className="link-action">
+                  Как получен вывод
+                </Link>
+              )}
+            </p>
+          )}
         </header>
+
+        {conflicts.length > 0 && (
+          <aside className="warnings warnings--conflict" aria-label="Расхождение с позицией банка">
+            <Icon name="warning" />
+            <div>
+              <p className="warnings__title">Вывод модели расходится с позицией Альфа-Банка</p>
+              <ul>
+                {conflicts.map((text) => (
+                  <li key={text}>{text}</li>
+                ))}
+              </ul>
+              <p className="warnings__hint">Такие места помечены в разборе. Опирайтесь на позицию банка и проверьте допущения модели.</p>
+            </div>
+          </aside>
+        )}
 
         {insight.quality.warnings.length > 0 && (
           <aside className="warnings" aria-label="Ограничения разбора">
@@ -227,6 +294,16 @@ function InsightView({ insight, company, personaId }: { insight: Insight; compan
           )}
         </Block>
 
+        <NextSteps
+          insightId={insight.id}
+          eventId={eventId}
+          personaId={personaId}
+          title={insight.event.title}
+          context={`${insight.event.title} (${formatDate(insight.event.date)}). ${insight.relevance.reason}`}
+        />
+
+        <AskBox insight={insight} personaId={personaId} index={index} />
+
         <FeedbackBox insightId={insight.id} personaId={personaId} />
       </div>
 
@@ -249,13 +326,16 @@ function InsightView({ insight, company, personaId }: { insight: Insight; compan
           </section>
         )}
         <section className="rail-card">
+          <RelevanceLegend />
+        </section>
+        <section className="rail-card">
           <h2 className="rail-card__title">Что учтено о компании</h2>
           {usedFeatures.length > 0 ? (
             <dl className="rail-features">
               {usedFeatures.map((f) => (
                 <div key={f.id}>
                   <dt>{f.label}</dt>
-                  <dd>{featureValue(f.value)}</dd>
+                  <dd>{featureText(f)}</dd>
                 </div>
               ))}
             </dl>
@@ -303,7 +383,7 @@ export function EventPage() {
   }
   return (
     <div className="page">
-      <InsightView insight={insight.data} company={company} personaId={persona.id} />
+      <InsightView insight={insight.data} company={company} personaId={persona.id} eventId={eventId} />
     </div>
   );
 }

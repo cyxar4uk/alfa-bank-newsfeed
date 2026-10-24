@@ -1,4 +1,6 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { DataSource } from './DataSource';
+import { Disclaimer } from './Disclaimer';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SERVICE_NAME } from '../state/labels';
 import { Icon, type IconName } from './Icon';
@@ -74,6 +76,7 @@ export function Shell() {
               {SERVICE_NAME}
             </NavLink>
           </nav>
+          <DataSource />
         </aside>
         <div className="main">
           <header className="topbar">
@@ -92,6 +95,7 @@ export function Shell() {
             <ErrorBoundary key={pathname}>
               <Outlet />
             </ErrorBoundary>
+            {pathname.startsWith('/radar') && <Disclaimer />}
           </main>
         </div>
       </div>
