@@ -8,7 +8,7 @@ from psycopg_pool import ConnectionPool
 from api.contract import ImportedFile, IndustryPosition
 from api.okved import okved_prefix
 from api.profile import LARGE_REVENUE
-from api.records import COMPANY_FIELDS, CompanyRecord, Flow
+from api.records import COMPANY_FIELDS, CompanyRecord, Flow, GroupStats
 
 _COLUMNS = ", ".join(COMPANY_FIELDS)
 _CP_COLUMNS = ", ".join(f"c.{name} AS cp_{name}" for name in COMPANY_FIELDS)
@@ -17,11 +17,17 @@ _CP_COLUMNS = ", ".join(f"c.{name} AS cp_{name}" for name in COMPANY_FIELDS)
 class CompanyRepo(Protocol):
     def get_company(self, company_id: str) -> CompanyRecord | None: ...
 
-    def list_companies(self, large: bool, limit: int, offset: int) -> list[CompanyRecord]: ...
+    def list_companies(
+        self, large: bool, limit: int, offset: int, clients_only: bool = False, per_group: bool = False
+    ) -> list[CompanyRecord]: ...
+
+    def group_stats(self, group_ids: list[str]) -> dict[str, GroupStats]: ...
 
     def group(self, group_id: str, exclude: str, limit: int) -> tuple[int, list[str]]: ...
 
     def flows(self, company_id: str) -> list[Flow]: ...
+
+    def group_records(self, group_id: str, exclude: str) -> list[CompanyRecord]: ...
 
     def industry(self, company: CompanyRecord) -> IndustryPosition | None: ...
 
@@ -37,15 +43,44 @@ class PgCompanyRepo:
             row = cur.execute(f"SELECT {_COLUMNS} FROM companies WHERE id = %s", (company_id,)).fetchone()
         return CompanyRecord(**row) if row else None
 
-    def list_companies(self, large: bool, limit: int, offset: int) -> list[CompanyRecord]:
-        where = "WHERE revenue > %(large)s" if large else ""
+    def list_companies(
+        self, large: bool, limit: int, offset: int, clients_only: bool = False, per_group: bool = False
+    ) -> list[CompanyRecord]:
+        """Компании по убыванию выручки группы (у компании вне группы — своей), затем своей выручки.
+
+        `large` — крупный бизнес: выручка группы (или своя, если группы нет) больше 15 млрд ₽.
+        `per_group` — от каждой группы одна компания, крупнейшая по выручке (после фильтра `clients_only`).
+        """
+        conditions = []
+        if large:
+            conditions.append("coalesce(g.revenue, c.revenue) > %(large)s")
+        if clients_only:
+            conditions.append("c.client_type = 'CLIENT'")
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        columns = ", ".join(f"c.{name}" for name in COMPANY_FIELDS)
+        names = ", ".join(COMPANY_FIELDS)
+        distinct = "DISTINCT ON (coalesce(c.group_id, c.id))" if per_group else ""
+        inner_order = "coalesce(c.group_id, c.id), c.revenue DESC NULLS LAST, c.id" if per_group else "c.id"
         query = f"""
-            SELECT {_COLUMNS} FROM companies {where}
-            ORDER BY revenue DESC NULLS LAST, id LIMIT %(limit)s OFFSET %(offset)s
+            SELECT {names} FROM (
+                SELECT {distinct} {columns}, coalesce(g.revenue, c.revenue) AS basis
+                FROM companies c LEFT JOIN company_groups g ON g.group_id = c.group_id {where}
+                ORDER BY {inner_order}
+            ) x
+            ORDER BY basis DESC NULLS LAST, revenue DESC NULLS LAST, id
+            LIMIT %(limit)s OFFSET %(offset)s
         """
         params = {"large": LARGE_REVENUE, "limit": limit, "offset": offset}
         with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
             return [CompanyRecord(**row) for row in cur.execute(query, params).fetchall()]
+
+    def group_stats(self, group_ids: list[str]) -> dict[str, GroupStats]:
+        if not group_ids:
+            return {}
+        query = "SELECT group_id, revenue, size, clients FROM company_groups WHERE group_id = ANY(%s)"
+        with self.pool.connection() as conn:
+            rows = conn.execute(query, (list(set(group_ids)),)).fetchall()
+        return {g: GroupStats(revenue=r, size=n, clients=k) for g, r, n, k in rows}
 
     def group(self, group_id: str, exclude: str, limit: int) -> tuple[int, list[str]]:
         with self.pool.connection() as conn:
@@ -59,6 +94,15 @@ class PgCompanyRepo:
                 (group_id, exclude, limit),
             ).fetchall()
         return size, [m[0] for m in members]
+
+    def group_records(self, group_id: str, exclude: str) -> list[CompanyRecord]:
+        """Все другие компании группы — для сигналов группы в карте чувствительности."""
+        query = f"""
+            SELECT {_COLUMNS} FROM companies WHERE group_id = %s AND id <> %s
+            ORDER BY revenue DESC NULLS LAST, id
+        """
+        with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
+            return [CompanyRecord(**row) for row in cur.execute(query, (group_id, exclude)).fetchall()]
 
     def flows(self, company_id: str) -> list[Flow]:
         query = f"""

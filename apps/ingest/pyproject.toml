@@ -9,6 +9,7 @@ dependencies = [
     "pydantic>=2.9",
     "pypdfium2>=4.30",
     "pillow>=11.0",
+    "psycopg[binary]>=3.2",
 ]
 
 [project.scripts]
