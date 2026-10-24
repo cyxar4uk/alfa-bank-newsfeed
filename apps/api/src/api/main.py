@@ -15,7 +15,7 @@ from api.db import connect, ensure_schema
 from api.importer import DATA_FILES
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
-from api.personas import DEMO_COMPANIES, make_personas
+from api.personas import personas_for
 from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
 from api.search.repo import SearchRepo
@@ -201,8 +201,4 @@ def get_feed(
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])
 def list_personas(repo: Repo) -> list[Persona]:
-    # персоны — у действующих клиентов крупного бизнеса: демо-клиенты и крупнейшие компании групп
-    leaders = repo.list_companies(large=True, limit=1000, offset=0, clients_only=True, per_group=True)
-    known = {c.id for c in leaders}
-    demo = [repo.get_company(cid) for cid in DEMO_COMPANIES if cid not in known]
-    return make_personas([*leaders, *(c for c in demo if c)])
+    return personas_for(repo)
