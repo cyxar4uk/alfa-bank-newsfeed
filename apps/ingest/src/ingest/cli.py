@@ -153,6 +153,8 @@ def _print_load(result: dict) -> None:
                 f"  {name:<9} прочитано {s['read']:>4} · новых {s['inserted']:>4} · обновлено {s['updated']:>4}"
                 f" · без изменений {s['unchanged']:>4} · дописано к событиям {s['merged']:>3}"
             )
+    if result.get("retagged"):
+        print(f"  разметка: словари изменились — переразмечено новостей {result['retagged']}")
     a = result.get("analytics", {})
     if a.get("skipped"):
         print(f"  аналитика: пропущена — {a.get('reason')}")

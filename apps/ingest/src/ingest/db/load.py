@@ -373,8 +373,84 @@ def load_analytics_files(conn: psycopg.Connection, data: Path) -> AnalyticsStats
     )
 
 
+def tagging_signature() -> str:
+    """Отпечаток словарей и правил разметки и ожиданий: поменялись — новости в базе нужно разметить заново.
+
+    Переводы строк приводятся к LF: иначе копия на Windows и образ в Docker давали бы разные отпечатки."""
+    from importlib import resources
+
+    h = hashlib.sha256()
+    for package, name in (
+        ("ingest.tagging", "dictionaries.toml"),
+        ("ingest.tagging", "rules.py"),
+        ("ingest.news", "expectations.py"),
+        ("ingest.news", "pipeline.py"),
+    ):
+        h.update(resources.files(package).joinpath(name).read_bytes().replace(b"\r\n", b"\n"))
+    return h.hexdigest()
+
+
+def retag_news(conn: psycopg.Connection) -> int:
+    """Разметить заново новости в базе, если словари или правила поменялись с прошлой разметки.
+
+    Без этого исправление словаря не дошло бы до новостей, которых уже нет в лентах: загрузчик обновляет только то,
+    что пришло снова, а снимок лишь добавляет. Размеченные моделью (`tagged_by` с `llm`) не трогаем — их разметку
+    правила не повторят. Возвращает, сколько новостей поменялось.
+    """
+    from ingest.news.normalize import MSK
+    from ingest.news.pipeline import tag_source
+
+    signature = tagging_signature()
+    changed = 0
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('newsfeed_news_load'))")
+        row = conn.execute("SELECT signature FROM search_loads WHERE name = 'tagging'").fetchone()
+        if row and row[0] == signature:
+            return 0
+        rows = conn.execute(
+            "SELECT id, title, publisher, url, published_at, fragment, tags, content_hash FROM news"
+        ).fetchall()
+        for id_, title, publisher, url, published_at, fragment, tags, old_hash in rows:
+            if "llm" in (tags or {}).get("tagged_by", []):
+                continue
+            src = tag_source(
+                Source(
+                    id=id_, kind="news", title=title, publisher=publisher or "", url=url,
+                    published_at=published_at.astimezone(MSK) if published_at else None, fragment=fragment,
+                )
+            )  # fmt: skip
+            new_hash = content_hash(src)
+            if new_hash == old_hash:
+                continue
+            conn.execute(
+                """
+                UPDATE news SET tags = %s, factors = %s, okved = %s, expectations = %s, content_hash = %s,
+                       updated_at = now()
+                WHERE id = %s
+                """,
+                (
+                    Jsonb(src.tags.model_dump(mode="json")),
+                    [f.code for f in src.tags.factors],
+                    src.tags.okved,
+                    Jsonb([e.model_dump(mode="json") for e in src.expectations]),
+                    new_hash,
+                    id_,
+                ),
+            )
+            changed += 1
+        conn.execute(
+            """
+            INSERT INTO search_loads (name, signature, rows) VALUES ('tagging', %s, %s)
+            ON CONFLICT (name) DO UPDATE SET signature = EXCLUDED.signature, rows = EXCLUDED.rows, loaded_at = now()
+            """,
+            (signature, changed),
+        )
+    return changed
+
+
 def load_all(conn: psycopg.Connection, data: Path) -> dict:
-    """Снимок новостей, свежий сбор (raw/derived/news.jsonl) и аналитика — в таком порядке."""
+    """Снимок новостей, свежий сбор (raw/derived/news.jsonl) и аналитика — в таком порядке; затем новости в базе
+    размечаются заново, если словари или правила поменялись."""
     ensure_schema(conn, migrate=True)
     result: dict = {}
     # снимок только добавляет: если запись уже есть, в базе версия свежее
@@ -383,4 +459,5 @@ def load_all(conn: psycopg.Connection, data: Path) -> dict:
         if path.exists():
             result[name] = asdict(load_news(conn, read_jsonl(path), update_existing=update))
     result["analytics"] = asdict(load_analytics_files(conn, data))
+    result["retagged"] = retag_news(conn)
     return result
