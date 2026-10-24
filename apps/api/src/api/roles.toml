@@ -1,0 +1,71 @@
+# Ранжирование ленты: веса ролей и параметры оценки события.
+#
+# Оценка события для пользователя (api/ranking.py):
+#   слагаемые: факторы события (сила события по фактору × чувствительность компании × вес роли)
+#            и каналы цепочки (сила канала × вес роли для канала × chain_weight);
+#   фактор и канал с одним основанием (своя отрасль, покупатели, поставщики, группа) — один, больший;
+#   сырая = Σ слагаемых по убыванию × next_term^i (i — место слагаемого)
+#   оценка = сырая / (1 + сырая) × свежесть × качество источника + бонус за позицию банка
+# Слагаемые разложения пропорциональны вкладам и в сумме дают оценку.
+# Вес роли — множитель к фактору: 1 — нейтрально, больше — роли это важнее. Не указан — 1.
+# Ключи: код фактора карты (rate, fx…), префикс с * (commodity_*), канал цепочки (chain:buyers, chain:suppliers,
+# chain:group, chain:direct).
+
+version = "2026-10-24.1"
+
+[scoring]
+chain_weight = 1.0
+# свежесть: множитель 0,5 за каждые half_life_days дней, не ниже min_freshness
+half_life_days = 14
+min_freshness = 0.3
+bank_view_bonus = 0.05
+# события с оценкой ниже — не в ленте: не касаются компании
+min_score = 0.03
+# k-е повторение главной причины в ленте — оценка × repeat_factor^k: лента не из одной темы
+repeat_factor = 0.9
+# второе по силе слагаемое события — × next_term, третье — × next_term², …: новость с десятком слабых
+# тегов не обгоняет профильную
+next_term = 1.0
+
+# коды факторов в разметке новостей, которые в карте называются иначе
+[aliases]
+commodity_oil_gas = "commodity_oil"
+
+# качество источника — множитель 0–1; не указан — default
+[sources]
+default = 0.9
+"Банк России" = 1.0
+"Интерфакс" = 1.0
+"Коммерсантъ" = 0.95
+"РИА Новости" = 0.9
+"Forbes" = 0.85
+
+[roles.owner]
+label = "Собственник"
+focus = "стоимость бизнеса, группа, стратегия отрасли"
+weights = { gov = 1.3, "commodity_*" = 1.2, consumer = 1.1, "chain:group" = 1.5, "chain:direct" = 1.2, rate = 1.0, fx = 0.9, deposit_yield = 0.8, tax_regulation = 0.7, labor = 0.7, region = 0.8 }
+
+[roles.ceo]
+label = "Генеральный директор"
+focus = "спрос, поставщики, конкуренты, операционка"
+weights = { "chain:buyers" = 1.4, "chain:suppliers" = 1.3, consumer = 1.3, labor = 1.2, ved_logistics = 1.2, "commodity_*" = 1.2, "chain:direct" = 1.2, inflation = 1.1, rate = 0.9, deposit_yield = 0.6, tax_regulation = 0.8 }
+
+[roles.cfo]
+label = "Финансовый директор"
+focus = "долг, ставка, ликвидность, ковенанты, валюта"
+weights = { rate = 1.6, fx = 1.3, deposit_yield = 1.1, inflation = 1.1, gov = 0.9, tax_regulation = 0.9, consumer = 0.9, labor = 0.9, region = 0.7 }
+
+[roles.chief_accountant]
+label = "Главный бухгалтер"
+focus = "налоги, отчётность, регулирование, сроки"
+weights = { tax_regulation = 1.8, labor = 1.3, fx = 1.2, ved_logistics = 1.1, rate = 0.9, deposit_yield = 0.7, "commodity_*" = 0.7, consumer = 0.7, "chain:buyers" = 0.7, "chain:suppliers" = 0.8, region = 0.7 }
+
+[roles.treasury]
+label = "Казначей"
+focus = "курс, остатки, депозиты, платёжные риски ВЭД"
+weights = { fx = 1.6, deposit_yield = 1.6, rate = 1.3, ved_logistics = 1.2, inflation = 0.9, "commodity_*" = 0.8, consumer = 0.7, labor = 0.6, tax_regulation = 0.8 }
+
+[roles.other]
+label = "Сотрудник"
+focus = "общая картина"
+weights = {}

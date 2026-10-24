@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     data_dir: Path = Path("data/raw")
     # перезагрузить данные, даже если те же файлы уже загружены
     import_force: bool = False
+    # снимок новостей — источник ленты, если базы новостей нет
+    news_snapshot: Path = Path("data/demo/news_snapshot.jsonl")
+    # сколько последних новостей рассматривать для ленты и за сколько дней
+    feed_candidates: int = 500
+    feed_days: int = 90
 
     # модели организаторов: без ключа и адреса агент не запускается, остальное API работает
     llm_api_key: SecretStr | None = None
