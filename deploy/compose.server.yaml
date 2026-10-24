@@ -1,0 +1,46 @@
+# Стенд на сервере: поверх compose.yaml. Образы собираются локально и загружаются через docker load (см. deploy/README.md).
+#   docker compose -f compose.yaml -f deploy/compose.server.yaml up -d --no-build
+# Наружу порты не публикуются: веб доступен только внешнему обратному прокси через сеть PROXY_NETWORK.
+
+services:
+  db:
+    ports: !reset []
+    restart: unless-stopped
+
+  import:
+    image: alfa-bank-newsfeed-api:latest
+
+  ingest:
+    image: alfa-bank-newsfeed-ingest:latest
+
+  api:
+    image: alfa-bank-newsfeed-api:latest
+    ports: !reset []
+    restart: unless-stopped
+    networks:
+      default:
+        # веб состоит и в сети прокси: уникальное имя, чтобы не спутать с сервисами соседнего проекта
+        aliases: [alfanews-api]
+
+  web:
+    image: alfa-bank-newsfeed-web:latest
+    build:
+      context: ./apps/web
+      args:
+        VITE_API_URL: /
+        VITE_API_LIVE: all
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://alfanews-api:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      default: {}
+      proxy:
+        aliases: [alfanews-web]
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-max-effective-business_default}
