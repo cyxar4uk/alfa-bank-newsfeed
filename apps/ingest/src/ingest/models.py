@@ -1,8 +1,9 @@
 """Схема материала (Source) — общий формат обмена с API, см. контракт.
 
-Поля сверх контракта необязательные. У новостей: `also_reported_by` (тот же сюжет у других издателей),
-`expectations` (ожидания рынка и аналитиков из текста). У аналитики: `page`, `file`, `page_ref`, `ocr_engine`,
-`ocr_confidence`, `ocr_fixes`, `stale`. В разметке: `factors` и `sector_links` с силой связи, `countries`, `tagged_by`.
+Поля сверх контракта необязательные. У новостей: `image_url`, `source_icon_url`, `text` (полный текст),
+`also_reported_by` (тот же сюжет у других издателей), `expectations` (ожидания рынка и аналитиков из текста).
+У аналитики: `page`, `file`, `page_ref`, `ocr_engine`, `ocr_confidence`, `ocr_fixes`, `stale`.
+В разметке: `factors` и `sector_links` с силой связи, `countries`, `tagged_by`.
 """
 
 from datetime import datetime
@@ -80,6 +81,11 @@ class Source(BaseModel):
     url: str | None = None
     published_at: datetime | None = None
     fragment: str
+    # у новостей: картинка (ссылка из ленты или og:image страницы, файл не храним), значок издания и полный текст —
+    # только где его разрешают условия издателя (full_text у ленты в sources.toml)
+    image_url: str | None = None
+    source_icon_url: str | None = None
+    text: str | None = None
     tags: Tags = Field(default_factory=Tags)
     page: int | None = None
     file: str | None = None

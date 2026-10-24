@@ -1,6 +1,10 @@
 # Открытые ленты новостей. Добавить источник — дописать блок [[feed]], код менять не нужно.
-# Из ленты берём только заголовок, лид дословно (до 500 знаков), ссылку на материал и дату; полный текст
-# статей и картинки не храним, в интерфейсе всегда ведём ссылкой на первоисточник.
+# Из ленты берём заголовок, лид дословно (до 500 знаков), ссылку на материал, дату и ссылку на картинку (из RSS
+# или og:image страницы; сами файлы картинок не скачиваем и не храним). В интерфейсе всегда ведём на первоисточник.
+# icon — значок издания (проверенная ссылка с сайта издателя).
+# full_text — полный текст храним, только где это разрешают условия: "rss" — издатель сам кладёт его в ленту,
+#   "page" — берём с открытой страницы материала; text_container — класс элемента со статьёй на странице, если
+#   общий разбор берёт не то. Не указано — полного текста нет, только лид; пейволлы не обходим.
 # priority — какой издатель остаётся главным при склейке дублей (меньше — главнее): регулятор раньше СМИ.
 # reliability — надёжность источника: official (органы власти, Банк России), agency (информационное агентство),
 #   business_media (деловое СМИ), other (прочие СМИ). Идёт в новость и в «качество источника» ранжирования.
@@ -17,6 +21,8 @@ publisher = "Банк России"
 url = "https://www.cbr.ru/rss/RssPress"
 priority = 0
 reliability = "official"
+icon = "https://www.cbr.ru/favicon.ico"
+full_text = "page"
 hosts = ["www.cbr.ru", "cbr.ru"]
 terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
 
@@ -26,6 +32,8 @@ publisher = "Банк России"
 url = "https://www.cbr.ru/rss/eventrss"
 priority = 0
 reliability = "official"
+icon = "https://www.cbr.ru/favicon.ico"
+full_text = "page"
 hosts = ["www.cbr.ru", "cbr.ru"]
 terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
 
@@ -35,6 +43,9 @@ publisher = "Правительство России"
 url = "http://government.ru/all/rss/"
 priority = 0
 reliability = "official"
+icon = "http://government.ru/favicon.ico"
+full_text = "page"
+text_container = "reader_article_body"
 hosts = ["government.ru"]
 terms = "government.ru/about: все материалы сайта доступны по лицензии Creative Commons Attribution 4.0"
 
@@ -44,6 +55,9 @@ publisher = "ФНС России"
 url = "https://www.nalog.gov.ru/rn77/rss/"
 priority = 0
 reliability = "official"
+icon = "https://www.nalog.gov.ru/css/ul2018/img/favicon.ico"
+full_text = "page"
+text_container = "text_block"
 hosts = ["www.nalog.gov.ru"]
 terms = "nalog.gov.ru/rn77/copyright: воспроизведение без согласия, без ограничений по объёму, со ссылкой на первоисточник"
 
@@ -127,6 +141,7 @@ publisher = "Интерфакс"
 url = "https://www.interfax.ru/rss.asp"
 priority = 1
 reliability = "agency"
+icon = "https://www.interfax.ru/touch-icon-iphone-retina.png"
 hosts = ["www.interfax.ru"]
 terms = "interfax.ru/license: цитирование в информационных целях со ссылкой на interfax.ru"
 
@@ -136,6 +151,7 @@ publisher = "РИА Новости"
 url = "https://ria.ru/export/rss2/archive/index.xml"
 priority = 3
 reliability = "agency"
+icon = "https://cdnn21.imgria.ru/i/favicons/apple-touch-icon.png"
 hosts = ["ria.ru"]
 terms = "ria.ru/docs/about/copyright.html: с указанием источника и гиперссылкой в начале"
 
@@ -165,6 +181,7 @@ publisher = "Коммерсантъ"
 url = "https://www.kommersant.ru/RSS/section-economics.xml"
 priority = 2
 reliability = "business_media"
+icon = "https://www.kommersant.ru/apple-touch-icon.png"
 hosts = ["www.kommersant.ru"]
 terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
@@ -174,6 +191,7 @@ publisher = "Коммерсантъ"
 url = "https://www.kommersant.ru/RSS/section-business.xml"
 priority = 2
 reliability = "business_media"
+icon = "https://www.kommersant.ru/apple-touch-icon.png"
 hosts = ["www.kommersant.ru"]
 terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
@@ -183,6 +201,7 @@ publisher = "Коммерсантъ"
 url = "https://www.kommersant.ru/RSS/section-finance.xml"
 priority = 2
 reliability = "business_media"
+icon = "https://www.kommersant.ru/apple-touch-icon.png"
 hosts = ["www.kommersant.ru"]
 terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
@@ -192,6 +211,8 @@ publisher = "Forbes"
 url = "https://www.forbes.ru/newrss.xml"
 priority = 3
 reliability = "business_media"
+icon = "https://www.forbes.ru/favicon/apple-touch-icon.png"
+full_text = "rss"
 hosts = ["www.forbes.ru"]
 terms = "forbes.ru: в информационных целях с автором, датой и активной ссылкой"
 
@@ -239,6 +260,7 @@ publisher = "Российская газета"
 url = "https://rg.ru/xml/index.xml"
 priority = 3
 reliability = "other"
+icon = "https://cdnstatic.rg.ru/images/touch-icon-ipad-retina_192x192.png"
 hosts = ["rg.ru"]
 terms = "rg.ru/pages/webpartner: ленту анонсов rg.ru/xml/index.xml можно размещать с гиперссылкой на полный текст и указанием, что это анонсы «РГ»"
 
@@ -248,6 +270,7 @@ publisher = "Известия"
 url = "https://iz.ru/xml/rss/all.xml"
 priority = 3
 reliability = "other"
+icon = "https://cdn.iz.ru/profiles/portal/themes/purple/images/favicons/apple-icon-180x180.png"
 hosts = ["iz.ru"]
 terms = "iz.ru: частичное цитирование только с гиперссылкой на iz.ru"
 

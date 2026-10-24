@@ -6,7 +6,16 @@
 import datetime as dt
 
 from api.chain import MIN_SHARE, build_chain
-from api.contract import CompanyProfile, ExposureMap, Feed, GroupImpact, InfluenceChain
+from api.contract import (
+    CompanyProfile,
+    ExposureMap,
+    Feed,
+    FeedItem,
+    FeedRelevance,
+    GroupImpact,
+    InfluenceChain,
+    InsightEvent,
+)
 from api.exposure import build_exposure
 from api.group import group_context, group_impact
 from api.news import NewsProvider
@@ -15,6 +24,7 @@ from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
 from api.ranking import MSK, NewsEvent, default_ranking, rank
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
+from api.takeaway import takeaway
 
 # роли, которым в ленте показывается влияние на группу
 GROUP_ROLES = {"owner", "ceo"}
@@ -81,11 +91,14 @@ def persona_feed(
     candidates: int = 500,
     days: int = 90,
     now: dt.datetime | None = None,
+    query: str | None = None,
 ) -> Feed | None:
     """Лента пользователя: события, задевающие его компанию, по убыванию оценки с учётом роли.
 
     Пользователь — `p-u<номер компании>-<роль>`; компания должна быть действующим клиентом банка (сервис — для
     клиентов), иначе — None. Так ленту можно открыть для любого клиента, не только из `/api/personas`.
+    `query` — поиск: новости по запросу в том же формате; задевающие компанию — первыми, остальные следом
+    с оценкой 0 («к сведению»).
     """
     parsed = parse_persona_id(persona)
     if parsed is None:
@@ -98,7 +111,10 @@ def persona_feed(
     flows = repo.flows(company.id)
     group = repo.group_records(company.group_id, exclude=company.id) if company.group_id else []
     exposure = build_exposure(company, flows, group)
-    events = news.events(since=now - dt.timedelta(days=days), limit=candidates)
+    if query is not None:
+        events = news.search(query, limit=candidates)
+    else:
+        events = news.events(since=now - dt.timedelta(days=days), limit=candidates)
     items = rank(
         events,
         exposure,
@@ -109,7 +125,12 @@ def persona_feed(
         regions={r for r in (company.region, company.city) if r},
         countries=ved_countries(company, group, flows),
     )
+    if query is not None:
+        ranked = {i.event_id for i in items}
+        items += [unrelated_item(e) for e in events if e.id not in ranked]
     items = items[:limit]
+    for item in items:
+        item.takeaway = takeaway(item, role)
     # собственнику и гендиректору — блок «Ваша группа»: какие компании группы задевает событие
     if role in GROUP_ROLES and (ctx := group_context(company, group, flows)):
         by_id = {e.id: e for e in events}
@@ -129,6 +150,23 @@ def persona_feed(
         items=items,
         candidates=len(events),
         news_source=news.name,
+    )
+
+
+def unrelated_item(event: NewsEvent) -> FeedItem:
+    """Найденная поиском новость, которая компанию не задевает: тот же формат, оценка 0."""
+    text = "напрямую вашу компанию не задевает"
+    date = event.published_at.astimezone(MSK).date() if event.published_at else None
+    return FeedItem(
+        event_id=event.id,
+        event=InsightEvent(title=event.title, date=date),
+        relevance=FeedRelevance(score=0, reason=text, refs=[event.id], freshness=1, source_quality=1),
+        has_bank_view=False,
+        source=event.source(),
+        channel="direct",
+        channel_text=text,
+        image_url=event.image_url,
+        source_icon_url=event.source_icon_url,
     )
 
 

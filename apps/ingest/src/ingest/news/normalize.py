@@ -5,10 +5,13 @@ import html
 import re
 from datetime import UTC, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from ingest.models import LEAD_MAX_CHARS, Source
-from ingest.news.fetch import RawItem
+
+if TYPE_CHECKING:  # fetch берёт разбор статьи из article, а тот — clean_text отсюда
+    from ingest.news.fetch import RawItem
 
 MSK = timezone(timedelta(hours=3), "MSK")
 
@@ -78,7 +81,7 @@ def news_id(url: str) -> str:
     return "src:news:" + hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
 
 
-def normalize(item: RawItem) -> Source | None:
+def normalize(item: "RawItem") -> Source | None:
     title = clean_text(item.title)
     url = canonical_url(item.link) if item.link else ""
     if not title or not url:
@@ -93,4 +96,7 @@ def normalize(item: RawItem) -> Source | None:
         url=url,
         published_at=parse_date(item.published),
         fragment=lead or title,
+        image_url=item.image,
+        source_icon_url=item.icon,
+        text=item.text or None,
     )

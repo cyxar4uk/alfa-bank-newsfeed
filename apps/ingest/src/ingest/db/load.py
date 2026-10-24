@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 from ingest.db.schema import ensure_schema
 from ingest.models import Mention, Source
 from ingest.news.dedup import TIME_WINDOW, similar_titles
+from ingest.news.media import Fetcher
 from ingest.news.normalize import news_id
 from ingest.text import proper_names, stems
 
@@ -98,6 +99,9 @@ def _row(item: Source, origin: str) -> dict:
         "url": item.url,
         "published_at": item.published_at,
         "fragment": item.fragment,
+        "image_url": item.image_url,
+        "source_icon_url": item.source_icon_url,
+        "body": item.text,
         "tags": Jsonb(item.tags.model_dump(mode="json")),
         "factors": [f.code for f in item.tags.factors],
         "okved": item.tags.okved,
@@ -110,9 +114,10 @@ def _row(item: Source, origin: str) -> dict:
 
 _INSERT = """
 INSERT INTO news (id, title, publisher, url, published_at, fragment, tags, factors, okved, expectations,
-                  also_reported_by, origin, content_hash, body, reliability)
+                  also_reported_by, origin, content_hash, body, reliability, image_url, source_icon_url)
 VALUES (%(id)s, %(title)s, %(publisher)s, %(url)s, %(published_at)s, %(fragment)s, %(tags)s, %(factors)s, %(okved)s,
-        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s, %(reliability)s)
+        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s, %(reliability)s,
+        %(image_url)s, %(source_icon_url)s)
 """
 
 _UPDATE = """
@@ -120,6 +125,11 @@ UPDATE news SET title = %(title)s, publisher = %(publisher)s, reliability = %(re
     published_at = %(published_at)s,
     fragment = %(fragment)s, tags = %(tags)s, factors = %(factors)s, okved = %(okved)s,
     expectations = %(expectations)s, also_reported_by = %(also_reported_by)s, content_hash = %(content_hash)s,
+    -- картинку и текст со страницы (enrich_news) запись из ленты без них не стирает
+    image_url = COALESCE(%(image_url)s, image_url), source_icon_url = COALESCE(%(source_icon_url)s, source_icon_url),
+    -- присланная на разбор новость, ставшая событием ленты, не сохраняет текст пользователя: полный текст у ленты —
+    -- только где его разрешают условия издателя
+    body = CASE WHEN origin = 'user' AND %(origin)s = 'feed' THEN %(body)s ELSE COALESCE(%(body)s, body) END,
     origin = CASE WHEN %(origin)s = 'feed' THEN 'feed' ELSE origin END, updated_at = now()
 WHERE id = %(id)s
 """
@@ -175,6 +185,17 @@ def load_news(
                 "SELECT id, content_hash, also_reported_by, origin FROM news WHERE id = ANY(%s)", (ids,)
             )
         }
+        # картинка, значок и полный текст в отпечаток не входят (картинку и текст дописывает и enrich_news), поэтому
+        # запись, которая принесла их туда, где в базе пусто, обновляем даже с тем же отпечатком
+        gaps = {
+            r[0]: r[1:]
+            for r in conn.execute(
+                "SELECT id, image_url IS NULL, source_icon_url IS NULL, body IS NULL FROM news WHERE id = ANY(%s)",
+                (ids,),
+            )
+        }
+        # заглушки сайтов, найденные enrich_news: из ленты их не берём, иначе картинка возвращалась бы каждый круг
+        stubs = set(conn.execute("SELECT publisher, image_url FROM news_image_stubs").fetchall())
         # своя строка-событие — только из лент: присланная пользователем новость может стать упоминанием
         mention_ids = [news_id(m.url) for i in items for m in i.also_reported_by if m.url]
         own_rows = {
@@ -192,6 +213,8 @@ def load_news(
                 mentioned[m["url"]] = e
 
         for item in items:
+            if (item.publisher, item.image_url) in stubs:
+                item = item.model_copy(update={"image_url": None})
             row = _row(item, origin)
             new_mentions = [m.model_dump(mode="json") for m in item.also_reported_by]
             known = existing.get(item.id)
@@ -202,12 +225,22 @@ def load_news(
                     continue
                 old_hash, old_mentions, old_origin = known
                 mentions = _merge_mentions(old_mentions, new_mentions, item.url, own_rows)
-                if old_hash == row["content_hash"] and mentions == old_mentions and old_origin == origin:
+                no_image, no_icon, no_body = gaps.get(item.id, (False, False, False))
+                fills_gap = (
+                    (no_image and item.image_url) or (no_icon and item.source_icon_url) or (no_body and item.text)
+                )
+                if (
+                    old_hash == row["content_hash"]
+                    and mentions == old_mentions
+                    and old_origin == origin
+                    and not fills_gap
+                ):
                     stats.unchanged += 1
                     continue
                 row["also_reported_by"] = Jsonb(mentions)
                 conn.execute(_UPDATE, row)
                 existing[item.id] = (row["content_hash"], mentions, old_origin)
+                gaps.pop(item.id, None)
                 if item.id in by_id:
                     by_id[item.id].mentions = mentions
                 stats.updated += 1
@@ -242,9 +275,10 @@ def load_news(
                 conn.execute(_UPDATE, row)
                 stats.updated += 1
             else:
-                conn.execute(_INSERT, {**row, "body": None})
+                conn.execute(_INSERT, row)
                 stats.inserted += 1
             existing[item.id] = (row["content_hash"], mentions, origin)
+            gaps.pop(item.id, None)
             own_rows.add(item.id)
             if origin == "feed":
                 event = _event(item.id, item.title, item.url, item.published_at, mentions)
@@ -473,9 +507,137 @@ def backfill_reliability(conn: psycopg.Connection) -> int:
         return cur.rowcount
 
 
-def load_all(conn: psycopg.Connection, data: Path) -> dict:
+def backfill_icons(conn: psycopg.Connection) -> int:
+    """Значок издания новостям из лент, у которых его нет (загружены раньше или из снимка): по издателю."""
+    from ingest.news.fetch import load_feeds
+
+    icons: dict[str, str] = {}
+    for feed in load_feeds():
+        if feed.icon:
+            icons.setdefault(feed.publisher, feed.icon)
+    with conn.transaction():
+        cur = conn.execute(
+            """
+            UPDATE news SET source_icon_url = t.icon
+            FROM jsonb_each_text(%s::jsonb) AS t(publisher, icon)
+            WHERE news.publisher = t.publisher AND news.source_icon_url IS NULL AND news.origin = 'feed'
+            """,
+            (Jsonb(icons),),
+        )
+        return cur.rowcount
+
+
+# одна и та же картинка у стольких новостей издателя — это заглушка сайта, а не иллюстрация материала
+SHARED_IMAGE_MIN = 3
+# столько кругов подряд страница не отвечала — больше не спрашиваем
+MEDIA_ATTEMPTS = 3
+
+
+@dataclass
+class MediaStats:
+    checked: int = 0
+    images: int = 0
+    texts: int = 0
+    placeholders: int = 0  # убрано картинок-заглушек
+
+
+def enrich_news(conn: psycopg.Connection, limit: int = 200, fetch: Fetcher | None = None) -> MediaStats:
+    """Дозаполнить картинку и полный текст со страниц материалов: свежие новости из лент, которые ещё не проверяли.
+
+    Страницу запрашиваем, только если у новости нет картинки или если лента разрешает полный текст (`full_text =
+    "page"`) и его ещё нет; только у включённых лент — выключенные выключены в том числе из-за условий издателя.
+    Страница не ответила — новость остаётся непроверенной до следующего круга (не больше MEDIA_ATTEMPTS раз).
+    Сеть — вне транзакции.
+    """
+    from ingest.news.fetch import load_feeds
+    from ingest.news.media import PageJob, fetch_pages
+
+    fetch = fetch or fetch_pages
+    feeds = {}
+    for feed in load_feeds():
+        if feed.enabled:
+            feeds.setdefault(feed.publisher, feed)
+    rows = conn.execute(
+        """
+        SELECT id, url, publisher, image_url IS NULL, body IS NULL FROM news
+        WHERE origin = 'feed' AND media_checked_at IS NULL AND url IS NOT NULL AND publisher = ANY(%s)
+        ORDER BY published_at DESC NULLS LAST LIMIT %s
+        """,
+        (list(feeds), limit),
+    ).fetchall()
+    jobs, nothing_to_fetch, need_image = [], [], set()
+    for id_, url, publisher, no_image, no_body in rows:
+        feed = feeds[publisher]
+        want_text = feed.full_text == "page" and no_body
+        if no_image:
+            need_image.add(id_)
+        if no_image or want_text:
+            jobs.append(PageJob(id_, url, want_text, feed.text_container))
+        else:
+            nothing_to_fetch.append(id_)
+    got = fetch(jobs) if jobs else {}
+    stats = MediaStats(checked=len(nothing_to_fetch) + len(got))
+    # не ответили — попытка засчитывается, только если сеть вообще есть (хоть одна страница ответила): сайт, который
+    # недоступен постоянно, после MEDIA_ATTEMPTS кругов помечается проверенным и не занимает место в пачке
+    failed = [j.id for j in jobs if j.id not in got] if got else []
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('newsfeed_news_load'))")
+        conn.execute("UPDATE news SET media_checked_at = now() WHERE id = ANY(%s)", (nothing_to_fetch,))
+        conn.execute(
+            """
+            UPDATE news SET media_attempts = media_attempts + 1,
+                   media_checked_at = CASE WHEN media_attempts + 1 >= %s THEN now() END
+            WHERE id = ANY(%s)
+            """,
+            (MEDIA_ATTEMPTS, failed),
+        )
+        for id_, media in got.items():
+            # пока страницу запрашивали, загрузчик мог записать картинку из ленты — её не перетираем
+            conn.execute(
+                """
+                UPDATE news SET image_url = COALESCE(image_url, %s), body = COALESCE(body, %s),
+                       media_checked_at = now()
+                WHERE id = %s
+                """,
+                (media.image, media.text, id_),
+            )
+            stats.images += bool(media.image and id_ in need_image)
+            stats.texts += bool(media.text)
+        # заглушку запоминаем: загрузчик больше не возьмёт её из ленты и для свежих новостей
+        conn.execute(
+            """
+            INSERT INTO news_image_stubs (publisher, image_url)
+            SELECT publisher, image_url FROM news WHERE image_url IS NOT NULL AND publisher IS NOT NULL
+            GROUP BY publisher, image_url HAVING count(*) >= %s
+            ON CONFLICT DO NOTHING
+            """,
+            (SHARED_IMAGE_MIN,),
+        )
+        stats.placeholders = conn.execute(
+            """
+            UPDATE news SET image_url = NULL FROM news_image_stubs s
+            WHERE news.origin = 'feed' AND news.publisher = s.publisher AND news.image_url = s.image_url
+            """
+        ).rowcount
+    return stats
+
+
+def clear_disallowed_text(conn: psycopg.Connection) -> int:
+    """Убрать полный текст у новостей из лент издателей, у которых full_text больше не разрешён в sources.toml."""
+    from ingest.news.fetch import load_feeds
+
+    allowed = sorted({f.publisher for f in load_feeds() if f.full_text})
+    with conn.transaction():
+        return conn.execute(
+            "UPDATE news SET body = NULL WHERE origin = 'feed' AND body IS NOT NULL AND NOT (publisher = ANY(%s))",
+            (allowed,),
+        ).rowcount
+
+
+def load_all(conn: psycopg.Connection, data: Path, media_limit: int = 0) -> dict:
     """Снимок новостей, свежий сбор (raw/derived/news.jsonl) и аналитика — в таком порядке; затем новости в базе
-    размечаются заново, если словари или правила поменялись."""
+    размечаются заново, если словари или правила поменялись. media_limit > 0 — дозаполнить картинки и полный
+    текст стольких новостей со страниц материалов (нужна сеть)."""
     ensure_schema(conn, migrate=True)
     result: dict = {}
     # снимок только добавляет: если запись уже есть, в базе версия свежее
@@ -485,5 +647,9 @@ def load_all(conn: psycopg.Connection, data: Path) -> dict:
             result[name] = asdict(load_news(conn, read_jsonl(path), update_existing=update))
     result["analytics"] = asdict(load_analytics_files(conn, data))
     result["reliability"] = backfill_reliability(conn)
+    result["icons"] = backfill_icons(conn)
+    result["text_cleared"] = clear_disallowed_text(conn)
     result["retagged"] = retag_news(conn)
+    if media_limit > 0:
+        result["media"] = asdict(enrich_news(conn, media_limit))
     return result

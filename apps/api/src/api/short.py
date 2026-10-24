@@ -74,6 +74,23 @@ def factor_short(code: str, label: str, text: str) -> str | None:
     return line.replace("своя отрасль", "ваша отрасль") if line else None
 
 
+def clean_channel(text: str) -> str:
+    """Первая часть канала без кодов, пометок и перечней: для вывода, когда строки «для вас» нет."""
+    clean = _EMPTY_PARENS.sub("", _CODE.sub("", _SERVICE.sub("", text)))
+    first = clean.split(";")[0].strip()
+    first = _PARENS.sub("", first) if len(first) > SHORT_MAX else first
+    parts = first.split(" → ")
+    if len(parts) >= 3 and parts[0] == "событие":
+        # цепочка «событие → общепит → ваши покупатели: 469 компаний, 53 % поступлений → вы»
+        who, _, rest = parts[2].partition(": ")
+        sector = parts[1].strip()
+        if who.startswith(("своя отрасль", "ваша отрасль")):
+            first = f"ваша отрасль «{sector}»"
+        else:
+            first = f"{who} из отрасли «{sector}»" + (f": {rest}" if rest else "")
+    return first.replace("своя отрасль", "ваша отрасль")
+
+
 def chain_short(channel: ChainChannel) -> str | None:
     sector = channel.sector or "смежная отрасль"
     share = format_share(channel.share)
