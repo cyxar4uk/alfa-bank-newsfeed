@@ -252,6 +252,10 @@ def test_empty_news_base_falls_back_to_snapshot(tmp_path):
     assert [e.id for e in news.events(None, 10)] == ["src:news:s"]
     assert news.name.startswith("снимок")
     assert news.has_bank_view(["rate"]) is False  # в снимке аналитики нет
+    # событие по id: в базе нет — из снимка
+    EmptySearch.event = lambda self, event_id: None
+    assert news.event("src:news:s").title == "Ставка"
+    assert news.event("src:news:нет") is None
 
 
 def test_group_impact_endpoint(client):
@@ -261,7 +265,34 @@ def test_group_impact_endpoint(client):
     assert body["intra_payments"] == 1e9
     # U_4 — одна в своей группе: блока нет
     assert client.get("/api/companies/U_4/group-impact", params={"okved": "35"}).json() is None
-    assert client.get("/api/companies/U_404/group-impact").status_code == 404
+    assert client.get("/api/companies/U_404/group-impact", params={"okved": "49"}).status_code == 404
+    # без события ответ «группу не касается» был бы ложным
+    assert client.get("/api/companies/U_1/group-impact").status_code == 422
+
+
+class RateNews(FakeNews):
+    """Событие только про ставку: отраслей в разметке нет."""
+
+    def event(self, event_id):
+        return next((e for e in self.events(None, 10) if e.id == event_id), None)
+
+
+def test_group_impact_by_event_counts_factor_events(client):
+    # «ЦБ сохранил ставку» без ОКВЭД: участник группы с кредитом затронут через стоимость заёмных денег
+    from api.main import optional_news
+
+    app.dependency_overrides[optional_news] = RateNews
+    body = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:rate"}).json()
+    assert body["affected_count"] == 1
+    member = body["affected"][0]
+    assert (member["id"], member["direct"]) == ("U_2", False)
+    assert [f["code"] for f in member["factors"]] == ["rate"]
+    assert "событие касается 1 компании группы" in body["text"]
+    # золото участника группы не задевает
+    gold = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:gold"}).json()
+    assert gold["affected_count"] == 0
+    missing = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:нет"})
+    assert missing.status_code == 404
 
 
 def test_feed_group_impact_only_for_owner_and_ceo(client):
@@ -287,3 +318,44 @@ class GroupNews(FakeNews):
                 sectors=[("49", 1.0)],
             )
         ]
+
+
+def test_ved_countries_of_company_group_and_major_counterparties():
+    from api.service import ved_countries
+
+    company = make_company(fts_countries="КИТАЙ")
+    member = make_company(id="U_2", fts_countries="ЛИТВА")
+    major = make_company(id="U_3", fts_countries="ТУРЦИЯ")
+    minor = make_company(id="U_4", fts_countries="ИНДИЯ")
+    flows = [Flow("U_3", "in", 99.0, 1, major), Flow("U_4", "out", 0.5, 1, minor)]
+    # контрагент меньше 1 % оборота — не канал
+    assert ved_countries(company, [member], flows) == {"Китай", "Литва", "Турция"}
+    # ВЭД без стран — страны неизвестны
+    assert ved_countries(make_company(fts_countries=None), [], []) is None
+
+
+def test_search_news_event_by_id():
+    from api.news import SearchNews
+
+    class Search:
+        def get_source(self, source_id):
+            return {"id": source_id, "title": "Ставка", "factors": [{"code": "rate", "strength": 1}]}
+
+    news = SearchNews(Search())
+    assert news.event("src:news:a").factors == [("rate", 1.0, "rate")]
+    assert news.event("src:alfa:x#p1") is None  # аналитика банка — не событие
+
+
+def test_group_impact_by_event_uses_its_sectors_and_needs_news(client):
+    from api.main import optional_news
+    from api.ranking import NewsEvent
+
+    class TruckNews(RateNews):
+        def event(self, event_id):
+            return NewsEvent(id=event_id, title="Грузоперевозки", published_at=None, sectors=[("49", 1.0)])
+
+    app.dependency_overrides[optional_news] = TruckNews
+    body = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:t"}).json()
+    assert body["affected"][0]["direct"] is True  # перевозчик группы — событие в его отрасли
+    app.dependency_overrides[optional_news] = lambda: None
+    assert client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:t"}).status_code == 503

@@ -5,11 +5,14 @@
 
 import datetime as dt
 import json
+import logging
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Protocol
 
 from api.ranking import NewsEvent, event_from
+
+logger = logging.getLogger("api.news")
 
 
 class NewsProvider(Protocol):
@@ -18,6 +21,8 @@ class NewsProvider(Protocol):
     def events(self, since: dt.datetime | None, limit: int) -> list[NewsEvent]: ...
 
     def has_bank_view(self, factors: list[str]) -> bool: ...
+
+    def event(self, event_id: str) -> NewsEvent | None: ...
 
 
 @lru_cache(maxsize=4)
@@ -52,6 +57,10 @@ class SnapshotNews:
 
     def has_bank_view(self, factors: list[str]) -> bool:
         return False
+
+    def event(self, event_id: str) -> NewsEvent | None:
+        items = _snapshot(str(self.path), self.path.stat().st_mtime)
+        return next((e for e in items if e.id == event_id), None)
 
 
 class SearchNews:
@@ -89,6 +98,12 @@ class SearchNews:
                 self._bank[codes] = False  # нет аналитики или фактор неизвестен поиску — бонуса нет
         return self._bank[codes]
 
+    def event(self, event_id: str) -> NewsEvent | None:
+        if not event_id.startswith("src:news:"):
+            return None
+        item = self.search.get_source(event_id)
+        return event_from(item) if item is not None else None
+
 
 class FallbackNews:
     """База новостей, а если в ней пусто — снимок: лента не пустеет, пока новости не загружены."""
@@ -108,3 +123,14 @@ class FallbackNews:
 
     def has_bank_view(self, factors: list[str]) -> bool:
         return self._used.has_bank_view(factors)
+
+    def event(self, event_id: str) -> NewsEvent | None:
+        try:
+            found = self.primary.event(event_id)
+        except Exception:
+            # база новостей недоступна — ищем в снимке; причину — в журнал, чтобы не прятать ошибки кода
+            logger.warning("событие %s не прочитано из базы новостей", event_id, exc_info=True)
+            found = None
+        if found is None and self.fallback is not None:
+            found = self.fallback.event(event_id)
+        return found
