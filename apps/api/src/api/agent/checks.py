@@ -222,11 +222,23 @@ class Checker:
                 stale = [h.source.id for h in self.ctx.analytics if h.stale and h.source.id in s.refs]
                 if stale:
                     bad("bank_quotes", "ссылка на устаревший материал — это не позиция банка")
-                # дата материала в тексте — одного из процитированных материалов, а не придуманная
+                # фраза, цитата и подпись — из одного материала: по ним карточка подписывает позицию банка
+                materials = {r.split("#", 1)[0] for r in src_refs if self.ctx.page_ref_of(r)}
+                if len(materials) > 1:
+                    bad(
+                        "bank_quotes",
+                        "позиция банка — из одного материала, а ссылки ведут на разные: оставь один",
+                    )
+                # дата материала в тексте — того материала, где найдена цитата, а не придуманная
+                quoted = {
+                    r.split("#", 1)[0]
+                    for r in cited_refs
+                    if s.quote and quote_in(s.quote, self.source_text(r))
+                } or materials
                 dates = {
                     h.material_date
                     for h in self.ctx.analytics
-                    if h.material_date and (h.source.id in s.refs or h.page_ref in s.refs)
+                    if h.material_date and h.source.id.split("#", 1)[0] in quoted
                 }
                 wrong = [d for d in _DATE.findall(s.text) if dates and _parse_date(d) not in dates]
                 if wrong:
@@ -349,9 +361,22 @@ class Checker:
             bad("bank_quotes", "ссылка на устаревший материал — это не позиция банка")
         if not _BANK_VOICE.match(bp.statement.strip()):
             bad("bank_quotes", "позицию начни со слов «Альфа-Банк ожидает/считает/рекомендует …»")
+        # фраза, цитата и подпись (материал, дата) — из одного материала банка
+        materials = {r.split("#", 1)[0] for r in pages}
+        if len(materials) > 1:
+            bad("bank_quotes", "позиция банка — из одного материала, а ссылки ведут на разные: оставь один")
         texts = [self.source_text(r) for r in pages]
         if not any(quote_in(bp.quote, t) for t in texts):
             bad("bank_quotes", f"выдержка не найдена в распознанном тексте страницы: «{bp.quote[:80]}»")
+        dates = {
+            h.material_date
+            for h in self.ctx.analytics
+            if h.material_date and h.source.id.split("#", 1)[0] in materials
+        }
+        wrong = [d for d in _DATE.findall(bp.statement) if dates and _parse_date(d) not in dates]
+        if wrong:
+            known = ", ".join(sorted(d.strftime("%d.%m.%Y") for d in dates))
+            bad("bank_quotes", f"дата материала {wrong[0]} не совпадает с процитированным ({known})")
         cited = NumberBank()
         for t in texts:
             cited.add_text(t)

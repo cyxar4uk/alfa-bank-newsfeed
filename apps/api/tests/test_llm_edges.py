@@ -92,3 +92,15 @@ def test_default_fallbacks_are_allowed_models():
     from api.llm.client import ALLOWED_MODELS, DEFAULT_FALLBACK_MODELS
 
     assert set(DEFAULT_FALLBACK_MODELS) | set(DEFAULT_FALLBACK_MODELS.values()) <= ALLOWED_MODELS
+
+
+def test_fallback_keeps_reasoning_off(tmp_path):
+    # reasoning — общий параметр шлюза: запасная модель тоже отвечает без рассуждений
+    down = TransportResponse(503, None, "down")
+    transport = FakeTransport(*[down] * 4, ok('{"answer": "a", "n": 1}'))
+    client = make_client(
+        transport, tmp_path, fallbacks={"deepseek/deepseek-v4.1-flash": "z-ai/glm-5.3-flash"}
+    )
+    client.complete("draft", MESSAGES, schema=Answer)
+    assert transport.bodies[-1]["model"] == "z-ai/glm-5.3-flash"
+    assert transport.bodies[-1]["reasoning"] == {"enabled": False}

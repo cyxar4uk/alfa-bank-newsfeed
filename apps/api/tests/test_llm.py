@@ -141,11 +141,30 @@ def test_invalid_response_gives_up(tmp_path):
     assert not (tmp_path / "cache").exists() or not any((tmp_path / "cache").rglob("*.json"))
 
 
-def test_cut_by_length_doubles_max_tokens(tmp_path):
+def test_cut_by_length_retries_once_without_reasoning(tmp_path):
+    # у плана рассуждения не выключены: обрыв на лимите — повтор без рассуждений, лимит тот же
     transport = FakeTransport(ok("", finish="length"), ok('{"answer": "Москва", "n": 4}'))
     client = make_client(transport, tmp_path)
-    client.complete("draft", MESSAGES, schema=Answer, max_tokens=500)
-    assert [b["max_tokens"] for b in transport.bodies] == [500, 1000]
+    client.complete("plan", MESSAGES, schema=Answer, max_tokens=500)
+    assert [b["max_tokens"] for b in transport.bodies] == [500, 500]
+    assert "reasoning" not in transport.bodies[0]
+    assert transport.bodies[1]["reasoning"] == {"enabled": False}
+
+
+def test_cut_by_length_without_reasoning_is_not_repeated(tmp_path):
+    from api.llm import LlmBadResponse
+
+    transport = FakeTransport(ok("", finish="length"), ok('{"answer": "Москва", "n": 4}'))
+    client = make_client(transport, tmp_path)
+    with pytest.raises(LlmBadResponse, match="оборвался на лимите"):
+        client.complete("draft", MESSAGES, schema=Answer, max_tokens=500)
+    assert len(transport.bodies) == 1  # тот же запрос оборвётся снова — не тратим время и деньги
+
+
+def test_long_steps_go_without_reasoning(tmp_path):
+    transport = FakeTransport(ok('{"answer": "Москва", "n": 4}'))
+    make_client(transport, tmp_path).complete("draft", MESSAGES, schema=Answer)
+    assert transport.bodies[0]["reasoning"] == {"enabled": False}
 
 
 def test_retries_network_and_server_errors(tmp_path):
@@ -236,3 +255,17 @@ def test_text_mode_without_schema(tmp_path):
     client = make_client(FakeTransport(ok("Просто текст")), tmp_path)
     result = client.complete("ask", MESSAGES)
     assert result.text == "Просто текст" and result.value is None
+
+
+def test_cut_by_length_without_reasoning_gets_one_bigger_try(tmp_path):
+    # ответ сам длиннее лимита (рассуждений не было) — один повтор с бо́льшим лимитом, дальше ошибка
+    def cut():
+        r = ok("", finish="length")
+        r.data["usage"]["completion_tokens_details"]["reasoning_tokens"] = 0
+        return r
+
+    transport = FakeTransport(cut(), cut(), ok('{"answer": "Москва", "n": 4}'))
+    client = make_client(transport, tmp_path)
+    with pytest.raises(LlmBadResponse, match="оборвался на лимите"):
+        client.complete("plan", MESSAGES, schema=Answer, max_tokens=500)
+    assert [b["max_tokens"] for b in transport.bodies] == [500, 1000]
