@@ -2,7 +2,9 @@ import type {
   AnalyzeRequest,
   AskAnswer,
   Briefing,
+  CatalogSource,
   CompanyExposure,
+  EventDetail,
   CompanyProfile,
   ExposureMap,
   FeedItem,
@@ -50,6 +52,16 @@ export interface LiveApi extends Api {
   insightStatus(eventId: string, personaId: string, signal?: AbortSignal): Promise<JobStatus>;
   /** своя новость без ожидания: готовый разбор, статус сборки (по его event_id опрашиваем) или «не касается» */
   analyzeJob(body: AnalyzeRequest, signal?: AbortSignal): Promise<InsightResult>;
+  /** готовый разбор только из кэша (cached=true): null — не собран, сборку не запускает */
+  cachedInsight(eventId: string, personaId: string, signal?: AbortSignal): Promise<Insight | null>;
+  /** новость целиком; null — метода или текста нет */
+  eventDetail(eventId: string, signal?: AbortSignal): Promise<EventDetail | null>;
+  /** поиск событий в формате ленты; null — поиска в API нет, ищем по ленте */
+  search(query: string, personaId: string, signal?: AbortSignal): Promise<Briefing | null>;
+  /** каталог источников; null — каталога в API пока нет */
+  catalog(personaId: string, signal?: AbortSignal): Promise<CatalogSource[] | null>;
+  /** отметить источник подключённым */
+  connectSource(id: string, personaId: string): Promise<void>;
 }
 
 export class ApiError extends Error {
@@ -73,6 +85,7 @@ function normalizeBriefing(personaId: string, raw: unknown): Briefing {
     summary: asArray(body.summary),
     sources: asArray(body.sources),
     items: asArray<FeedItem>(body.items).map((item) => ({ ...item, factors: asArray(item.factors) })),
+    candidates: typeof body.candidates === 'number' ? body.candidates : undefined,
   };
 }
 
@@ -202,6 +215,17 @@ function createHttpApi(baseUrl: string): LiveApi {
 
   const q = encodeURIComponent;
 
+  /** Новые методы API (07_feedback §3) могут быть ещё не выкачены: 404/405 и пустой ответ — это «нет», а не ошибка. */
+  async function missingAsNull<T>(call: Promise<{ status: number; body?: T }>): Promise<T | null> {
+    try {
+      const { body } = await call;
+      return body ?? null;
+    } catch (e) {
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+      throw e;
+    }
+  }
+
   return {
     personas: (signal) => required(`/api/personas`, signal),
     company: (id, signal) => required(`/api/companies/${q(id)}`, signal),
@@ -225,6 +249,22 @@ function createHttpApi(baseUrl: string): LiveApi {
       const { status, body } = await request<Insight | JobStatus>(`/api/analyze?wait=false`, { ...post(req), signal });
       if (status === 204 || !body) return { kind: 'none' };
       return status === 202 ? { kind: 'building', job: body as JobStatus } : { kind: 'ready', insight: body as Insight };
+    },
+    cachedInsight: async (eventId, personaId, signal) => {
+      const { body } = await request<Insight>(`/api/insights/${q(eventId)}?persona=${q(personaId)}&cached=true`, { signal });
+      return body ?? null;
+    },
+    eventDetail: (eventId, signal) => missingAsNull(request<EventDetail>(`/api/events/${q(eventId)}`, { signal })),
+    search: async (query, personaId, signal) => {
+      const body = await missingAsNull(request<unknown>(`/api/search?q=${q(query)}&persona=${q(personaId)}`, { signal }));
+      return body === null ? null : normalizeBriefing(personaId, body);
+    },
+    catalog: async (personaId, signal) => {
+      const body = await missingAsNull(request<unknown>(`/api/sources/catalog?persona=${q(personaId)}`, { signal }));
+      return body === null ? null : asArray<CatalogSource>(Array.isArray(body) ? body : (body as { items?: unknown }).items);
+    },
+    connectSource: async (id, personaId) => {
+      await request<unknown>(`/api/sources/${q(id)}/connect?persona=${q(personaId)}`, post({}));
     },
     insightStatus: (eventId, personaId, signal) =>
       required(`/api/insights/${q(eventId)}/status?persona=${q(personaId)}`, signal),

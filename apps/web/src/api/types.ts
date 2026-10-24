@@ -171,6 +171,49 @@ export interface JobStatus {
   queue_position: number | null;
   error: string | null;
   trace_id: string | null;
+  /** живой ход разбора человеческим языком (07_feedback §3); нет — показываем stages_done */
+  steps?: AgentStep[] | null;
+}
+
+export interface AgentStep {
+  title: string;
+  detail?: string | null;
+  state: 'running' | 'done' | 'error';
+  /** что нашёл на шаге: источники, материал банка, цифры компании */
+  found?: string[] | null;
+}
+
+/** Вывод ленты одной фразой: важно ли, почему (число), что делать. */
+export interface Takeaway {
+  level: 'act' | 'watch' | 'info';
+  text: string;
+}
+
+/** Новость целиком: GET /api/events/{id}. */
+export interface EventDetail {
+  id: string;
+  title: string;
+  text?: string | null;
+  image_url?: string | null;
+  url?: string | null;
+  source?: string | null;
+  published_at?: string | null;
+}
+
+/** Каталог источников: GET /api/sources/catalog. */
+export interface CatalogSource {
+  id: string;
+  name: string;
+  country: 'ru' | 'intl';
+  kind: 'free' | 'paid_api';
+  reliability?: string | number | null;
+  topics?: string[];
+  connected: boolean;
+  how_to_connect?: string[];
+  docs_url?: string | null;
+  icon_url?: string | null;
+  /** пояснение для пользователя, например что подключение — только отметка */
+  note?: string | null;
 }
 
 export type InsightResult =
@@ -312,6 +355,12 @@ export interface Insight {
   exposure?: Exposure | null;
   /** дисклеймер от API; нет — берём свой */
   disclaimer?: string;
+  /** итог «важно ли и что делать» (07_feedback §3) */
+  verdict?: { level: Takeaway['level']; headline: string; why?: string | null; actions?: string[] } | null;
+  /** позиция банка одной фразой «Альфа-Банк ожидает …» */
+  bank_position?: { statement: string } | null;
+  /** цитаты из новости, на которые опирается вывод — подсветка в полном тексте */
+  quotes?: { text: string; source_id: string }[] | null;
   group_impact?: GroupImpact | null;
   bank_vs_market?: BankVsMarket | null;
   estimates?: Estimate[];
@@ -334,6 +383,15 @@ export interface FeedItem {
   /** главный канал и он же человеческим текстом */
   channel: ChannelKind;
   channel_text: string;
+  /** короткая строка «для вас» из данных (≤ 90 знаков); null — короткой нет */
+  short?: string | null;
+  /** разбор текущей версии уже собран — его можно взять с cached=true без сборки */
+  insight_ready?: boolean | null;
+  /** вывод одной фразой с уровнем (07_feedback §3) */
+  takeaway?: Takeaway | null;
+  /** картинка новости (og:image источника) и значок издания */
+  image_url?: string | null;
+  source_icon_url?: string | null;
 }
 
 /** Брифинг (раздел G): сводка и события по убыванию значимости. Плашка на главной — первые 3 отсюда. */
@@ -344,6 +402,8 @@ export interface Briefing {
   /** источники, на которые ссылается сводка */
   sources?: Source[];
   items: FeedItem[];
+  /** сколько материалов рассмотрено */
+  candidates?: number;
 }
 
 export interface Feedback {

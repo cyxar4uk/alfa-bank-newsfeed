@@ -3,7 +3,9 @@ import { Shell, PrototypeNotice } from './components/Shell';
 import { ErrorState, Skeleton } from './components/States';
 import { CardPage } from './pages/CardPage';
 import { AnalyzePage } from './pages/AnalyzePage';
-import { FeedPage } from './pages/FeedPage';
+import { NewsPage } from './pages/NewsPage';
+import { SearchPage } from './pages/SearchPage';
+import { SourcesPage } from './pages/SourcesPage';
 import { ExposureMapPage } from './pages/ExposureMapPage';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
@@ -21,10 +23,12 @@ function AppRoutes() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireUser />}>
         <Route index element={<HomePage />} />
-        <Route path="radar" element={<FeedPage />} />
+        <Route path="radar" element={<NewsPage />} />
         <Route path="radar/map" element={<ExposureMapPage />} />
         <Route path="radar/weekly" element={<Navigate to="/radar" replace />} />
         <Route path="radar/analyze" element={<AnalyzePage />} />
+        <Route path="radar/sources" element={<SourcesPage />} />
+        <Route path="radar/search" element={<SearchPage />} />
         <Route path="radar/trace/:traceId" element={<TracePage />} />
         <Route path="radar/:eventId" element={<CardPage />} />
       </Route>

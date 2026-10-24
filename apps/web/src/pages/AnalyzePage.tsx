@@ -1,10 +1,11 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Insight } from '../api/types';
 import { AnalysisSteps } from '../components/AnalysisSteps';
 import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
+import { BackButton } from '../components/BackButton';
 import { EmptyState, ErrorState } from '../components/States';
 import { roleLabel } from '../state/labels';
 import { eventPath } from '../state/routes';
@@ -58,9 +59,12 @@ export function AnalyzePage() {
 
 function AnalyzeForm() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { persona, company } = useCurrentUser();
-  const [url, setUrl] = useState('');
-  const [text, setText] = useState('');
+  // Из «Источников» приходит вставленная ссылка или текст: ссылку кладём в поле ссылки, остальное — в текст.
+  const [given] = useState(() => ((location.state as { input?: string } | null)?.input ?? '').trim());
+  const [url, setUrl] = useState(() => (/^https?:\/\//i.test(given) ? given : ''));
+  const [text, setText] = useState(() => (/^https?:\/\//i.test(given) ? '' : given));
   const [state, setState] = useState<State>(() => {
     const saved = loadSaved(persona.id);
     return saved ? { status: 'ok', insight: saved } : { status: 'idle' };
@@ -142,6 +146,7 @@ function AnalyzeForm() {
     <div className="page page--narrow">
       <header className="page-head">
         <ServiceTabs />
+        <BackButton />
         <h1 className="page-head__title">Разобрать свою новость</h1>
         <p className="page-head__lead">
           Вставьте ссылку или текст новости — разбор будет для роли «{roleLabel[persona.role].toLowerCase()}» в компании
