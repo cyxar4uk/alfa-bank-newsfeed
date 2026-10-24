@@ -3,11 +3,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
-# Пусто — сборка на тестовых данных. VITE_API_URL=/ — API через nginx этого же образа (см. API_UPSTREAM).
-# VITE_API_LIVE — какие методы уже берутся из API (через запятую или all), остальное — тестовые данные.
+# Данные — только из API. Пусто — API на том же адресе через nginx этого же образа (см. API_UPSTREAM).
 ARG VITE_API_URL=
-ARG VITE_API_LIVE=personas,company,health
-ENV VITE_API_URL=$VITE_API_URL VITE_API_LIVE=$VITE_API_LIVE
+ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
 
 FROM nginx:1.27-alpine

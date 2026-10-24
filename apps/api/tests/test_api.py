@@ -221,6 +221,7 @@ def test_feed(client):
     item = body["items"][0]
     assert item["has_bank_view"] is True
     assert item["relevance"]["breakdown"][0]["code"] == "rate"
+    assert item["short"] is None  # «собственный кредит в банке» — числа нет, экран возьмёт channel_text
     assert client.get("/api/feed", params={"persona": "p-u404-cfo"}).status_code == 404
     assert client.get("/api/feed", params={"persona": "кто-то"}).status_code == 404
     # брифинг — то же, что лента (так его вызывает фронт)
@@ -359,3 +360,21 @@ def test_group_impact_by_event_uses_its_sectors_and_needs_news(client):
     assert body["affected"][0]["direct"] is True  # перевозчик группы — событие в его отрасли
     app.dependency_overrides[optional_news] = lambda: None
     assert client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:t"}).status_code == 503
+
+
+def test_feed_marks_ready_insights(client):
+    class Agent:
+        llm = None  # без моделей дооценки нет
+
+        def ready_events(self, event_ids, persona_id):
+            return {e for e in event_ids if e == "src:news:rate"}
+
+    app.dependency_overrides[news_provider] = FakeNews
+    app.state.agent = Agent()
+    try:
+        items = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"]
+    finally:
+        del app.state.agent
+    assert items[0]["insight_ready"] is True
+    # агента нет — неизвестно
+    assert client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]["insight_ready"] is None

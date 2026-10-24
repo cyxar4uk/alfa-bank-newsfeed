@@ -577,6 +577,16 @@ class FeedItem(BaseModel):
         description="главный путь влияния: сама компания, покупатели, поставщики, группа"
     )
     channel_text: str
+    short: str | None = Field(
+        default=None,
+        description="строка «для вас» до 90 знаков: чем событие задевает компанию, с числом из данных;"
+        " честной короткой нет — null",
+        examples=["Стоимость заёмных денег: собственный кредит в банке, кредиты у 11 компаний группы"],
+    )
+    insight_ready: bool | None = Field(
+        default=None,
+        description="карточка уже собрана — GET /api/insights/{event_id} ответит из кэша; null — агента нет",
+    )
     group_impact: GroupImpact | None = Field(
         default=None,
         description="для собственника и гендиректора: каких компаний группы касается событие;"

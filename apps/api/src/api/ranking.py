@@ -33,6 +33,7 @@ from api.contract import (
     SourceTags,
 )
 from api.okved import SECTOR_BY_CODE, okved_prefix
+from api.short import chain_short, factor_short
 
 ROLES_PATH = Path(__file__).with_name("roles.toml")
 MSK = dt.timezone(dt.timedelta(hours=3))
@@ -205,6 +206,7 @@ class _Term:
     # на чём держится вклад: своя отрасль, покупатели, поставщики, группа — или сам фактор;
     # фактор карты и канал цепочки с одним основанием — одни и те же данные, считаются один раз
     basis: str
+    short: str | None  # строка «для вас», если слагаемое главное
 
 
 def freshness(published_at: dt.datetime | None, now: dt.datetime, scoring: Scoring) -> float:
@@ -388,6 +390,7 @@ def score_event(
                 text,
                 [factor.id, *[e.ref for e in factor.evidence[:2]]],
                 _factor_basis(factor),
+                factor_short(code, factor.label, text),
             )
         )
 
@@ -425,6 +428,7 @@ def score_event(
                     c.text,
                     c.refs,
                     "okved" if c.kind == "direct" else c.kind,
+                    chain_short(c),
                 )
             )
 
@@ -490,6 +494,7 @@ def score_event(
         factors=[FeedFactor(code=c, label=by_code[c].label) for c in codes],
         channel=top.channel,
         channel_text=top.channel_text,
+        short=top.short,
     )
 
 

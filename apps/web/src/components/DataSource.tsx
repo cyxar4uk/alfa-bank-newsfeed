@@ -1,28 +1,9 @@
-import { api, ApiError, dataMode, liveMethods } from '../api/client';
+import { api, ApiError } from '../api/client';
 import { useAsync } from '../state/useAsync';
 
-const METHOD_LABEL: Record<string, string> = {
-  personas: 'пользователи',
-  company: 'профили компаний',
-  briefing: 'брифинг',
-  insight: 'разборы',
-  exposureMap: 'карта',
-  weekly: 'сводка',
-  ask: 'вопросы',
-  trace: 'трассы',
-  analyze: 'своя новость',
-};
-
-/** Откуда данные на экране: честно говорим, что из API, а что тестовое. */
+/** Жив ли API: данные на экранах сервиса — только из него. */
 export function DataSource() {
   const health = useAsync((signal) => api.health(signal), 'health');
-
-  if (dataMode === 'mock') return <p className="data-source">Данные: тестовые, без API</p>;
-
-  const live = liveMethods
-    .map((m) => METHOD_LABEL[m])
-    .filter(Boolean)
-    .join(', ');
   const status =
     health.status === 'loading'
       ? 'проверяем API'
@@ -36,7 +17,7 @@ export function DataSource() {
 
   return (
     <p className="data-source" role="status">
-      {status}. {dataMode === 'live' ? 'Все данные — из API.' : `Из API: ${live}; остальное — тестовые данные.`}
+      {status}
     </p>
   );
 }

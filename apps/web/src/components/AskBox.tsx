@@ -81,7 +81,8 @@ export function AskBox({ insight, personaId, index }: { insight: Insight; person
                   </button>
                 </p>
               )}
-              {e.status === 'ok' && (
+              {e.status === 'ok' && e.answer.refusal && <p className="ask__refusal">{e.answer.refusal}</p>}
+              {e.status === 'ok' && !e.answer.refusal && (
                 <StatementList
                   items={e.answer.answer}
                   index={{
