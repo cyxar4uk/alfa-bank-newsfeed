@@ -7,6 +7,7 @@
 моделей (та же лента — бесплатно), сбой или нехватка бюджета оставляют ленту формальной.
 """
 
+import logging
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -19,6 +20,8 @@ TOP_N = 10
 LLM_WEIGHT = 0.4
 IMPACT_SCORE = {0: 0.0, 1: 0.33, 2: 0.66, 3: 1.0}
 IMPACT_LABEL = {0: "не задевает", 1: "слабо", 2: "заметно", 3: "сильно"}
+
+log = logging.getLogger("api.agent.rerank")
 
 
 class EventImpact(BaseModel):
@@ -78,6 +81,9 @@ def rerank(feed: Feed, llm: LlmClient, exposure: ExposureMap, role_label: str, t
         )
     except (LlmError, BudgetExceeded):
         return feed  # без модели лента остаётся формальной
+    except Exception:  # любой другой сбой оценки не должен ронять ленту
+        log.exception("оценка верха ленты моделью не удалась")
+        return feed
     by_id: dict[str, EventImpact] = {}
     for j in completion.value.items:
         matched = _match(j.event_id, top)
