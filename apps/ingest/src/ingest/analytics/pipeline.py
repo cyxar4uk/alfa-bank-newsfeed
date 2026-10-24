@@ -17,6 +17,7 @@ from PIL import Image
 
 from ingest.analytics.fragments import HEADING_MAX_CHARS, Fragment, PageReport, clean_table, page_fragments
 from ingest.analytics.ocr import OcrBlock, OcrEngine, OcrUnavailable
+from ingest.analytics.ocr_fixes import absent_share, fix_blocks, reference
 from ingest.models import Source, Tags
 from ingest.news.normalize import MSK
 from ingest.tagging.rules import tag
@@ -35,6 +36,11 @@ REPLACE_BELOW = 70.0
 NEW_CONTENT_MAX_COVERED = 0.5
 # испорченный фрагмент Tesseract заменяется, если половина его слов есть во фрагменте Qwen
 REPLACED_MIN_COVERED = 0.5
+# мусор вместо текста (легенда графика, «ммм очучуоуохооо… SOA AN NN»): столько слов фрагмента нет в тексте Qwen той же
+# страницы при уверенности ниже GARBAGE_BELOW — такой фрагмент заменяется Qwen или отбрасывается, а не цитируется
+GARBAGE_ABSENT_SHARE = 0.3
+GARBAGE_BELOW = 80.0
+GARBAGE_MIN_WORDS = 8
 _MONTHS = [
     "января",
     "февраля",
@@ -75,6 +81,7 @@ class MaterialReport:
     missing_pages: list[int] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     page_reports: list[PageReport] = field(default_factory=list)
+    ocr_fixes: int = 0  # слов основного движка исправлено по тексту Qwen3-VL (ocr_fixes.py)
 
 
 @dataclass
@@ -238,8 +245,13 @@ def build_pages(
     pages: list[list[OcrBlock] | None],
     vlm: list[list[OcrBlock] | None],
     engine_name: str = "tesseract",
+    fixes: dict[int, list[str]] | None = None,
 ) -> list[Source]:
-    """Страница целиком — для дословной сверки цитат банка: fragment — основной движок, vlm_text — Qwen3-VL."""
+    """Страница целиком — для дословной сверки цитат банка: fragment — основной движок, vlm_text — Qwen3-VL.
+
+    fixes — исправленные по Qwen слова основного движка по страницам («было → стало»), пишутся в `ocr_fixes`.
+    """
+    fixes = fixes or {}
     out = []
     for page_no, blocks in enumerate(pages, start=1):
         if blocks is None:
@@ -258,6 +270,7 @@ def build_pages(
                 file=material.file,
                 ocr_engine=engine_name,
                 stale=material.stale or None,
+                ocr_fixes=fixes.get(page_no),
             )
         )
     return out
@@ -281,6 +294,12 @@ def merge_page(
     fragments, report = page_fragments(page_no, blocks)
     if not vlm_blocks:
         return [(f, engine_name) for f in fragments], report
+    ref = reference("\n".join(b.text for b in vlm_blocks))
+
+    def garbage(frag: Fragment) -> bool:
+        share, words = absent_share(frag.text, ref)
+        return frag.confidence < GARBAGE_BELOW and words >= GARBAGE_MIN_WORDS and share >= GARBAGE_ABSENT_SHARE
+
     good = [f for f in fragments if f.confidence >= TRUSTED_CONFIDENCE]
     good_stems = set().union(*(stems(f.text) for f in good)) if good else set()
     vlm_fragments, _ = page_fragments(page_no, vlm_blocks, allow_tables=True)
@@ -289,13 +308,16 @@ def merge_page(
     take = {i for i, f in enumerate(vlm_fragments) if _covered(f.text, good_stems) < NEW_CONTENT_MAX_COVERED}
     merged: list[tuple[Fragment, str]] = []
     for frag in fragments:
-        if frag.confidence >= REPLACE_BELOW:
+        is_garbage = garbage(frag)
+        if frag.confidence >= REPLACE_BELOW and not is_garbage:
             merged.append((frag, engine_name))
             continue
         best, i = max(((_covered(frag.text, st), i) for i, st in enumerate(vlm_stems)), default=(0.0, -1))
         if best >= REPLACED_MIN_COVERED:
             take.add(i)
             report.replaced_by_vlm += 1
+        elif is_garbage:
+            report.dropped["мусор распознавания"] = report.dropped.get("мусор распознавания", 0) + 1
         else:
             merged.append((frag, engine_name))
     merged += [(vlm_fragments[i], VLM_ENGINE) for i in sorted(take)]
@@ -359,7 +381,8 @@ def process_folder(
     """engine — основной движок (Tesseract). vlm_engine — распознать и Qwen3-VL; без него Qwen берётся из кэша."""
     catalog = load_catalog()
     result = AnalyticsResult([], [], [])
-    for pdf in sorted(pdf_dir.glob("*.pdf")):
+    # по имени, а не по пути: на Windows пути сравниваются без учёта регистра — порядок материалов разошёлся бы
+    for pdf in sorted(pdf_dir.glob("*.pdf"), key=lambda p: p.name):
         slug = catalog.get(_nfc(pdf.name), {}).get("slug") or slugify(pdf.name)
         run = ocr_pages(pdf, engine, cache_root / engine.name / slug, force)
         vlm_dir = cache_root / VLM_ENGINE / slug
@@ -370,7 +393,18 @@ def process_folder(
             vlm, errors = cached_pages(vlm_dir, VLM_ENGINE, len(run.pages), pdf_digest(pdf)), run.errors
         first = next((p for p in run.pages if p is not None), [])
         material = describe(pdf, catalog, " ".join(b.text for b in first))
-        sources, page_reports = build_material(material, run.pages, vlm, engine.name)
+        # слова основного движка, прочитанные латиницей или с «и» вместо «й», — по тексту Qwen той же страницы;
+        # исправляются блоки, поэтому страница и её фрагменты остаются дословно согласованы
+        pages, page_fixes = [], {}
+        for n, blocks in enumerate(run.pages, start=1):
+            if blocks is None:
+                pages.append(None)
+                continue
+            fixed, found = fix_blocks(blocks, vlm[n - 1] if n <= len(vlm) else None)
+            pages.append(fixed)
+            if found:
+                page_fixes[n] = [f"{was} → {now}" for was, now in found]
+        sources, page_reports = build_material(material, pages, vlm, engine.name)
         confs = [s.ocr_confidence for s in sources if s.ocr_confidence is not None]
         result.reports.append(
             MaterialReport(
@@ -384,10 +418,11 @@ def process_folder(
                 missing_pages=[n for n, p in enumerate(run.pages, start=1) if p is None],
                 errors=errors[:5],
                 page_reports=page_reports,
+                ocr_fixes=sum(len(f) for f in page_fixes.values()),
             )
         )
         result.fragments.extend(sources)
-        result.pages.extend(build_pages(material, run.pages, vlm, engine.name))
+        result.pages.extend(build_pages(material, pages, vlm, engine.name, page_fixes))
     return result
 
 
