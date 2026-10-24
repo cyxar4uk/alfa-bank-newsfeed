@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated
@@ -6,6 +7,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
+from api.agent.routes import router as agent_router
+from api.agent.service import build_service
 from api.config import get_settings
 from api.contract import (
     CompanyProfile,
@@ -28,6 +31,8 @@ from api.search.repo import SearchRepo
 from api.search.routes import router as search_router
 from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
 
+logger = logging.getLogger("api")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -40,6 +45,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     pool = ConnectionPool(settings.database_url, min_size=1, max_size=10, timeout=5, open=True)
     app.state.repo = PgCompanyRepo(pool)
     app.state.search = SearchRepo(pool)
+    # агент ищет новости и аналитику банка через app.state.search
+    try:
+        app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
+    except Exception:
+        # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
+        logger.exception("агент не запустился")
+        app.state.agent = None
     try:
         yield
     finally:
@@ -48,7 +60,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="Новостная аналитика для бизнес-решений",
-    description="API сервиса: профиль компании по данным банка, тестовые пользователи, контракт инсайта.",
+    description=(
+        "API сервиса: профиль компании по данным банка, тестовые пользователи, инсайты агента, трассы и "
+        "отзывы."
+    ),
     version="0.1.0",
     openapi_url="/api/openapi.json",
     docs_url="/api/docs",
@@ -56,6 +71,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 app.include_router(search_router)
+
+
+app.include_router(agent_router)
 
 
 def get_repo(request: Request) -> CompanyRepo:
