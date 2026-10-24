@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { DataSource } from './DataSource';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SERVICE_NAME } from '../state/labels';
 import { Icon, type IconName } from './Icon';
@@ -74,6 +75,7 @@ export function Shell() {
               {SERVICE_NAME}
             </NavLink>
           </nav>
+          <DataSource />
         </aside>
         <div className="main">
           <header className="topbar">

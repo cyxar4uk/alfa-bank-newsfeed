@@ -22,18 +22,31 @@ export interface Statement {
 export interface Feature {
   id: string;
   label: string;
-  value: string | number | boolean | string[];
+  value: string | number | boolean | string[] | null;
+  /** значение для показа человеку, если value — число или код */
+  display?: string | null;
   source: 'dataset' | 'derived';
   derived_from?: string[];
+}
+
+/** Признак, которого нет в данных, — показываем честно. */
+export interface MissingFeature {
+  id: string;
+  label: string;
+  reason?: string;
 }
 
 export interface CompanyProfile {
   id: string;
   display_name: string;
   features: Feature[];
-  group?: { id: string; members: string[] } | null;
-  /** коды полей, которых нет в данных — показываем честно */
-  missing: string[];
+  group?: { id: string; size?: number; members: string[] } | null;
+  /** чего нет в данных: объекты из API или коды полей в тестовых данных */
+  missing: (MissingFeature | string)[];
+  /** что исправлено или отброшено при сборке профиля */
+  data_notes?: string[];
+  /** место по выручке среди компаний того же ОКВЭД в данных банка */
+  industry?: { okved: string; rank: number; total: number } | null;
 }
 
 export type Role = 'owner' | 'ceo' | 'cfo' | 'chief_accountant' | 'treasury' | 'other';
@@ -43,16 +56,28 @@ export interface Persona {
   company_id: string;
   role: Role;
   name: string;
+  role_label?: string;
+  /** короткая обезличенная подпись компании: «Оптовик автозапчастей, Москва» */
+  company_name?: string;
+  sector?: string | null;
+}
+
+export interface Health {
+  status: 'ok' | 'degraded';
+  db: 'ok' | 'unavailable';
+  data?: { file: string; rows_read: number; rows_loaded: number; rows_skipped: number; loaded_at: string }[];
 }
 
 export interface Source {
   id: string;
   kind: 'news' | 'alfa_analytics';
   title: string;
-  publisher: string;
+  publisher?: string | null;
   /** пусто — у материала нет публичной ссылки (например, PDF аналитики из пакета кейса) */
-  url: string;
-  published_at: string;
+  url?: string | null;
+  published_at?: string | null;
+  /** страница материала банка; в тестовых данных она же в id: src:alfa:…#p3 */
+  page?: number | null;
   fragment?: string;
   tags?: {
     topics?: string[];
@@ -66,6 +91,50 @@ export interface Source {
 export interface InsightEvent {
   title: string;
   date: string;
+}
+
+// ─── Трасса агента (критерий 11) ─────────────────────────────────────────────
+
+export interface TraceStep {
+  n: number;
+  kind: 'plan' | 'tool' | 'llm' | 'check' | 'retry';
+  summary?: string | null;
+  tool?: string | null;
+  input?: Record<string, unknown> | null;
+  output_refs?: string[];
+  model?: string | null;
+  purpose?: string | null;
+  tokens_in?: number | null;
+  tokens_out?: number | null;
+  cost_rub?: number | null;
+  verdict?: 'pass' | 'fail' | null;
+}
+
+export interface Trace {
+  id: string;
+  insight_id?: string | null;
+  steps: TraceStep[];
+  /** источники и признаки, на которые ссылаются шаги — предложение фронта */
+  sources?: Source[];
+  features_used?: string[];
+  /** пояснение о происхождении трассы, например «восстановлена по тестовым данным» */
+  note?: string;
+}
+
+// ─── Уточняющий вопрос и своя новость ────────────────────────────────────────
+
+/** Ответ на уточняющий вопрос: утверждения с происхождением и ссылками. Предложение фронта. */
+export interface AskAnswer {
+  question: string;
+  answer: Statement[];
+  sources: Source[];
+}
+
+/** Запрос разбора своей новости: ссылка или текст. */
+export interface AnalyzeRequest {
+  persona_id: string;
+  url?: string;
+  text?: string;
 }
 
 // ─── Факторы и каналы (спецификация, разделы A и B) ──────────────────────────
@@ -189,7 +258,7 @@ export interface Insight {
     checks_passed: string[];
     warnings: string[];
   };
-  trace_id: string;
+  trace_id?: string | null;
   // Предложение фронта по спецификации продукта:
   exposure?: Exposure | null;
   group_impact?: GroupImpact | null;
@@ -253,6 +322,8 @@ export interface ExposureMap {
   factors: SensitivityFactor[];
   /** источники, на которые ссылаются доказательства */
   sources?: Source[];
+  /** чего не хватает для полной карты */
+  warnings?: string[];
   /** положение среди компаний того же ОКВЭД в данных банка */
   position?: { okved: string; rank: number; total: number } | null;
 }

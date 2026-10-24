@@ -1,6 +1,6 @@
 import { useId, useState } from 'react';
 import type { Feature, Origin, Source, Statement } from '../api/types';
-import { confidenceLabel, featureValue, formatDate, originHint, originLabel } from '../state/labels';
+import { confidenceLabel, featureText, formatDate, originHint, originLabel, sourcePage } from '../state/labels';
 import { Icon, type IconName } from './Icon';
 
 export interface RefIndex {
@@ -26,19 +26,15 @@ export function OriginTag({ origin }: { origin: Origin }) {
   );
 }
 
-/** Номер страницы из id вида src:alfa:<материал>#p<стр.> */
-function pageOf(id: string): string | null {
-  const m = /#p(\d+)$/.exec(id);
-  return m ? m[1] : null;
-}
-
 export function SourceView({ source }: { source: Source }) {
-  const page = pageOf(source.id);
+  const page = sourcePage(source);
   return (
     <div className={`ref ref--${source.kind === 'alfa_analytics' ? 'bank' : 'news'}`}>
       <p className="ref__head">
-        <span className="ref__publisher">{source.publisher}</span>
-        <time dateTime={source.published_at}>{formatDate(source.published_at)}</time>
+        <span className="ref__publisher">
+          {source.publisher ?? (source.kind === 'alfa_analytics' ? 'Аналитика Альфа-Банка' : 'Новость')}
+        </span>
+        {source.published_at && <time dateTime={source.published_at}>{formatDate(source.published_at)}</time>}
       </p>
       <p className="ref__title">
         {source.title}
@@ -69,7 +65,7 @@ export function FeatureView({ feature }: { feature: Feature }) {
         <span>{feature.source === 'dataset' ? 'из данных банка' : 'вычислен по данным банка'}</span>
       </p>
       <p className="ref__title">
-        {feature.label}: {featureValue(feature.value)}
+        {feature.label}: {featureText(feature)}
       </p>
     </div>
   );
@@ -149,12 +145,14 @@ export function StatementItem({
           <Icon name="chevronDown" size={14} className={open ? 'flip' : undefined} />
         </button>
       ) : (
-        <p className={`stmt__no-refs ${origin === 'ai' || origin === 'estimate' ? '' : 'stmt__no-refs--warn'}`}>
+        <p className={`stmt__no-refs ${origin === 'fact' || origin === 'bank' ? 'stmt__no-refs--warn' : ''}`}>
           {origin === 'ai'
             ? 'Источника нет — общее рассуждение модели'
             : origin === 'estimate'
               ? 'Допущение сервиса, источника нет'
-              : 'Ссылки на источник нет — утверждение не проверено'}
+              : origin === 'data'
+                ? 'Из данных банка о компании, без ссылки на отдельный признак'
+                : 'Ссылки на источник нет — утверждение не проверено'}
         </p>
       )}
       <div id={panelId} hidden={!open}>

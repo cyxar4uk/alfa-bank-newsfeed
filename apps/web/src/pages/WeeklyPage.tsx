@@ -6,7 +6,7 @@ import { ServiceTabs } from '../components/ServiceTabs';
 import { PROTOTYPE_NOTICE } from '../components/Shell';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { StatementList, type RefIndex } from '../components/Statement';
-import { actionKindLabel, formatDate, roleLabel } from '../state/labels';
+import { actionKindLabel, formatDate, roleLabel, sourcePage } from '../state/labels';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
 
@@ -89,11 +89,14 @@ function Summary({ data, company, persona }: { data: WeeklySummary; company: Com
           </h2>
           <ol className="weekly__sources">
             {data.sources.map((s) => {
-              const page = /#p(\d+)$/.exec(s.id)?.[1];
+              const page = sourcePage(s);
+              const date = formatDate(s.published_at);
               return (
                 <li key={s.id}>
-                  {s.publisher}. {s.title}
-                  {page ? `, стр. ${page}` : ''}, {formatDate(s.published_at)}
+                  {s.publisher ? `${s.publisher}. ` : ''}
+                  {s.title}
+                  {page ? `, стр. ${page}` : ''}
+                  {date ? `, ${date}` : ''}
                   {s.url ? ` — ${s.url}` : ''}
                 </li>
               );
