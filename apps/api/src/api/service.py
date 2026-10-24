@@ -18,13 +18,14 @@ from api.contract import (
 )
 from api.exposure import build_exposure
 from api.group import group_context, group_impact
+from api.images import proxied
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
 from api.ranking import MSK, NewsEvent, default_ranking, rank
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
-from api.takeaway import takeaway
+from api.takeaway import takeaways
 
 # роли, которым в ленте показывается влияние на группу
 GROUP_ROLES = {"owner", "ceo"}
@@ -129,8 +130,6 @@ def persona_feed(
         ranked = {i.event_id for i in items}
         items += [unrelated_item(e) for e in events if e.id not in ranked]
     items = items[:limit]
-    for item in items:
-        item.takeaway = takeaway(item, role)
     # собственнику и гендиректору — блок «Ваша группа»: какие компании группы задевает событие
     if role in GROUP_ROLES and (ctx := group_context(company, group, flows)):
         by_id = {e.id: e for e in events}
@@ -143,6 +142,7 @@ def persona_feed(
                 # показываем участников и при слабой связи
                 impact = group_impact(ctx, [(c, s) for c, s, _ in event.factors], event.sectors, aliases, 0.0)
             item.group_impact = impact if impact.affected_count else None
+    takeaways(items, role, exposure)  # после блока группы: вывод берёт из него число
     return Feed(
         persona_id=persona,
         company_id=company.id,
@@ -165,8 +165,8 @@ def unrelated_item(event: NewsEvent) -> FeedItem:
         source=event.source(),
         channel="direct",
         channel_text=text,
-        image_url=event.image_url,
-        source_icon_url=event.source_icon_url,
+        image_url=proxied(event.image_url),
+        source_icon_url=proxied(event.source_icon_url),
     )
 
 

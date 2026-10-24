@@ -69,6 +69,7 @@ services:
       DATA_DIR: /data
       NEWS_SNAPSHOT: /demo/news_snapshot.jsonl
       LLM_CACHE_DIR: /cache/llm
+      IMG_CACHE_DIR: /cache/img
       LLM_JOURNAL: /cache/llm_calls.jsonl
       LLM_DAILY_BUDGET_RUB: ${LLM_DAILY_BUDGET_RUB:-150}
     volumes:

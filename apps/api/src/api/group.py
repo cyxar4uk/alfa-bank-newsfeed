@@ -88,7 +88,7 @@ def group_context(
     return GroupContext(company=company, members=mapped, flows=aggregate_flows(company, flows))
 
 
-def _companies_genitive(n: int) -> str:
+def companies_genitive(n: int) -> str:
     """«касается 1 компании», «касается 3 компаний»."""
     return f"{n} компании" if n % 10 == 1 and n % 100 != 11 else f"{n} компаний"
 
@@ -178,7 +178,7 @@ def group_impact(
     share = revenue / total_revenue if total_revenue else 0.0
     if affected:
         n = len(affected)
-        text = f"событие касается {_companies_genitive(n)} группы из {ctx.size - 1}"
+        text = f"событие касается {companies_genitive(n)} группы из {ctx.size - 1}"
         if major:
             text += f", из них {len(major)} с выручкой от 1 млрд ₽"
         text += f"; их выручка — {format_rub(revenue)}, {format_share(share)} выручки группы без вас"
