@@ -6,7 +6,15 @@ import re
 
 from factories import make_company
 
-from api.agent.drafts import Draft, DraftAction, DraftStatement, Plan, PlanFactor
+from api.agent.drafts import (
+    Draft,
+    DraftAction,
+    DraftBankPosition,
+    DraftStatement,
+    DraftVerdict,
+    Plan,
+    PlanFactor,
+)
 from api.agent.ports import (
     AnalyticsHit,
     Chain,
@@ -37,7 +45,8 @@ BANK_PAGE = (
     "Мы ожидаем сохранения паузы на заседании 23 октября: С учетом риторики ЦБ РФ мы меняем наш взгляд на\n"
     "динамику ключевой ставки на этот год. Если раньше мы ориентировались на ставку на уровне 13,5% на "
     "конец\n"
-    "2026 г., то теперь мы ожидаем ее сохранения на текущем значении 14,0% до конца года."
+    "2026 г., то теперь мы ожидаем ее сохранения на текущем значении 14,0% до конца года. При этом наш "
+    "прогноз по ставке на конец 2027 г. остается на уровне 12,0%."
 )
 BANK_TABLE = "Ставка, конец года, % | 16,0% | 14,0% | 12,0%"
 
@@ -262,6 +271,18 @@ def good_draft(**overrides) -> Draft:
             DraftAction(text="Какая доля долга — по плавающей ставке?", kind="question"),
             DraftAction(text="Сценарий ликвидности при задержке оплат ресторанов.", kind="scenario"),
         ],
+        verdict=DraftVerdict(
+            level="act",
+            headline="Для вас важно: кредит не подешевеет до конца года",
+            why="Ставка осталась 14% — процентные расходы по вашему кредиту не снизятся.",
+            actions=["Проверьте, какая доля долга — по плавающей ставке"],
+            refs=["feat:CL_PRODUCT_LOA_MARK"],
+        ),
+        bank_position=DraftBankPosition(
+            statement="Альфа-Банк ожидает сохранения ставки 14,0% до конца года.",
+            refs=[FRAGMENT],
+            quote="теперь мы ожидаем ее сохранения на текущем значении 14,0% до конца года",
+        ),
     )
     values.update(overrides)
     return Draft(**values)

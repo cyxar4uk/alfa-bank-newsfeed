@@ -421,6 +421,44 @@ class Action(BaseModel):
     refs: list[str] = Field(default_factory=list)
 
 
+VerdictLevel = Literal["act", "watch", "info"]
+
+
+class Verdict(BaseModel):
+    """Итог для руководителя: важно ли это его компании, почему (с числом из данных) и что делать."""
+
+    level: VerdictLevel = Field(
+        description="act — стоит действовать, watch — следить, info — к сведению: на компанию почти не влияет"
+    )
+    headline: str = Field(min_length=1, description="вывод одной фразой: важно ли это вашей компании")
+    why: str = Field(min_length=1, description="почему — с числом из данных о компании или из источника")
+    actions: list[str] = Field(
+        default_factory=list, description="что делать, 0–3 шага; у info может быть пусто"
+    )
+    refs: list[str] = Field(default_factory=list, description="на чём основан итог: src:… и feat:…")
+
+
+class BankPosition(BaseModel):
+    """Позиция Альфа-Банка одной фразой; нет позиции по теме — так и сказано (`found=false`)."""
+
+    found: bool
+    statement: str = Field(
+        min_length=1, examples=["Альфа-Банк ожидает ключевую ставку 14% к концу 2026 года"]
+    )
+    analyst: str | None = Field(default=None, description="аналитик — если указан в материале")
+    material: str | None = Field(default=None, description="название материала банка")
+    date: dt.date | None = Field(default=None, description="дата материала")
+    source_id: str | None = Field(default=None, description="фрагмент материала (src:alfa:…)")
+    url: str | None = None
+
+
+class Quote(BaseModel):
+    """Дословная цитата из новости, на которую опирается вывод, — для подсветки в полном тексте."""
+
+    text: str = Field(min_length=1)
+    source_id: str = Field(pattern=r"^src:")
+
+
 class Quality(BaseModel):
     checks_passed: list[str] = Field(
         default_factory=list, examples=[["refs", "facts_in_source", "multi_factor"]]
@@ -446,6 +484,11 @@ class Insight(BaseModel):
     quality: Quality = Field(default_factory=Quality)
     trace_id: str | None = None
     disclaimer: str = DISCLAIMER
+    verdict: Verdict | None = Field(default=None, description="итог: важно ли, почему, что делать")
+    bank_position: BankPosition | None = Field(default=None, description="позиция Альфа-Банка одной фразой")
+    quotes: list[Quote] = Field(
+        default_factory=list, description="цитаты из новости, на которых держится вывод"
+    )
 
     @model_validator(mode="after")
     def _check_bank_view(self) -> Self:
@@ -471,6 +514,10 @@ class Insight(BaseModel):
         refs = {r for s in self.statements() for r in s.refs}
         refs |= {r for s in self.statements() if s.bank_conflict for r in s.bank_conflict.refs}
         refs |= set(self.relevance.refs) | {r for a in self.actions for r in a.refs}
+        refs |= set(self.verdict.refs) if self.verdict else set()
+        if self.bank_position and self.bank_position.source_id:
+            refs.add(self.bank_position.source_id)
+        refs |= {q.source_id for q in self.quotes}
 
         def resolved(ref: str) -> bool:
             if ref.startswith("feat:"):

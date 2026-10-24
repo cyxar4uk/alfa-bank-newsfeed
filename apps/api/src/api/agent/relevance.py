@@ -98,7 +98,9 @@ def formula(ctx: AgentContext) -> Relevance:
         if (ch.strength or 0) > best:
             best, refs = ch.strength or 0, ch.refs
     return Relevance(
-        score=round(min(best, 1.0), 2), reason="совпадение факторов события и карты компании", refs=refs
+        score=round(min(best, 1.0), 2),
+        reason="событие касается того, от чего зависит бизнес компании",
+        refs=refs,
     )
 
 

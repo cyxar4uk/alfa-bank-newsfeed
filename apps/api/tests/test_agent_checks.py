@@ -197,7 +197,7 @@ def test_counterparty_outside_chain():
 def test_counterparty_from_chain_is_ok():
     risks = good_draft().risks
     risks[1] = DraftStatement(
-        text="Крупнейший покупатель U_2 из общепита может задержать оплату.",
+        text="Крупнейший покупатель Компания №2 из общепита может задержать оплату.",
         origin="ai",
         refs=["feat:customer_sectors"],
         factor="demand_56",
@@ -231,13 +231,14 @@ def test_bank_position_only_in_bank_block():
 
 
 def test_bank_view_missing_when_analytics_exists():
-    report = run(good_draft(bank_view=[]))
+    assert run(good_draft(bank_view=[])).ok  # позиция одной фразой — тоже позиция банка
+    report = run(good_draft(bank_view=[], bank_position=None))
     assert "bank_quotes" in checks_failed(report)
     assert not report.hard_at()
 
 
 def test_no_bank_view_without_analytics_is_fine():
-    report = run(good_draft(bank_view=[]), analytics=[])
+    report = run(good_draft(bank_view=[], bank_position=None), analytics=[])
     assert report.ok, report.summary()
 
 
