@@ -151,14 +151,30 @@ class SearchLibrary:
         item = self.search.find_news(event_id)
         return _event_from_news(item, self._bodies.get(event_id)) if item else None
 
+    def _with_factors(self, call, factors):
+        """Факторы карты компании не все есть в словаре разметки (demand_56…) — тогда ищем без них."""
+        if factors:
+            try:
+                return call(factors)
+            except ValueError:  # api.search.repo.UnknownFilter
+                pass
+        return call(None)
+
     def search_news(self, query, *, factors=None, before=None, limit=5):
-        items = self.search.search_news(query, factors=factors or None, limit=limit, until=before)
+        items = self._with_factors(
+            lambda f: self.search.search_news(query, factors=f, limit=limit, until=before), factors
+        )
         return [_event_from_news(i) for i in items]
 
     def search_alfa_analytics(self, query, *, factors=None, limit=5, material=None):
         out = []
-        for f in self.search.search_alfa_analytics(query, material, limit=limit, factors=factors or None):
+        found = self._with_factors(
+            lambda f: self.search.search_alfa_analytics(query, material, limit=limit, factors=f), factors
+        )
+        for f in found:
             source = Source.model_validate(f.model_dump(include=set(Source.model_fields)))
+            # в выдаче fragment — окно до 600 знаков; модели нужен фрагмент целиком
+            source.fragment = getattr(f, "text", None) or source.fragment
             published = f.published_at
             out.append(
                 AnalyticsHit(

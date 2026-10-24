@@ -50,7 +50,8 @@ def setup():
 
 
 def get_insight(client, event_id=NEWS_ID, persona=PERSONA.id, **params):
-    return client.get(f"/api/insights/{event_id}", params={"persona": persona, **params})
+    # синхронный режим: карточка в том же ответе; фоновая сборка со статусом — test_agent_jobs.py
+    return client.get(f"/api/insights/{event_id}", params={"persona": persona, "wait": "true", **params})
 
 
 def test_insight_is_built_lazily_and_cached(setup):
@@ -109,15 +110,22 @@ def test_analyze_own_news(setup):
     text = (
         "Совет директоров Банка России сохранил ключевую ставку на уровне 14% годовых. Снижение не обсуждали."
     )
-    response = client.post("/api/analyze", json={"persona_id": PERSONA.id, "text": text})
+    response = client.post(
+        "/api/analyze", params={"wait": "true"}, json={"persona_id": PERSONA.id, "text": text}
+    )
     assert response.status_code == 200, response.text
     assert response.json()["sources"][0]["id"] == "src:news:user-1"
 
 
 def test_analyze_errors(setup):
     client, _, transport = setup()
-    assert client.post("/api/analyze", json={"persona_id": PERSONA.id}).status_code == 422
-    short = client.post("/api/analyze", json={"persona_id": PERSONA.id, "text": "ставка"})
+    assert (
+        client.post("/api/analyze", params={"wait": "true"}, json={"persona_id": PERSONA.id}).status_code
+        == 422
+    )
+    short = client.post(
+        "/api/analyze", params={"wait": "true"}, json={"persona_id": PERSONA.id, "text": "ставка"}
+    )
     assert short.status_code == 422 and "короткий" in short.json()["detail"]
     assert transport.bodies == []
 

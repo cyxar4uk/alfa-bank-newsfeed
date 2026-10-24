@@ -12,6 +12,7 @@ from psycopg.types.json import Jsonb
 from psycopg_pool import ConnectionPool
 from pydantic import BaseModel, Field
 
+from api.agent.jobs import JobStatus
 from api.contract import Insight, Trace
 
 SCHEMA = """
@@ -43,6 +44,13 @@ CREATE TABLE IF NOT EXISTS agent_feedback (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS agent_feedback_insight_idx ON agent_feedback (insight_id);
+
+CREATE TABLE IF NOT EXISTS agent_jobs (
+    insight_id  text PRIMARY KEY,
+    status      text NOT NULL,
+    job         jsonb NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
 """
 
 FeedbackReason = str
@@ -77,6 +85,7 @@ class StoredInsight(BaseModel):
     insight: Insight
     context: dict
     cost_rub: float = 0.0
+    version: str = Field(default="", description="версия логики агента, с которой собрана карточка")
 
 
 class AgentStore(Protocol):
@@ -91,6 +100,12 @@ class AgentStore(Protocol):
     def add_feedback(self, feedback: FeedbackIn) -> FeedbackOut: ...
 
     def feedback_stats(self, insight_id: str | None = None) -> FeedbackStats: ...
+
+    def save_job(self, job: JobStatus) -> None: ...
+
+    def get_job(self, insight_id: str) -> JobStatus | None: ...
+
+    def fail_unfinished(self, error: str) -> int: ...
 
 
 def _stats(rows: list[tuple[bool, str | None]]) -> FeedbackStats:
@@ -126,7 +141,11 @@ class PgAgentStore:
             ).fetchone()
         if row is None:
             return None
-        return StoredInsight(insight=row["insight"], context=row["context"], cost_rub=row["cost_rub"])
+        context = dict(row["context"])
+        version = context.pop("_version", "")
+        return StoredInsight(
+            insight=row["insight"], context=context, cost_rub=row["cost_rub"], version=version
+        )
 
     def save_insight(self, event_id: str, persona_id: str, stored: StoredInsight) -> None:
         with self.pool.connection() as conn:
@@ -142,7 +161,7 @@ class PgAgentStore:
                     event_id,
                     persona_id,
                     Jsonb(stored.insight.model_dump(mode="json")),
-                    Jsonb(stored.context),
+                    Jsonb({**stored.context, "_version": stored.version}),
                     stored.cost_rub,
                 ),
             )
@@ -191,6 +210,36 @@ class PgAgentStore:
             rows = conn.execute(query, params).fetchall()
         return _stats([(r[0], r[1]) for r in rows])
 
+    def save_job(self, job: JobStatus) -> None:
+        with self.pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO agent_jobs (insight_id, status, job) VALUES (%s, %s, %s)
+                ON CONFLICT (insight_id) DO UPDATE SET status = EXCLUDED.status, job = EXCLUDED.job,
+                    updated_at = now()
+                """,
+                (job.insight_id, job.status, Jsonb(job.model_dump(mode="json"))),
+            )
+
+    def get_job(self, insight_id: str) -> JobStatus | None:
+        with self.pool.connection() as conn:
+            row = conn.execute("SELECT job FROM agent_jobs WHERE insight_id = %s", (insight_id,)).fetchone()
+        return JobStatus.model_validate(row[0]) if row else None
+
+    def fail_unfinished(self, error: str) -> int:
+        with self.pool.connection() as conn:
+            rows = conn.execute(
+                """
+                UPDATE agent_jobs
+                SET status = 'failed', updated_at = now(),
+                    job = job || jsonb_build_object('status', 'failed', 'stage', '', 'error', %s::text)
+                WHERE status IN ('queued', 'running')
+                RETURNING insight_id
+                """,
+                (error,),
+            ).fetchall()
+        return len(rows)
+
 
 class MemoryAgentStore:
     """То же в памяти — для тестов и запуска без БД."""
@@ -199,6 +248,7 @@ class MemoryAgentStore:
         self.insights: dict[str, StoredInsight] = {}
         self.traces: dict[str, Trace] = {}
         self.feedback: list[FeedbackIn] = []
+        self.jobs: dict[str, JobStatus] = {}
 
     def get_insight(self, insight_id):
         return self.insights.get(insight_id)
@@ -219,3 +269,18 @@ class MemoryAgentStore:
     def feedback_stats(self, insight_id=None):
         rows = [(f.useful, f.reason) for f in self.feedback if insight_id in (None, f.insight_id)]
         return _stats(rows)
+
+    def save_job(self, job):
+        self.jobs[job.insight_id] = job.model_copy(deep=True)
+
+    def get_job(self, insight_id):
+        job = self.jobs.get(insight_id)
+        return job.model_copy(deep=True) if job else None
+
+    def fail_unfinished(self, error):
+        n = 0
+        for job in self.jobs.values():
+            if job.status in ("queued", "running"):
+                job.status, job.stage, job.error = "failed", "", error
+                n += 1
+        return n

@@ -1,6 +1,7 @@
 """Трасса агента: каждый шаг — план, инструмент, вызов модели, проверка, доработка (критерий 11)."""
 
 import uuid
+from collections.abc import Callable
 
 from api.contract import Trace, TraceStep
 from api.llm import CallRecord
@@ -13,13 +14,35 @@ STEP_LABELS = {
 }
 
 
+# этапы сборки карточки, которые видит пользователь, пока ждёт (инструмент → подпись)
+TOOL_STAGES = {
+    "get_profile": "Смотрю данные банка о компании",
+    "get_exposure_map": "Смотрю карту чувствительности компании",
+    "get_counterparty_chain": "Строю цепочку через контрагентов",
+    "get_group_impact": "Смотрю компании группы",
+    "search_alfa_analytics": "Ищу аналитику Альфа-Банка",
+    "search_news": "Ищу связанные новости",
+    "alfa_page_text": "Сверяю страницы аналитики банка",
+    "estimate_rate_impact": "Считаю влияние в рублях",
+    "get_products_for_risk": "Подбираю продукт банка",
+}
+
+
 def new_trace_id() -> str:
     return f"tr:{uuid.uuid4().hex[:16]}"
 
 
 class TraceRecorder:
-    def __init__(self, trace_id: str | None = None) -> None:
+    def __init__(self, trace_id: str | None = None, on_stage: Callable[[str], None] | None = None) -> None:
         self.trace = Trace(id=trace_id or new_trace_id())
+        self.on_stage = on_stage
+        self._stage = ""
+
+    def stage(self, text: str) -> None:
+        """Сообщить, что начался этап сборки (для статуса, который видит пользователь); повтор не шлём."""
+        if self.on_stage is not None and text != self._stage:
+            self._stage = text
+            self.on_stage(text)
 
     @property
     def id(self) -> str:

@@ -12,12 +12,19 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 
-Origin = Literal["fact", "bank", "ai", "data", "estimate", "offer"]
+Origin = Literal["fact", "bank", "ai", "hypothesis", "data", "estimate", "offer"]
 # происхождение, которое обязано ссылаться на источник или признак
 SOURCED_ORIGINS = ("fact", "bank", "data")
 Confidence = Literal["high", "medium", "low"]
 Role = Literal["owner", "ceo", "cfo", "chief_accountant", "treasury", "other"]
 BankProduct = Literal["rko", "guarantee", "credit", "leasing", "deposit", "salary_project", "factoring", "fx"]
+
+# обязателен по ответам организаторов (Q49): в каждом инсайте и ответе на вопрос
+# тот же текст, что в интерфейсе (apps/web/src/components/Disclaimer.tsx)
+DISCLAIMER = (
+    "Материалы носят информационный характер и не являются инвестиционной рекомендацией. Решения принимайте"
+    " с учётом собственного анализа."
+)
 
 ROLE_LABELS: dict[str, str] = {
     "owner": "Собственник",
@@ -32,14 +39,29 @@ ROLE_LABELS: dict[str, str] = {
 # --- Утверждение ----------------------------------------------------------------------------------
 
 
+class BankConflict(BaseModel):
+    """Вывод модели расходится с позицией Альфа-Банка: в чём именно и с каким материалом банка."""
+
+    text: str = Field(min_length=1)
+    refs: list[str] = Field(description="фрагменты аналитики банка (src:alfa:…)")
+
+
+class HypothesisCheck(BaseModel):
+    """Что подтвердит и что опровергнет гипотезу."""
+
+    confirm: str | None = None
+    refute: str | None = None
+
+
 class Statement(BaseModel):
     """Единица любого вывода в инсайте: текст, происхождение и источники."""
 
     text: str = Field(min_length=1)
     origin: Origin = Field(
         description=(
-            "fact — факт из новости, bank — позиция Альфа-Банка, ai — вывод модели, data — из данных банка"
-            " о компании, estimate — расчёт по формуле, offer — предложение продукта банка"
+            "fact — факт из новости, bank — позиция Альфа-Банка, ai — вывод модели, hypothesis — гипотеза"
+            " модели (не подтверждена данными), data — из данных банка о компании, estimate — расчёт по"
+            " формуле, offer — предложение продукта банка"
         )
     )
     refs: list[str] = Field(
@@ -48,6 +70,10 @@ class Statement(BaseModel):
     confidence: Confidence = Field(
         default="high", description="уверенность вывода модели; у fact, bank и data — high"
     )
+    bank_conflict: BankConflict | None = Field(
+        default=None, description="только у ai и hypothesis: вывод расходится с позицией банка"
+    )
+    check: HypothesisCheck | None = Field(default=None, description="только у hypothesis")
 
     @model_validator(mode="after")
     def _check_origin(self) -> Self:
@@ -55,6 +81,10 @@ class Statement(BaseModel):
             if not self.refs:
                 raise ValueError(f"утверждение с origin={self.origin} должно ссылаться на источник (refs)")
             self.confidence = "high"
+        if self.origin not in ("ai", "hypothesis"):
+            self.bank_conflict = None
+        if self.origin != "hypothesis":
+            self.check = None
         return self
 
 
@@ -415,6 +445,7 @@ class Insight(BaseModel):
     features_used: list[str] = Field(default_factory=list)
     quality: Quality = Field(default_factory=Quality)
     trace_id: str | None = None
+    disclaimer: str = DISCLAIMER
 
     @model_validator(mode="after")
     def _check_bank_view(self) -> Self:
@@ -438,6 +469,7 @@ class Insight(BaseModel):
         source_ids = {s.id for s in self.sources}
         features = set(self.features_used)
         refs = {r for s in self.statements() for r in s.refs}
+        refs |= {r for s in self.statements() if s.bank_conflict for r in s.bank_conflict.refs}
         refs |= set(self.relevance.refs) | {r for a in self.actions for r in a.refs}
 
         def resolved(ref: str) -> bool:
