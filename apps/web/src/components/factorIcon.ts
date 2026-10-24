@@ -15,7 +15,7 @@ export function factorIcon(code: string): IconName {
   if (code === 'commodity_gold') return 'gold';
   if (code === 'supply_52') return 'logistics';
   if (code.startsWith('commodity_')) return 'oil';
-  if (code.startsWith('demand_')) return 'buyers';
-  if (code.startsWith('supply_')) return 'suppliers';
+  if (code.startsWith('demand')) return 'buyers';
+  if (code.startsWith('supply')) return 'suppliers';
   return 'radar';
 }

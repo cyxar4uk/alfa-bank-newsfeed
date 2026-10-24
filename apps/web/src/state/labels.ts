@@ -1,4 +1,4 @@
-import type { Action, ChannelKind, Confidence, Feature, Origin, Role } from '../api/types';
+import type { Action, ChannelKind, Confidence, Feature, Origin, Role, Strength } from '../api/types';
 
 /** Рабочее название сервиса — меняется здесь. */
 export const SERVICE_NAME = 'Радар связей';
@@ -38,6 +38,14 @@ export const channelLabel: Record<ChannelKind, string> = {
   buyers: 'Через покупателей',
   suppliers: 'Через поставщиков',
   group: 'Через группу',
+};
+
+export const strengthLabel: Record<Strength, string> = {
+  high: 'высокая',
+  medium: 'средняя',
+  low: 'низкая',
+  none: 'нет',
+  no_data: 'нет данных',
 };
 
 export const confidenceLabel: Record<Confidence, string> = {

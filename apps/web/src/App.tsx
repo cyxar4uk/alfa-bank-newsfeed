@@ -3,8 +3,10 @@ import { Shell, PrototypeNotice } from './components/Shell';
 import { ErrorState, Skeleton } from './components/States';
 import { EventPage } from './pages/EventPage';
 import { BriefingPage } from './pages/BriefingPage';
+import { ExposureMapPage } from './pages/ExposureMapPage';
 import { HomePage } from './pages/HomePage';
 import { LoginPage } from './pages/LoginPage';
+import { WeeklyPage } from './pages/WeeklyPage';
 import { SessionProvider, useDirectory, useSession } from './state/session';
 
 function RequireUser() {
@@ -19,6 +21,8 @@ function AppRoutes() {
       <Route element={<RequireUser />}>
         <Route index element={<HomePage />} />
         <Route path="radar" element={<BriefingPage />} />
+        <Route path="radar/map" element={<ExposureMapPage />} />
+        <Route path="radar/weekly" element={<WeeklyPage />} />
         <Route path="radar/:eventId" element={<EventPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

@@ -101,16 +101,26 @@ function refsCount(n: number) {
   return `${n} источников`;
 }
 
+/** В печати раскрыть источник нельзя — показываем номера из списка источников. */
+function Footnote({ refs, footnotes }: { refs: string[]; footnotes: Record<string, number> }) {
+  const numbers = [...new Set(refs.map((r) => footnotes[r]).filter((n): n is number => n !== undefined))].sort((a, b) => a - b);
+  if (numbers.length === 0) return null;
+  return <sup className="stmt__footnote print-only"> [{numbers.join(', ')}]</sup>;
+}
+
 /** Утверждение с меткой происхождения и раскрываемыми источниками. */
 export function StatementItem({
   statement,
   index,
   caption,
+  footnotes,
 }: {
   statement: Statement;
   index: RefIndex;
   /** подпись роли утверждения в блоке, например «Рынок» */
   caption?: string;
+  /** номера источников для печатной версии: id источника → номер в списке */
+  footnotes?: Record<string, number>;
 }) {
   const [open, setOpen] = useState(false);
   const panelId = useId();
@@ -123,7 +133,10 @@ export function StatementItem({
         <OriginTag origin={origin} />
         {origin === 'ai' && confidence && <span className="stmt__confidence">{confidenceLabel[confidence]}</span>}
       </div>
-      <p className="stmt__text">{statement.text}</p>
+      <p className="stmt__text">
+        {statement.text}
+        {footnotes && <Footnote refs={refs} footnotes={footnotes} />}
+      </p>
       {refs.length > 0 ? (
         <button
           type="button"
@@ -144,20 +157,26 @@ export function StatementItem({
               : 'Ссылки на источник нет — утверждение не проверено'}
         </p>
       )}
-      {open && (
-        <div id={panelId}>
-          <RefList refs={refs} index={index} />
-        </div>
-      )}
+      <div id={panelId} hidden={!open}>
+        {open && <RefList refs={refs} index={index} />}
+      </div>
     </li>
   );
 }
 
-export function StatementList({ items, index }: { items: Statement[]; index: RefIndex }) {
+export function StatementList({
+  items,
+  index,
+  footnotes,
+}: {
+  items: Statement[];
+  index: RefIndex;
+  footnotes?: Record<string, number>;
+}) {
   return (
     <ul className="stmt-list">
       {items.map((s, i) => (
-        <StatementItem key={`${i}-${s.text}`} statement={s} index={index} />
+        <StatementItem key={`${i}-${s.text}`} statement={s} index={index} footnotes={footnotes} />
       ))}
     </ul>
   );

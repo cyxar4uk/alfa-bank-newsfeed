@@ -117,6 +117,11 @@ svg {
   flex: none;
 }
 
+/* атрибут hidden сильнее display у компонентов */
+[hidden] {
+  display: none !important;
+}
+
 :focus-visible {
   outline: 2px solid var(--focus-color);
   outline-offset: 2px;
@@ -2186,6 +2191,366 @@ a.plate__row:hover {
 .analysis__step.is-active .analysis__mark {
   background: var(--graphite);
   color: #fff;
+}
+
+/* ─── Разделы сервиса ─────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs__item {
+  padding: 8px 0;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-2);
+  font-size: 16px;
+  line-height: 24px;
+  text-decoration: none;
+}
+
+.tabs__item:hover {
+  color: var(--ink);
+}
+
+.tabs__item.active {
+  border-bottom-color: var(--red);
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.page-head__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* ─── Карта чувствительности ──────────────────────────────────────────────── */
+
+.map-position {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.map-list {
+  display: grid;
+}
+
+.map-row {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.map-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.map-row:last-child {
+  padding-bottom: 0;
+}
+
+.map-row__main {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.map-row__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.map-row__title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.map-row__channel {
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.map-row__coverage {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.map-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+}
+
+.map-row__evidence {
+  margin-top: 6px;
+}
+
+.strength {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.strength__bar {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.strength__bar i {
+  width: 24px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.strength__bar i.is-on {
+  background: var(--graphite);
+}
+
+/* «нет данных» — штриховка, а не пустая шкала: это не ноль */
+.strength--no_data .strength__bar i {
+  background: repeating-linear-gradient(135deg, var(--line-strong) 0 2px, transparent 2px 5px);
+}
+
+.strength__label {
+  min-width: 72px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+/* ─── Цепочка: кликабельный узел контрагентов ─────────────────────────────── */
+
+.chain__node--button {
+  padding: 0;
+}
+
+.chain__node--button button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-control);
+  background: none;
+  color: var(--link);
+  font-size: 13px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+/* ─── Сводка недели ───────────────────────────────────────────────────────── */
+
+.weekly {
+  display: grid;
+  gap: 16px;
+}
+
+.weekly__head {
+  display: grid;
+  gap: 4px;
+}
+
+.weekly__for {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.weekly__period {
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.weekly__part {
+  padding: 24px;
+  border-radius: var(--r-card);
+  background: var(--surface);
+}
+
+.weekly__section + .weekly__section .sub-title {
+  margin-top: 20px;
+}
+
+.weekly__section .sub-title {
+  margin-top: 0;
+}
+
+.weekly__sources {
+  overflow-wrap: anywhere;
+  display: grid;
+  gap: 4px;
+  padding-left: 20px;
+  list-style: decimal;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.weekly__footer {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.print-only {
+  display: none;
+}
+
+.stmt__footnote {
+  color: var(--ink-2);
+  font-size: 0.75em;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  :root,
+  body {
+    background: var(--surface);
+  }
+
+  /* подпись о прототипе печатается в подвале сводки — сверху не дублируем */
+  .sidebar,
+  .topbar,
+  .no-print,
+  .stmt__toggle,
+  .prototype-notice {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block;
+  }
+
+  .stmt__footnote.print-only {
+    display: inline;
+  }
+
+  .layout {
+    display: block;
+    min-height: 0;
+  }
+
+  .content {
+    padding: 0;
+  }
+
+  .page {
+    max-width: none;
+  }
+
+  .weekly__print-title {
+    font-size: 24px;
+    line-height: 28px;
+  }
+
+  .weekly__part {
+    padding: 0;
+    border-radius: 0;
+  }
+
+  .weekly__part.block--bank {
+    padding-left: 12px;
+  }
+
+  .stmt {
+    padding: 6px 10px;
+    break-inside: avoid;
+  }
+
+  .stmt__text {
+    max-width: none;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .card__title {
+    margin-bottom: 8px;
+    font-size: 16px;
+    line-height: 20px;
+    break-after: avoid;
+  }
+
+  .sub-title {
+    margin: 10px 0 6px;
+    font-size: 14px;
+    line-height: 18px;
+    break-after: avoid;
+  }
+
+  .stmt-list {
+    gap: 6px;
+  }
+
+  .action {
+    padding: 6px 0;
+    font-size: 12px;
+    line-height: 16px;
+  }
+
+  .prototype-notice {
+    background: none;
+    color: var(--ink-2);
+  }
+
+  .weekly {
+    gap: 10px;
+  }
+
+  /* метка происхождения — в строку с текстом, чтобы сводка уложилась в 1–2 страницы */
+  .weekly .stmt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    padding: 4px 8px;
+  }
+
+  .weekly .stmt__meta {
+    margin-bottom: 0;
+  }
+
+  .weekly .origin-tag {
+    padding: 0 4px;
+    font-size: 10px;
+  }
+
+  .weekly .stmt__confidence {
+    font-size: 10px;
+  }
+
+  .weekly .stmt__text {
+    flex: 1 1 60%;
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  .weekly__sources {
+    font-size: 9px;
+    line-height: 12px;
+  }
 }
 
 /* ─── Узкий экран ─────────────────────────────────────────────────────────── */

@@ -1,10 +1,10 @@
 // Имитация API на тестовых данных. Задержки — чтобы были видны состояния загрузки.
 // Параметр адреса включает состояние для проверки: ?mock=empty — пустой брифинг, ?mock=error — ошибка везде,
-// ?mock=error-briefing или ?mock=error-insight — ошибка только брифинга или разбора. Режим запоминается до
+// ?mock=error-briefing, error-insight, error-map, error-weekly — ошибка только одного экрана. Режим запоминается до
 // закрытия вкладки, чтобы переживать переходы; ?mock=off его сбрасывает.
 import type { Api } from '../api/client';
-import type { Briefing, FeedItem, Insight, Statement } from '../api/types';
-import { companies, details, events, feeds, personas, RANK_SCORES, sources, summaries } from './data';
+import type { Action, Briefing, FactorRef, FeedItem, Insight, Statement, WeeklySummary } from '../api/types';
+import { companies, details, events, exposureMaps, feeds, personas, RANK_SCORES, sources, summaries } from './data';
 
 const MODE_KEY = 'pulse.mock';
 
@@ -71,6 +71,45 @@ function feedItems(personaId: string): FeedItem[] {
       channel_text: entry.channel_text,
     };
   });
+}
+
+function sourcesOf(refs: Set<string>) {
+  return [...refs].filter((r) => r.startsWith('src:')).map((r) => sources[r]);
+}
+
+/** Сводка недели из брифинга: события по факторам, позиция банка и шаги из разборов. */
+function buildWeekly(personaId: string): WeeklySummary {
+  const items = feedItems(personaId);
+  const sections = new Map<string, { factor: FactorRef; statements: Statement[] }>();
+  const bankView: Statement[] = [];
+  const actions: Action[] = [];
+  for (const item of items) {
+    const event = events.find((e) => e.id === item.event_id);
+    if (!event) continue;
+    const factor = item.factors[0] ?? { code: 'other', label: 'Другое' };
+    const section = sections.get(factor.code) ?? { factor, statements: [] };
+    const detail = details[`${event.id}|${personaId}`];
+    const why = detail?.why.filter((w) => w.origin === 'ai').at(-1) ?? {
+      text: item.relevance.reason,
+      origin: 'ai',
+      refs: item.relevance.refs,
+      confidence: 'medium',
+    };
+    section.statements.push(...event.what.slice(0, 1), why);
+    sections.set(factor.code, section);
+    for (const b of event.bank.slice(0, 1)) if (!bankView.some((x) => x.text === b.text)) bankView.push(b);
+    for (const a of detail?.actions ?? []) if (a.kind !== 'product' && !actions.some((x) => x.text === a.text)) actions.push(a);
+  }
+  const all = [...[...sections.values()].flatMap((x) => x.statements), ...bankView];
+  const dates = items.map((i) => i.event.date).sort();
+  return {
+    persona_id: personaId,
+    period: { from: dates[0] ?? '', to: dates[dates.length - 1] ?? '' },
+    sections: [...sections.values()],
+    bank_view: bankView,
+    actions,
+    sources: sourcesOf(collectRefs(all, actions.flatMap((a) => a.refs))),
+  };
 }
 
 function collectRefs(statements: Statement[], extra: string[]): Set<string> {
@@ -172,6 +211,32 @@ export const mockApi: Api = {
         };
       },
       'insight',
+      signal,
+    ),
+
+  exposureMap: (companyId, signal) =>
+    respond(
+      600,
+      () => {
+        const map = exposureMaps[companyId];
+        if (!map) throw new Error(`Нет карты для компании ${companyId}`);
+        if (mode === 'empty') return { ...map, factors: [] };
+        const refs = collectRefs(map.factors.flatMap((f) => f.evidence), []);
+        return { ...map, sources: sourcesOf(refs) };
+      },
+      'map',
+      signal,
+    ),
+
+  weekly: (personaId, signal) =>
+    respond(
+      700,
+      () => {
+        findPersona(personaId);
+        if (mode === 'empty') return { persona_id: personaId, period: { from: '', to: '' }, sections: [], bank_view: [], actions: [] };
+        return buildWeekly(personaId);
+      },
+      'weekly',
       signal,
     ),
 

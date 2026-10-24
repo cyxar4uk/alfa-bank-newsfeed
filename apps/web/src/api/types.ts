@@ -251,6 +251,8 @@ export interface SensitivityFactor {
 export interface ExposureMap {
   company_id: string;
   factors: SensitivityFactor[];
+  /** источники, на которые ссылаются доказательства */
+  sources?: Source[];
   /** положение среди компаний того же ОКВЭД в данных банка */
   position?: { okved: string; rank: number; total: number } | null;
 }
@@ -259,6 +261,8 @@ export interface ExposureMap {
 export interface WeeklySummary {
   persona_id: string;
   period: { from: string; to: string };
+  /** источники, на которые ссылаются утверждения */
+  sources?: Source[];
   sections: { factor: FactorRef; statements: Statement[] }[];
   bank_view: Statement[];
   actions: Action[];
