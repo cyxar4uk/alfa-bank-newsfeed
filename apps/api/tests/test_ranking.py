@@ -212,6 +212,15 @@ def test_repeat_label_plural():
     assert [_times(n) for n in (1, 2, 5, 12, 22)] == ["1 раз", "2 раза", "5 раз", "12 раз", "22 раза"]
 
 
+def test_source_quality_by_reliability_tier():
+    config = default_ranking()
+    assert config.quality("Интерфакс", "other") == 1.0  # явный издатель важнее уровня
+    assert config.quality("ФНС России", "official") == config.source_tiers["official"]
+    assert config.quality("Известия", "other") == config.source_tiers["other"] < config.quality("Блог", None)
+    item = feed([news("fns", factors=[("rate", 1.0)], publisher="ФНС России")], "cfo")[0]
+    assert item.relevance.source_quality == 0.9  # уровня нет — default
+
+
 def test_foreign_countries_by_title():
     def foreign(title):
         return foreign_countries(news("x", title=title))

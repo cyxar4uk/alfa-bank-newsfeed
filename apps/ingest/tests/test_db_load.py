@@ -288,6 +288,20 @@ def test_serve_retries_initial_load(conn, tmp_path, monkeypatch, capsys):
     assert "БД ещё не поднялась" in capsys.readouterr().out
 
 
+def test_reliability_is_stored(conn):
+    item = news("r", "Правительство утвердило план по снижению ключевой ставки").model_copy(
+        update={"reliability": "official"}
+    )
+    load_news(conn, [item])
+    assert conn.execute("SELECT reliability FROM news WHERE id = 'src:news:r'").fetchone()[0] == "official"
+    # переразметка сохраняет надёжность: следующая загрузка из ленты — без изменений
+    from ingest.db.load import retag_news
+
+    conn.execute("DELETE FROM search_loads WHERE name = 'tagging'")
+    retag_news(conn)
+    assert load_news(conn, [item]).unchanged == 1
+
+
 def test_changed_dictionaries_retag_stored_news(conn):
     from ingest.db.load import retag_news
 
@@ -309,3 +323,13 @@ def test_changed_dictionaries_retag_stored_news(conn):
     assert retag_news(conn) == 0  # словари не менялись — второй проход ничего не делает
     # следующая загрузка той же новости из ленты — без изменений: отпечаток после переразметки тот же
     assert load_news(conn, [old]).unchanged == 1
+
+
+def test_reliability_backfilled_by_publisher(conn):
+    from ingest.db.load import backfill_reliability
+
+    load_news(conn, [news("old", "Банк России сохранил ключевую ставку 14%", publisher="Банк России")])
+    assert conn.execute("SELECT reliability FROM news").fetchone()[0] is None
+    assert backfill_reliability(conn) == 1
+    assert conn.execute("SELECT reliability FROM news").fetchone()[0] == "official"
+    assert backfill_reliability(conn) == 0

@@ -240,3 +240,19 @@ def test_openapi_has_agent_endpoints(setup):
 
 def test_events_fixture_is_consistent():
     assert make_event().id == NEWS_ID
+
+
+def test_cached_only_never_builds(setup):
+    client, service, transport = setup(reply(GOOD_PLAN), reply(good_draft()))
+    # не собрана — 204 с пометкой, модели не вызывались
+    empty = get_insight(client, cached="true")
+    assert empty.status_code == 204 and empty.headers["X-Insight"] == "not-built"
+    assert transport.bodies == []
+    assert service.ready_events([NEWS_ID, "src:news:none"], PERSONA.id) == set()
+    built = get_insight(client).json()
+    # собрана — та же карточка из кэша, без новых вызовов
+    assert get_insight(client, cached="true").json() == built
+    assert len(transport.bodies) == 2
+    assert service.ready_events([NEWS_ID, "src:news:none"], PERSONA.id) == {NEWS_ID}
+    assert service.ready_events([NEWS_ID], "p-nobody") == set()
+    assert get_insight(client, persona="p-nobody", cached="true").status_code == 404

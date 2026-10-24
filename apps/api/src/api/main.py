@@ -259,6 +259,14 @@ def get_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     agent = getattr(request.app.state, "agent", None)
+    if agent is not None:
+        # какие карточки уже собраны — экрану не нужно спрашивать статус по каждому событию
+        try:
+            ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
+            for item in feed.items:
+                item.insight_ready = item.event_id in ready
+        except Exception:
+            logger.warning("не удалось проверить готовые карточки ленты", exc_info=True)
     if llm and settings.feed_llm_top and agent is not None and agent.llm is not None:
         exposure = company_exposure(repo, feed.company_id)
         if exposure is not None:

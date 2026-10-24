@@ -61,7 +61,9 @@ class _Event:
 
 
 def content_hash(item: Source) -> str:
-    data = item.model_dump(mode="json", include={"title", "publisher", "url", "published_at", "fragment"})
+    data = item.model_dump(
+        mode="json", include={"title", "publisher", "url", "published_at", "fragment", "reliability"}
+    )
     data["tags"] = item.tags.model_dump(mode="json")
     data["expectations"] = [e.model_dump(mode="json") for e in item.expectations]
     return hashlib.sha1(json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
@@ -92,6 +94,7 @@ def _row(item: Source, origin: str) -> dict:
         "id": item.id,
         "title": item.title,
         "publisher": item.publisher,
+        "reliability": item.reliability,
         "url": item.url,
         "published_at": item.published_at,
         "fragment": item.fragment,
@@ -107,13 +110,14 @@ def _row(item: Source, origin: str) -> dict:
 
 _INSERT = """
 INSERT INTO news (id, title, publisher, url, published_at, fragment, tags, factors, okved, expectations,
-                  also_reported_by, origin, content_hash, body)
+                  also_reported_by, origin, content_hash, body, reliability)
 VALUES (%(id)s, %(title)s, %(publisher)s, %(url)s, %(published_at)s, %(fragment)s, %(tags)s, %(factors)s, %(okved)s,
-        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s)
+        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s, %(reliability)s)
 """
 
 _UPDATE = """
-UPDATE news SET title = %(title)s, publisher = %(publisher)s, url = %(url)s, published_at = %(published_at)s,
+UPDATE news SET title = %(title)s, publisher = %(publisher)s, reliability = %(reliability)s, url = %(url)s,
+    published_at = %(published_at)s,
     fragment = %(fragment)s, tags = %(tags)s, factors = %(factors)s, okved = %(okved)s,
     expectations = %(expectations)s, also_reported_by = %(also_reported_by)s, content_hash = %(content_hash)s,
     origin = CASE WHEN %(origin)s = 'feed' THEN 'feed' ELSE origin END, updated_at = now()
@@ -408,14 +412,14 @@ def retag_news(conn: psycopg.Connection) -> int:
         if row and row[0] == signature:
             return 0
         rows = conn.execute(
-            "SELECT id, title, publisher, url, published_at, fragment, tags, content_hash FROM news"
+            "SELECT id, title, publisher, url, published_at, fragment, tags, content_hash, reliability FROM news"
         ).fetchall()
-        for id_, title, publisher, url, published_at, fragment, tags, old_hash in rows:
+        for id_, title, publisher, url, published_at, fragment, tags, old_hash, reliability in rows:
             if "llm" in (tags or {}).get("tagged_by", []):
                 continue
             src = tag_source(
                 Source(
-                    id=id_, kind="news", title=title, publisher=publisher or "", url=url,
+                    id=id_, kind="news", title=title, publisher=publisher or "", reliability=reliability, url=url,
                     published_at=published_at.astimezone(MSK) if published_at else None, fragment=fragment,
                 )
             )  # fmt: skip
@@ -448,6 +452,27 @@ def retag_news(conn: psycopg.Connection) -> int:
     return changed
 
 
+def backfill_reliability(conn: psycopg.Connection) -> int:
+    """Проставить надёжность новостям из лент, загруженным до её появления: по издателю — уровень его ленты.
+
+    Снимок только добавляет записи, а новости, которых уже нет в лентах, иначе остались бы без уровня."""
+    from ingest.news.fetch import load_feeds
+
+    tiers: dict[str, str] = {}
+    for feed in load_feeds():
+        tiers.setdefault(feed.publisher, feed.reliability)
+    with conn.transaction():
+        cur = conn.execute(
+            """
+            UPDATE news SET reliability = t.reliability
+            FROM jsonb_each_text(%s::jsonb) AS t(publisher, reliability)
+            WHERE news.publisher = t.publisher AND news.reliability IS NULL AND news.origin = 'feed'
+            """,
+            (Jsonb(tiers),),
+        )
+        return cur.rowcount
+
+
 def load_all(conn: psycopg.Connection, data: Path) -> dict:
     """Снимок новостей, свежий сбор (raw/derived/news.jsonl) и аналитика — в таком порядке; затем новости в базе
     размечаются заново, если словари или правила поменялись."""
@@ -459,5 +484,6 @@ def load_all(conn: psycopg.Connection, data: Path) -> dict:
         if path.exists():
             result[name] = asdict(load_news(conn, read_jsonl(path), update_existing=update))
     result["analytics"] = asdict(load_analytics_files(conn, data))
+    result["reliability"] = backfill_reliability(conn)
     result["retagged"] = retag_news(conn)
     return result

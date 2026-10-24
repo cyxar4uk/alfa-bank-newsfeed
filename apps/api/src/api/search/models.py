@@ -7,7 +7,7 @@
 
 from typing import Literal, Self
 
-from ingest.models import Expectation, FactorLink, Mention, SectorLink
+from ingest.models import Expectation, FactorLink, Mention, Reliability, SectorLink
 from pydantic import BaseModel, Field, model_validator
 
 from api.contract import Source
@@ -17,6 +17,9 @@ class NewsItem(Source):
     """Новость: фрагмент — лид дословно (до 500 знаков), разметка факторами и отраслями с силой связи 0–1."""
 
     kind: Literal["news"] = "news"
+    reliability: Reliability | None = Field(
+        default=None, description="надёжность источника: official, agency, business_media, other"
+    )
     factors: list[FactorLink] = Field(
         default_factory=list, description="факторы каталога карты чувствительности с силой и доказательствами"
     )

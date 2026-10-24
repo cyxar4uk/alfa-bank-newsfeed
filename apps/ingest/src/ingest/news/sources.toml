@@ -2,13 +2,22 @@
 # Из ленты берём только заголовок, лид дословно (до 500 знаков), ссылку на материал и дату; полный текст
 # статей и картинки не храним, в интерфейсе всегда ведём ссылкой на первоисточник.
 # priority — какой издатель остаётся главным при склейке дублей (меньше — главнее): регулятор раньше СМИ.
+# reliability — надёжность источника: official (органы власти, Банк России), agency (информационное агентство),
+#   business_media (деловое СМИ), other (прочие СМИ). Идёт в новость и в «качество источника» ранжирования.
+# hosts — домены ссылок ленты: запись с другого домена (спорт-сайт, журнал партнёра) не берём, чтобы в карточке
+#   был верный издатель.
 # enabled = false — источник выключен из-за условий использования или недоступности, причина в terms.
+# Условия проверены 24.10.2026 по страницам, указанным в terms.
+
+# --- официальные ---
 
 [[feed]]
 id = "cbr-press"
 publisher = "Банк России"
 url = "https://www.cbr.ru/rss/RssPress"
 priority = 0
+reliability = "official"
+hosts = ["www.cbr.ru", "cbr.ru"]
 terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
 
 [[feed]]
@@ -16,20 +25,147 @@ id = "cbr-events"
 publisher = "Банк России"
 url = "https://www.cbr.ru/rss/eventrss"
 priority = 0
+reliability = "official"
+hosts = ["www.cbr.ru", "cbr.ru"]
 terms = "cbr.ru/about: воспроизведение с указанием источника и гиперссылкой на страницу"
+
+[[feed]]
+id = "government"
+publisher = "Правительство России"
+url = "http://government.ru/all/rss/"
+priority = 0
+reliability = "official"
+hosts = ["government.ru"]
+terms = "government.ru/about: все материалы сайта доступны по лицензии Creative Commons Attribution 4.0"
+
+[[feed]]
+id = "nalog"
+publisher = "ФНС России"
+url = "https://www.nalog.gov.ru/rn77/rss/"
+priority = 0
+reliability = "official"
+hosts = ["www.nalog.gov.ru"]
+terms = "nalog.gov.ru/rn77/copyright: воспроизведение без согласия, без ограничений по объёму, со ссылкой на первоисточник"
+
+[[feed]]
+id = "minfin"
+publisher = "Минфин России"
+url = "https://minfin.gov.ru/ru/rss/"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "лента отвечает 403 автоматическим клиентам; условия не проверены"
+
+[[feed]]
+id = "economy"
+publisher = "Минэкономразвития России"
+url = "https://www.economy.gov.ru/material/rss/"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+
+[[feed]]
+id = "rosstat"
+publisher = "Росстат"
+url = "https://rosstat.gov.ru/rss"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "сертификат сайта выдан российским УЦ, стандартная проверка TLS его не принимает; условия не проверены"
+
+[[feed]]
+id = "minpromtorg"
+publisher = "Минпромторг России"
+url = "https://minpromtorg.gov.ru/press-centre/news/rss/"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+
+[[feed]]
+id = "fas"
+publisher = "ФАС России"
+url = "https://fas.gov.ru/news.rss"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+
+[[feed]]
+id = "mcx"
+publisher = "Минсельхоз России"
+url = "https://mcx.gov.ru/press-service/news/rss/"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+
+[[feed]]
+id = "minenergo"
+publisher = "Минэнерго России"
+url = "https://minenergo.gov.ru/rss/"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "лента открывается, но условий использования материалов на сайте не нашли"
+
+[[feed]]
+id = "moex"
+publisher = "Московская биржа"
+url = "https://www.moex.com/export/news.aspx?cat=100"
+priority = 0
+reliability = "official"
+enabled = false
+terms = "условия — PDF пользовательского соглашения fs.moex.com, из сети разработки не открылся; в ленте в основном технические сообщения о риск-параметрах"
+
+# --- информационные агентства ---
 
 [[feed]]
 id = "interfax"
 publisher = "Интерфакс"
 url = "https://www.interfax.ru/rss.asp"
 priority = 1
+reliability = "agency"
+hosts = ["www.interfax.ru"]
 terms = "interfax.ru/license: цитирование в информационных целях со ссылкой на interfax.ru"
+
+[[feed]]
+id = "ria"
+publisher = "РИА Новости"
+url = "https://ria.ru/export/rss2/archive/index.xml"
+priority = 3
+reliability = "agency"
+hosts = ["ria.ru"]
+terms = "ria.ru/docs/about/copyright.html: с указанием источника и гиперссылкой в начале"
+
+[[feed]]
+id = "tass"
+publisher = "ТАСС"
+url = "https://tass.ru/rss/v2.xml"
+priority = 1
+reliability = "agency"
+enabled = false
+terms = "условия для сайта не найдены; из сети разработки лента не открывается"
+
+[[feed]]
+id = "prime"
+publisher = "ПРАЙМ"
+url = "https://1prime.ru/export/rss2/index.xml"
+priority = 1
+reliability = "agency"
+enabled = false
+terms = "1prime.ru/docs/terms/terms_of_use.html: материалы только для личного некоммерческого использования"
+
+# --- деловые СМИ ---
 
 [[feed]]
 id = "kommersant-economics"
 publisher = "Коммерсантъ"
 url = "https://www.kommersant.ru/RSS/section-economics.xml"
 priority = 2
+reliability = "business_media"
+hosts = ["www.kommersant.ru"]
 terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
 [[feed]]
@@ -37,35 +173,34 @@ id = "kommersant-business"
 publisher = "Коммерсантъ"
 url = "https://www.kommersant.ru/RSS/section-business.xml"
 priority = 2
+reliability = "business_media"
+hosts = ["www.kommersant.ru"]
 terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
 [[feed]]
-id = "ria"
-publisher = "РИА Новости"
-url = "https://ria.ru/export/rss2/archive/index.xml"
-priority = 3
-terms = "ria.ru/docs/about/copyright.html: с указанием источника и гиперссылкой в начале"
+id = "kommersant-finance"
+publisher = "Коммерсантъ"
+url = "https://www.kommersant.ru/RSS/section-finance.xml"
+priority = 2
+reliability = "business_media"
+hosts = ["www.kommersant.ru"]
+terms = "kommersant.ru/copyright: до 30% материала без переработки, с автором и ссылкой"
 
 [[feed]]
 id = "forbes"
 publisher = "Forbes"
 url = "https://www.forbes.ru/newrss.xml"
 priority = 3
+reliability = "business_media"
+hosts = ["www.forbes.ru"]
 terms = "forbes.ru: в информационных целях с автором, датой и активной ссылкой"
-
-[[feed]]
-id = "tass"
-publisher = "ТАСС"
-url = "https://tass.ru/rss/v2.xml"
-priority = 1
-enabled = false
-terms = "условия для сайта не найдены; из сети разработки лента не открывается"
 
 [[feed]]
 id = "rbc"
 publisher = "РБК"
 url = "https://rssexport.rbc.ru/rbcnews/news/30/full.rss"
 priority = 2
+reliability = "business_media"
 enabled = false
 terms = "rbc.ru: автоматическое извлечение без письменного разрешения запрещено"
 
@@ -74,6 +209,7 @@ id = "vedomosti-economics"
 publisher = "Ведомости"
 url = "https://www.vedomosti.ru/rss/rubric/economics"
 priority = 2
+reliability = "business_media"
 enabled = false
 terms = "vedomosti.ru/info/reprint_rules: базы данных и автоматически извлечённое — только с разрешения"
 
@@ -82,5 +218,40 @@ id = "finmarket"
 publisher = "Финмаркет"
 url = "https://www.finmarket.ru/rss/mainnews.asp"
 priority = 2
+reliability = "business_media"
 enabled = false
 terms = "finmarket.ru/lcz.asp: автоматическое извлечение и кэширование без разрешения запрещены"
+
+[[feed]]
+id = "frankmedia"
+publisher = "Frank Media"
+url = "https://frankmedia.ru/feed"
+priority = 3
+reliability = "business_media"
+enabled = false
+terms = "лента открывается, но условий использования материалов на сайте не нашли"
+
+# --- прочие СМИ ---
+
+[[feed]]
+id = "rg"
+publisher = "Российская газета"
+url = "https://rg.ru/xml/index.xml"
+priority = 3
+reliability = "other"
+hosts = ["rg.ru"]
+terms = "rg.ru/pages/webpartner: ленту анонсов rg.ru/xml/index.xml можно размещать с гиперссылкой на полный текст и указанием, что это анонсы «РГ»"
+
+[[feed]]
+id = "izvestia"
+publisher = "Известия"
+url = "https://iz.ru/xml/rss/all.xml"
+priority = 3
+reliability = "other"
+hosts = ["iz.ru"]
+terms = "iz.ru: частичное цитирование только с гиперссылкой на iz.ru"
+
+# --- отраслевые (авто, топливо, агро, общепит) ---
+# Из сети разработки 24.10 открытых лент не нашли: Автостат, Агроинвестор, Neftegaz.ru — таймаут; oilcapital.ru —
+# пустая лента; Restoclub — 503; у foodservice.ru и zol.ru ленты нет. Отраслевые темы закрывают Коммерсантъ, Интерфакс
+# и официальные ленты.

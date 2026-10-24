@@ -193,6 +193,19 @@ class AgentService:
                 return self._run(persona, event) if wait else self._submit(persona, event)
         return self._await(active, wait)
 
+    def ready(self, event_id: str, persona_id: str) -> Insight | None:
+        """Готовая карточка из кэша или None — без сборки и вызовов моделей."""
+        stored = self.cached(insight_id(event_id, self._persona(persona_id).id))
+        return stored.insight if stored is not None else None
+
+    def ready_events(self, event_ids: list[str], persona_id: str) -> set[str]:
+        """Какие из событий уже с готовой карточкой; пользователь ищется один раз на весь список."""
+        try:
+            persona = self._persona(persona_id)
+        except NotFound:
+            return set()  # пользователя нет у агента — карточку для него не собрать
+        return {e for e in event_ids if self.cached(insight_id(e, persona.id)) is not None}
+
     def status(self, event_id: str, persona_id: str) -> JobStatus:
         """Как идёт сборка карточки; готовая карточка без задачи (из кэша) — status=done."""
         persona = self._persona(persona_id)

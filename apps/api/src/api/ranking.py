@@ -33,6 +33,7 @@ from api.contract import (
     SourceTags,
 )
 from api.okved import SECTOR_BY_CODE, okved_prefix
+from api.short import chain_short, factor_short
 
 ROLES_PATH = Path(__file__).with_name("roles.toml")
 MSK = dt.timezone(dt.timedelta(hours=3))
@@ -81,6 +82,8 @@ class RankingConfig(BaseModel):
     scoring: Scoring = Field(default_factory=Scoring)
     aliases: dict[str, str] = Field(default_factory=dict)
     sources: dict[str, float] = Field(default_factory=lambda: {"default": 0.9})
+    # по уровню надёжности ленты — для издателей, которых нет в sources
+    source_tiers: dict[str, float] = Field(default_factory=dict)
     # факторы, которые задаёт российская экономика и регулирование: зарубежное событие их не меняет
     domestic: list[str] = Field(default_factory=list)
     # факторы внешней торговли: событие между другими странами (без России) касается их, только если у
@@ -88,8 +91,13 @@ class RankingConfig(BaseModel):
     trade: list[str] = Field(default_factory=list)
     roles: dict[Role, RoleConfig]
 
-    def quality(self, publisher: str | None) -> float:
-        return self.sources.get(publisher or "", self.sources.get("default", 0.9))
+    def quality(self, publisher: str | None, reliability: str | None = None) -> float:
+        """Издатель из [sources] — его множитель; иначе по надёжности ленты; иначе default."""
+        if publisher and publisher in self.sources:
+            return self.sources[publisher]
+        if reliability and reliability in self.source_tiers:
+            return self.source_tiers[reliability]
+        return self.sources.get("default", 0.9)
 
 
 def load_ranking(path: Path = ROLES_PATH) -> RankingConfig:
@@ -115,6 +123,7 @@ class NewsEvent:
     publisher: str | None = None
     url: str | None = None
     fragment: str | None = None
+    reliability: str | None = None
     factors: list[tuple[str, float, str]] = field(default_factory=list)  # код, сила, название
     sectors: list[tuple[str, float]] = field(default_factory=list)  # двузначный ОКВЭД, сила
     tags: SourceTags = field(default_factory=SourceTags)
@@ -167,6 +176,7 @@ def event_from(item: Any) -> NewsEvent:
         publisher=_get(item, "publisher"),
         url=_get(item, "url"),
         fragment=_get(item, "fragment"),
+        reliability=_get(item, "reliability"),
         factors=[
             (_get(f, "code"), float(_get(f, "strength") or 0), _get(f, "name") or _get(f, "code"))
             for f in factors
@@ -196,6 +206,7 @@ class _Term:
     # на чём держится вклад: своя отрасль, покупатели, поставщики, группа — или сам фактор;
     # фактор карты и канал цепочки с одним основанием — одни и те же данные, считаются один раз
     basis: str
+    short: str | None  # строка «для вас», если слагаемое главное
 
 
 def freshness(published_at: dt.datetime | None, now: dt.datetime, scoring: Scoring) -> float:
@@ -379,6 +390,7 @@ def score_event(
                 text,
                 [factor.id, *[e.ref for e in factor.evidence[:2]]],
                 _factor_basis(factor),
+                factor_short(code, factor.label, text),
             )
         )
 
@@ -416,6 +428,7 @@ def score_event(
                     c.text,
                     c.refs,
                     "okved" if c.kind == "direct" else c.kind,
+                    chain_short(c),
                 )
             )
 
@@ -437,7 +450,7 @@ def score_event(
     if total <= 0:
         return None
     fresh = freshness(event.published_at, now, config.scoring)
-    quality = config.quality(event.publisher)
+    quality = config.quality(event.publisher, event.reliability)
     base = min(total / (1 + total) * fresh * quality, 1.0)
     # порог — до бонуса: аналитика банка не делает релевантным событие, которое компанию не задевает
     if base < config.scoring.min_score:
@@ -481,6 +494,7 @@ def score_event(
         factors=[FeedFactor(code=c, label=by_code[c].label) for c in codes],
         channel=top.channel,
         channel_text=top.channel_text,
+        short=top.short,
     )
 
 

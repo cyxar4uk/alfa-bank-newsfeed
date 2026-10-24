@@ -11,6 +11,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 LEAD_MAX_CHARS = 500
+# надёжность источника: официальный, информационное агентство, деловое СМИ, прочее — задаётся у ленты в sources.toml
+Reliability = Literal["official", "agency", "business_media", "other"]
+RELIABILITY_LABELS: dict[str, str] = {
+    "official": "официальный источник",
+    "agency": "информационное агентство",
+    "business_media": "деловое СМИ",
+    "other": "СМИ",
+}
 
 
 class FactorLink(BaseModel):
@@ -68,6 +76,7 @@ class Source(BaseModel):
     kind: Literal["news", "alfa_analytics"]
     title: str
     publisher: str
+    reliability: Reliability | None = None  # у новостей — уровень надёжности ленты
     url: str | None = None
     published_at: datetime | None = None
     fragment: str

@@ -41,6 +41,7 @@ def test_news_command_writes_output_and_snapshot(tmp_path, monkeypatch):
         "kind",
         "title",
         "publisher",
+        "reliability",
         "url",
         "published_at",
         "fragment",
