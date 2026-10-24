@@ -476,6 +476,7 @@ def test_paid_source_is_connected_per_user(monkeypatch):
 
     feeds = [{"id": "paid-x", "publisher": "Платный сервис", "kind": "paid_api", "hosts": ["paid.com"]}]
     monkeypatch.setattr(sources, "_feeds", lambda: feeds)
+    monkeypatch.setattr(sources, "_parser_catalog", lambda: None)  # запасной путь: каталог по лентам
     connections = sources.MemoryConnections()
     entry = sources.catalog(connections, "p-u1-cfo")[0]
     assert (entry.kind, entry.country, entry.connected) == ("paid_api", "intl", False)
