@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CompanyProfile, Insight } from '../api/types';
 import { AskBox } from '../components/AskBox';
@@ -76,8 +76,17 @@ function Card({ insight, company, personaId, eventId }: { insight: Insight; comp
     features: Object.fromEntries(company.features.map((f) => [f.id, f])),
   };
 
-  // Целевое действие — через ~15 с на посте или когда дочитали карточку до конца.
-  const [due, setDue] = useState(false);
+  // Целевое действие — через ~15 с на посте или когда дочитали карточку до конца; из ленты по кнопке
+  // «Обсудить с менеджером» — сразу открытым.
+  const location = useLocation();
+  const [openTarget] = useState(() => Boolean((location.state as { openTarget?: boolean } | null)?.openTarget));
+  const [due, setDue] = useState(openTarget);
+  useEffect(() => {
+    // Перезагрузка и «Назад» не должны снова открывать обращение.
+    if (openTarget) navigate('.', { replace: true, state: null, preventScrollReset: true });
+    // только при входе
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [productForm, setProductForm] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const endRef = useRef<HTMLSpanElement>(null);
@@ -117,7 +126,8 @@ function Card({ insight, company, personaId, eventId }: { insight: Insight; comp
   const target = productForm
     ? { prompt: 'Проверить условия продукта банка?', button: 'Оставить заявку', topic: 'условия продукта банка' }
     : due
-      ? screen.target
+      ? (screen.target ??
+        (openTarget ? { prompt: 'Обсудить разбор с менеджером?', button: 'Обсудить с менеджером', topic: 'последствия для компании' } : null))
       : null;
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => titleRef.current?.focus(), []);
@@ -194,7 +204,7 @@ function Card({ insight, company, personaId, eventId }: { insight: Insight; comp
             button={target.button}
             topic={target.topic}
             context={context}
-            openForm={productForm}
+            openForm={productForm || openTarget}
           />
         )}
         <span ref={endRef} aria-hidden="true" />

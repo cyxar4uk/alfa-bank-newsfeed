@@ -3507,6 +3507,47 @@ figure.analyze__field {
   color: var(--red-text);
 }
 
+.for-you__basis {
+  margin-top: 4px;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.for-you__basis summary {
+  cursor: pointer;
+}
+
+.feed-group__action {
+  display: flex;
+}
+
+.summary-card__action {
+  display: flex;
+}
+
+.bank-line {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.bank-line svg {
+  flex: none;
+  color: var(--origin-bank);
+}
+
+.bank-line__text {
+  color: var(--origin-bank-text);
+}
+
+.bank-line__caption {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
 .feed-group__more {
   justify-self: start;
   margin-left: 36px;

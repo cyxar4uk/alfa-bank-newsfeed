@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { Disclaimer } from '../components/Disclaimer';
@@ -8,9 +8,10 @@ import { ServiceTabs } from '../components/ServiceTabs';
 import { SourceMark } from '../components/SourceMark';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { useBriefing } from '../state/briefing';
+import { useCachedInsights } from '../state/cachedInsights';
 import { useHidden } from '../state/hidden';
 import { eventPath } from '../state/routes';
-import { feedScreen, GROUP_HEADLINES, plural, type FeedGroup, type FeedTop } from '../state/screens';
+import { feedScreen, GROUP_HEADLINES, MAIN, plural, type BankLine, type FeedGroup, type FeedTop } from '../state/screens';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
 import { lastVisit } from '../state/visit';
@@ -39,6 +40,47 @@ function Top({ top }: { top: FeedTop }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/** Целевое действие: на карточку события, где обращение к менеджеру открыто сразу. */
+function TargetLink({ eventId, label, about, primary }: { eventId: string; label: string; about: string; primary: boolean }) {
+  return (
+    <Link to={eventPath(eventId)} state={{ openTarget: true }} className={`btn ${primary ? 'btn--primary' : 'btn--secondary'}`}>
+      {label}
+      <span className="visually-hidden">: {about}</span>
+    </Link>
+  );
+}
+
+function Bank({ bank }: { bank: BankLine }) {
+  return (
+    <p className="bank-line">
+      <Icon name="bank" size={16} />
+      <span>
+        <span className="bank-line__text">{bank.text}</span>
+        <span className="bank-line__caption"> · {bank.caption}</span>
+      </span>
+    </p>
+  );
+}
+
+/** Пока лента считается (до минуты с дооценкой моделью) — что происходит, а не пустой скелетон. */
+function Collecting() {
+  const [seconds, setSeconds] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setSeconds((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <div className="summary-card" aria-busy="true">
+      <p className="summary-card__title" role="status">
+        Собираю сводку: отбираю события, которые касаются вашей компании, и оцениваю их значимость
+      </p>
+      <Skeleton width="90%" />
+      <Skeleton width="70%" />
+      {seconds >= 10 && <p className="muted">Идёт {seconds} с — первый расчёт за день бывает до минуты.</p>}
+    </div>
   );
 }
 
@@ -79,17 +121,37 @@ function Group({ group }: { group: FeedGroup }) {
       )}
       <div className="for-you">
         <span className="for-you__caps">Для вас</span>
-        <span className="for-you__text">{group.forYou}</span>
-        {group.hasBankView && (
+        <span className="for-you__text">
+          {group.forYou}
+          {group.basis !== group.forYou && (
+            <details className="for-you__basis">
+              <summary>На чём основано</summary>
+              {group.basis}
+            </details>
+          )}
+        </span>
+        {group.bank ? (
           <span className="for-you__bank">
             <Icon name="bank" size={14} />
-            Есть позиция банка
+            {group.bank.text}
           </span>
+        ) : (
+          group.hasBankView && (
+            <span className="for-you__bank">
+              <Icon name="bank" size={14} />
+              Позиция банка — в разборе
+            </span>
+          )
         )}
         <Link to={eventPath(group.openEventId)} className="link-action">
           Открыть разбор →
         </Link>
       </div>
+      {group.main && (
+        <div className="feed-group__action">
+          <TargetLink eventId={group.openEventId} label="Обсудить с менеджером" about={group.headlines[0].title} primary={false} />
+        </div>
+      )}
     </section>
   );
 }
@@ -104,6 +166,15 @@ export function FeedPage() {
   const [showAll, setShowAll] = useState(false);
   const filter = params.get('factor');
   const since = lastVisit(persona.id);
+  // Уже собранный разбор главного события — для позиции банка дня и короткой фразы «для вас». Только одного:
+  // в API нет запроса «только из кэша», а после смены версии агента запрос готового разбора может запустить сборку.
+  const leadIds = useMemo(() => {
+    if (briefing.status !== 'ok') return [];
+    const visible = briefing.data.items.filter((i) => !hidden.includes(i.event_id));
+    const lead = [...visible].sort((a, b) => b.relevance.score - a.relevance.score)[0];
+    return lead && lead.relevance.score >= MAIN ? [lead.event_id] : [];
+  }, [briefing, hidden]);
+  const insights = useCachedInsights(leadIds, persona.id);
 
   const screen = useMemo(
     () =>
@@ -117,9 +188,10 @@ export function FeedPage() {
             filter,
             lastVisit: since,
             showAll,
+            insights,
           })
         : null,
-    [briefing, exposure, persona.role, hidden, filter, since, showAll],
+    [briefing, exposure, persona.role, hidden, filter, since, showAll, insights],
   );
 
   const setFilter = (key: string | null) =>
@@ -138,13 +210,7 @@ export function FeedPage() {
       <ServiceTabs />
       <h1 className="visually-hidden">Сводка для вас</h1>
 
-      {briefing.status === 'loading' && (
-        <div className="summary-card" aria-busy="true">
-          <Skeleton width={360} height={20} />
-          <Skeleton width="90%" />
-          <Skeleton width="70%" />
-        </div>
-      )}
+      {briefing.status === 'loading' && <Collecting />}
       {briefing.status === 'error' && (
         <ErrorState title="Не удалось загрузить ленту" error={briefing.error} onRetry={briefing.retry} />
       )}
@@ -171,6 +237,12 @@ export function FeedPage() {
               )}
             </div>
             {screen.top && <Top top={screen.top} />}
+            {screen.bankOfDay && <Bank bank={screen.bankOfDay} />}
+            {screen.mainAction && (
+              <div className="summary-card__action">
+                <TargetLink eventId={screen.mainAction.eventId} label={screen.mainAction.label} about="главное событие" primary />
+              </div>
+            )}
           </section>
 
           <div className="chips" role="group" aria-label="Фильтр по фактору">

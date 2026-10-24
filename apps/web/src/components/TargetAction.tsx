@@ -26,15 +26,18 @@ export function TargetAction({
   const [comment, setComment] = useState('');
   const id = useId();
   const topicRef = useRef<HTMLInputElement>(null);
+  const touched = useRef(false);
   const doneRef = useRef<HTMLParagraphElement>(null);
 
+  const [initial] = useState(step);
   useEffect(() => {
-    if (step === 'form') topicRef.current?.focus();
+    if (step === 'form' && !(initial === 'form' && !touched.current)) topicRef.current?.focus();
     if (step === 'done') doneRef.current?.focus();
-  }, [step]);
+  }, [step, initial]);
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
+    touched.current = true;
     setStep('done');
   }
 
@@ -81,7 +84,14 @@ export function TargetAction({
   return (
     <div className="target">
       <p className="target__prompt">{prompt}</p>
-      <button type="button" className="btn btn--primary" onClick={() => setStep('form')}>
+      <button
+        type="button"
+        className="btn btn--primary"
+        onClick={() => {
+          touched.current = true;
+          setStep('form');
+        }}
+      >
         {button}
       </button>
       <button type="button" className="link-button" onClick={() => setStep('dismissed')}>

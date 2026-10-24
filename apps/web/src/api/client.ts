@@ -60,8 +60,8 @@ export class ApiError extends Error {
   }
 }
 
-/** Разбор генерируется лениво и может идти до 30 с — даём запас. */
-const TIMEOUT_MS = 45_000;
+// Лента с дооценкой моделью считается до минуты — ждём с запасом.
+const TIMEOUT_MS = 90_000;
 
 const asArray = <T>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
 
@@ -164,7 +164,7 @@ function createHttpApi(baseUrl: string): LiveApi {
         text = await res.text();
       } catch (e) {
         if (outer?.aborted) throw e;
-        throw new ApiError(0, timeout.signal.aborted ? 'Сервер не ответил за 45 секунд' : 'Сервер не отвечает');
+        throw new ApiError(0, timeout.signal.aborted ? 'Сервер не ответил за 90 секунд' : 'Сервер не отвечает');
       }
       if (!res.ok) {
         // Причину сервер пишет в detail (FastAPI): «событие не найдено», «бюджет на сегодня исчерпан …».

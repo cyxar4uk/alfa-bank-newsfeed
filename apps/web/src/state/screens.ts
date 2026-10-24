@@ -116,9 +116,27 @@ export interface FeedGroup {
   headlines: FeedHeadline[];
   /** одна фраза «для вас» на группу — не повторяем её у каждой новости */
   forYou: string;
+  /** исходная строка API — для «На чём основано» (там коды ОКВЭД и пометки) */
+  basis: string;
   hasBankView: boolean;
+  /** позиция банка одной строкой — только из уже собранного разбора; null — разбора ещё нет */
+  bank: BankLine | null;
+  /** главное событие (r ≥ 0,6): у группы есть целевое действие */
+  main: boolean;
   /** какой разбор открывать: самое значимое событие группы */
   openEventId: string;
+}
+
+export interface BankLine {
+  text: string;
+  caption: string;
+  eventId: string;
+}
+
+export interface MainAction {
+  eventId: string;
+  topic: string;
+  label: string;
 }
 
 export interface Indicator {
@@ -135,6 +153,10 @@ export type FeedTop =
 export interface FeedScreen {
   headline: string;
   top: FeedTop | null;
+  /** позиция банка дня — из уже собранного разбора главного события; нет — null */
+  bankOfDay: BankLine | null;
+  /** одно главное действие сводки — у события с наибольшей значимостью, если оно главное */
+  mainAction: MainAction | null;
   chips: { key: string | null; label: string; count: number; selected: boolean }[];
   groups: FeedGroup[];
   /** события меньшей значимости: свёрнуты или развёрнуты «Показать» */
@@ -154,6 +176,8 @@ export interface FeedState {
   lastVisit: string | null;
   /** развернуть свёрнутые события меньшей значимости */
   showAll: boolean;
+  /** уже собранные разборы по событиям (из кэша API) — из них позиция банка и короткая фраза «для вас» */
+  insights?: Record<string, Insight>;
 }
 
 export function groupKeyOf(item: FeedItem): string {
@@ -206,7 +230,10 @@ function buildGroups(items: FeedItem[], lastVisit: string | null): FeedGroup[] {
         sourceLine: sourceLine(i),
         isNew: isNewItem(i, lastVisit),
       })),
-      forYou: top.channel_text || top.relevance.reason,
+      forYou: humanize(top.channel_text || top.relevance.reason),
+      basis: top.channel_text || top.relevance.reason,
+      bank: null,
+      main: top.relevance.score >= MAIN,
       hasBankView: sorted.some((i) => i.has_bank_view),
       openEventId: top.event_id,
     };
@@ -215,21 +242,78 @@ function buildGroups(items: FeedItem[], lastVisit: string | null): FeedGroup[] {
 }
 
 /** Три показателя для финансовых ролей: факторы ленты с наибольшей силой, значение — из данных банка. */
+/**
+ * Значение события из заголовков группы: «…на уровне 14,00% годовых» → «14,00 %», «ниже 81 рубля» → «81 ₽».
+ * Берём из новостей, не придумываем; чисел нет — null.
+ */
+/** Какие единицы годятся значению фактора: ставка — в процентах, курс — в рублях, нефть и золото — в долларах. */
+const VALUE_UNITS: Record<string, RegExp> = {
+  rate: /(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?\s?%)/g,
+  inflation: /(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?\s?%)/g,
+  fx: /(\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?\s?(?:₽\/\$|₽|руб(?:л[а-я]*)?))/gi,
+  commodity_oil_gas: /(\$\s?\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)/g,
+  oil: /(\$\s?\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)/g,
+  gold: /(\$\s?\d{1,3}(?:\s\d{3})*(?:[.,]\d+)?)/g,
+};
+
+/**
+ * Значение события по фактору — из заголовка главной новости группы (и следующей): ставка «14,00 %», курс «81 ₽».
+ * Только единицы, которые подходят фактору, иначе null: чужое число («кредитование снизилось на 71 %») не берём.
+ */
+export function eventValue(titles: string[], code: string): string | null {
+  const unit = VALUE_UNITS[code];
+  if (!unit) return null;
+  for (const t of titles.slice(0, 2)) {
+    const all = [...t.matchAll(unit)];
+    if (all.length === 0) continue;
+    // Новый уровень: число после «до» или «на уровне»; иначе последнее подходящее («с 17% до 16,5%» → 16,5 %).
+    const level = all.find((m) => /(?:до|на уровне|уровня)\s*$/i.test(t.slice(0, m.index ?? 0))) ?? all[all.length - 1];
+    {
+      return level[1]
+        .replace(/\s+/g, ' ')
+        .replace(/(\d)\s?%/, '$1 %')
+        .replace(/\s?руб(?:л[а-я]*)?/i, ' ₽')
+        .replace(/\s?долл[а-я]*/i, ' $')
+        .trim();
+    }
+  }
+  return null;
+}
+
+/** Направление по глаголу заголовка: «сохранил» — держится, «повысил» — растёт, «снизил» — снижается. */
+export function direction(title: string, code = ''): string | null {
+  const t = title.toLowerCase();
+  if (/сохран|оставил|без изменени|не измен|(?:^|\s)не\s+(?:сниз|повыс|измен)/.test(t)) return 'держится';
+  // Курс: «рубль ослаб» — доллар дорожает, «рубль укрепился» — дешевеет.
+  if (code === 'fx' && /рубл[ья]?\s+(?:ослаб|падает|упал)/.test(t)) return 'растёт';
+  if (code === 'fx' && /рубл[ья]?\s+(?:укреп|выр)/.test(t)) return 'снижается';
+  if (/повыс|вырос|растёт|подорож|ускор|увеличи/.test(t)) return 'растёт';
+  if (/сниз|упал|опусти|подешев|замедл|сократ|ослаб/.test(t)) return 'снижается';
+  return null;
+}
+
 function indicators(groups: FeedGroup[], exposure: CompanyExposure | null): Indicator[] {
   if (!exposure) return [];
+  const byKey = new Map(groups.map((g) => [g.key, g]));
   const inFeed = new Set(groups.map((g) => g.key));
   return exposure.factors
     .filter((f): f is ExposureFactor & { strength: number } => inFeed.has(f.code) && (f.strength ?? 0) > 0)
     .sort((a, b) => b.strength - a.strength)
     .slice(0, 3)
     .map((f) => {
-      // Значение — первое число из данных банка («11 из 28», «44 %»); чисел нет — словами сила связи.
+      // Значение — из новостей группы (ставка 14,00 %), с направлением; в подписи — что это значит для компании
+      // числом из данных банка («кредиты у 11 из 28 компаний группы»). В новостях числа нет — берём число из данных.
+      const g = byKey.get(f.code);
+      const titles = g ? g.headlines.map((h) => h.title) : [];
+      const value = eventValue(titles, f.code);
+      const dir = titles[0] ? direction(titles[0], f.code) : null;
       const numeric = f.evidence.map((e) => ({ e, n: leadingNumber(e.value) })).find((x) => x.n);
+      const data = numeric ? `${numeric.e.label.toLowerCase()}: ${numeric.n}` : null;
       return {
         code: f.code,
-        label: f.label,
-        value: numeric?.n ?? LEVEL_WORD[f.level] ?? '',
-        note: numeric ? numeric.e.label : (f.channel?.text ?? ''),
+        label: factorShort(f.code, f.label),
+        value: value ?? numeric?.n ?? LEVEL_WORD[f.level] ?? '',
+        note: [dir, value ? data : numeric ? humanize(numeric.e.label) : g?.forYou].filter(Boolean).join(' · '),
       };
     });
 }
@@ -268,9 +352,48 @@ function distinctForYou(groups: FeedGroup[], exposure: CompanyExposure | null): 
   });
 }
 
+/** Фраза «для вас» и позиция банка из уже собранных разборов (они точнее строки ленты). */
+function withInsights(groups: FeedGroup[], insights: Record<string, Insight>): FeedGroup[] {
+  return groups.map((g) => {
+    const ins = insights[g.openEventId];
+    if (!ins) return g;
+    const why = ins.why_it_matters.find((x) => !isHypothesis(x));
+    const bank = ins.bank_view[0];
+    const src = bank ? bank.refs.map((r) => bankSourceOf(ins, r)).find((x) => x !== undefined)?.source : undefined;
+    return {
+      ...g,
+      forYou: why ? why.text : g.forYou,
+      bank: bank ? { text: bank.text, caption: bankCaption(src), eventId: g.openEventId } : null,
+    };
+  });
+}
+
+/**
+ * Строка «для вас» человеческим языком: коды и названия ОКВЭД («45.31.1 Торговля оптовая …») и служебные пометки
+ * («— оценка по отрасли») уходят в «На чём основано»; число из данных остаётся.
+ */
+export function humanize(text: string): string {
+  const out = text
+    // пометку «оценка по отрасли» убираем; короткий хвост, к которому она относилась, — тоже
+    .split(';')
+    .map((raw) => ({ raw, part: raw.replace(/[—–-]?\s*(?:это\s+)?оценка по отрасли.*/i, '') }))
+    .filter(({ raw, part }, i) => i === 0 || !/оценка по отрасли/i.test(raw) || part.trim().length >= 25)
+    .map(({ part }) => part)
+    .join(';')
+    .replace(/(?:с|по)?\s*ОКВЭД[\s\d.,]*/g, '')
+    .replace(/\b\d{2}(?:\.\d{1,2}){0,2}\s+[А-ЯЁ][^;:—()]*?(?=[;:—()]|$)/g, '')
+    .replace(/\(\s*\d{2}(?:\.\d{1,2})*\s*\)/g, '')
+    .replace(/[—–-]?\s*(?:это\s+)?оценка по отрасли[^;]*/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([;:,.])/g, '$1')
+    .replace(/[;:,—–\s]+$/g, '')
+    .trim();
+  return out.length >= 8 ? out : text;
+}
+
 export function feedScreen(s: FeedState): FeedScreen {
   const visible = s.feed.items.filter((i) => !s.hidden.includes(i.event_id));
-  const allGroups = distinctForYou(buildGroups(visible, s.lastVisit), s.exposure);
+  const allGroups = withInsights(distinctForYou(buildGroups(visible, s.lastVisit), s.exposure), s.insights ?? {});
   const hiddenCount = s.feed.items.length - visible.length;
 
   const chips = [
@@ -281,15 +404,25 @@ export function feedScreen(s: FeedState): FeedScreen {
   const pool = s.filter ? visible.filter((i) => groupKeyOf(i) === s.filter) : visible;
   const low = s.filter ? [] : pool.filter((i) => i.relevance.score < MINOR);
   const main = s.showAll ? pool : pool.filter((i) => !low.includes(i));
-  const shown = distinctForYou(buildGroups(main, s.lastVisit), s.exposure);
+  const shown = withInsights(distinctForYou(buildGroups(main, s.lastVisit), s.exposure), s.insights ?? {});
 
-  const fresh = visible.filter((i) => isNewItem(i, s.lastVisit)).length;
-  const important = visible.filter((i) => i.relevance.score >= MAIN).length;
+  // «С {визит} для вас: N событий, M требуют решения» (06_ui_state.md); M — главные события с целевым действием.
+  const decide = visible.filter((i) => i.relevance.score >= MAIN).length;
   const total = `${visible.length} ${plural(visible.length, ['событие', 'события', 'событий'])}`;
   const headline =
-    (s.lastVisit
-      ? `С ${longDate(s.lastVisit)}: ${fresh} ${plural(fresh, ['новое событие', 'новых события', 'новых событий'])} · всего в ленте ${total}`
-      : `В ленте для вас ${total}`) + (important > 0 ? ` · главных ${important}` : '');
+    `${s.lastVisit ? `С ${longDate(s.lastVisit)} для вас` : 'Для вас'}: ${total}` +
+    (decide > 0 ? `, ${decide} ${plural(decide, ['требует', 'требуют', 'требуют'])} решения` : '');
+
+  const lead = [...visible].sort((a, b) => b.relevance.score - a.relevance.score)[0];
+  const mainAction: MainAction | null =
+    lead && lead.relevance.score >= MAIN
+      ? {
+          eventId: lead.event_id,
+          topic: topicOf(groupKeyOf(lead)),
+          label: `Обсудить с менеджером ${topicOf(groupKeyOf(lead))}`,
+        }
+      : null;
+  const bankOfDay = mainAction ? (allGroups.find((g) => g.bank?.eventId === mainAction.eventId)?.bank ?? null) : null;
 
   let top: FeedTop | null = null;
   if (BRIEF_ROLES.includes(s.role)) {
@@ -303,6 +436,8 @@ export function feedScreen(s: FeedState): FeedScreen {
   return {
     headline,
     top,
+    bankOfDay,
+    mainAction,
     chips,
     groups: shown,
     collapsed: low.length ? { count: low.length, titles: low.map((i) => i.event.title), expanded: s.showAll } : null,
@@ -324,6 +459,10 @@ const TOPIC: Record<string, string> = {
   labor: 'фонд оплаты труда',
   deposit: 'размещение свободных средств',
 };
+
+export function topicOf(code: string): string {
+  return TOPIC[code] ?? 'последствия для компании';
+}
 
 const PRODUCT_LABEL: Record<string, string> = {
   rko: 'расчётного счёта',
@@ -443,7 +582,7 @@ export function cardScreen({ insight, item, exposure }: CardState): CardScreen {
   const conflicts = hypotheses.filter((s) => s.bank_conflict).length;
   const product = insight.actions.find((a: Action) => a.kind === 'product' && a.product);
 
-  const topic = TOPIC[codes[0] ?? ''] ?? 'последствия для компании';
+  const topic = topicOf(codes[0] ?? '');
   const target =
     risks.length > 0
       ? {

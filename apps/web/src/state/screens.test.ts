@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Briefing, CompanyExposure, FeedItem, Insight, Statement } from '../api/types.ts';
-import { cardScreen, feedScreen, leadingNumber, plural, sourceMark, type FeedState } from './screens.ts';
+import { cardScreen, direction, eventValue, feedScreen, humanize, leadingNumber, plural, sourceMark, type FeedState } from './screens.ts';
 
 function item(id: string, score: number, codes: string[], extra: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -65,9 +65,9 @@ test('события ниже 0,3 свёрнуты, «Показать» их р
 });
 
 test('заголовок сводки считает события и те, что требуют решения', () => {
-  assert.equal(feedScreen(base).headline, 'С 22 октября: 5 новых событий · всего в ленте 5 событий · главных 1');
-  assert.equal(feedScreen({ ...base, lastVisit: '2026-10-23' }).headline.startsWith('С 23 октября: 0 новых событий'), true);
-  assert.equal(feedScreen({ ...base, lastVisit: null }).headline, 'В ленте для вас 5 событий · главных 1');
+  assert.equal(feedScreen(base).headline, 'С 22 октября для вас: 5 событий, 1 требует решения');
+  assert.equal(feedScreen({ ...base, lastVisit: null }).headline, 'Для вас: 5 событий, 1 требует решения');
+  assert.deepEqual(feedScreen(base).mainAction, { eventId: 'a', topic: 'структуру долга', label: 'Обсудить с менеджером структуру долга' });
 });
 
 test('верх экрана зависит от роли: финансистам — показатели, собственнику — брифинг', () => {
@@ -125,6 +125,46 @@ test('сворачиваются события ниже 0,3, а не групп
     ['a'],
   );
   assert.equal(s.collapsed?.count, 1);
+});
+
+test('строка «для вас» без кодов ОКВЭД и служебных пометок', () => {
+  assert.equal(
+    humanize('событие в вашей отрасли: 45.31.1 Торговля оптовая автомобильными деталями, узлами и принадлежностями, кроме деятельности агентов'),
+    'событие в вашей отрасли',
+  );
+  assert.equal(humanize('через поставщиков с ВЭД — оценка по отрасли'), 'через поставщиков с ВЭД');
+  assert.equal(
+    humanize('через группу с ВЭД: 44 % всех платежей идут 3 компаниям группы; что они импортируют — оценка по отрасли'),
+    'через группу с ВЭД: 44 % всех платежей идут 3 компаниям группы',
+  );
+  assert.equal(humanize('Компании группы с ОКВЭД 45.1, 45.2, 45.32, 47, 56'), 'Компании группы');
+  assert.equal(humanize('кредит 50 млн ₽; ставка плавающая'), 'кредит 50 млн ₽; ставка плавающая');
+  assert.equal(humanize('44 % всех платежей идут 3 компаниям группы'), '44 % всех платежей идут 3 компаниям группы');
+});
+
+test('значение и направление события — из заголовков', () => {
+  assert.equal(eventValue(['Банк России принял решение сохранить ключевую ставку на уровне 14,00% годовых'], 'rate'), '14,00 %');
+  assert.equal(eventValue(['Курс доллара. Прогноз', 'Курс доллара на Forex опустился ниже 81 рубля'], 'fx'), '81 ₽');
+  assert.equal(eventValue(['Выдачи кредитов снизились на 71%'], 'fx'), null);
+  assert.equal(eventValue(['ЦБ повысил прогноз цены на нефть Urals до $72 за баррель'], 'commodity_oil_gas'), '$72');
+  assert.equal(eventValue(['Минпромторг предложил утильсбор'], 'tax_regulation'), null);
+  assert.equal(eventValue(['ЦБ снизил ставку с 17% до 16,5%'], 'rate'), '16,5 %');
+  assert.equal(eventValue(['Доллар подешевел на 1,5 рубля, до 80 рублей'], 'fx'), '80 ₽');
+  assert.equal(eventValue(['В 2025 15% компаний'], 'rate'), '15 %');
+  assert.equal(direction('ЦБ не снизил ставку'), 'держится');
+  assert.equal(direction('Рубль ослаб до 85 рублей за доллар', 'fx'), 'растёт');
+  assert.equal(direction('Банк России сохранил ставку'), 'держится');
+  assert.equal(direction('Курс опустился ниже 81 рубля'), 'снижается');
+});
+
+test('позиция банка и фраза «для вас» — из уже собранного разбора', () => {
+  const s = feedScreen({ ...base, insights: { a: insight } });
+  const rate = s.groups[0];
+  assert.equal(rate.forYou, 'Долг не подешевеет до конца 2026.');
+  assert.equal(rate.bank?.text, 'Банк ждёт 14 % до конца года');
+  assert.equal(s.bankOfDay?.eventId, 'a');
+  assert.equal(feedScreen({ ...base, insights: { c: { ...insight } } }).bankOfDay, null);
+  assert.equal(feedScreen(base).bankOfDay, null);
 });
 
 test('монограммы источников вместо логотипов', () => {
