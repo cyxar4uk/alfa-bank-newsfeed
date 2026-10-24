@@ -7,6 +7,7 @@
 Набор детерминирован; компании, которой нет в загруженных данных, просто нет в списке.
 """
 
+import re
 from typing import TYPE_CHECKING
 
 from api.contract import ROLE_LABELS, Persona
@@ -54,6 +55,8 @@ ROLE_SHORT = {
     "treasury": "Казначей",
     "other": "Сотрудник",
 }
+_PERSONA_ID = re.compile(r"^p-u(\d+)-(owner|ceo|cfo|acc|tre|other)$")
+
 _ROLE_ID = {
     "owner": "owner",
     "ceo": "ceo",
@@ -66,6 +69,15 @@ _ROLE_ID = {
 
 def persona_id(company_id: str, role: str) -> str:
     return f"p-u{company_number(company_id)}-{_ROLE_ID[role]}"
+
+
+def parse_persona_id(value: str) -> tuple[str, str] | None:
+    """`p-u8318-cfo` → (`U_8318`, `cfo`); не тот формат — None."""
+    match = _PERSONA_ID.match(value or "")
+    if not match:
+        return None
+    roles = {short: role for role, short in _ROLE_ID.items()}
+    return f"U_{match.group(1)}", roles[match.group(2)]
 
 
 def company_label(company: CompanyRecord) -> str:

@@ -3,7 +3,7 @@ from factories import make_company
 from fastapi.testclient import TestClient
 
 from api.contract import ImportedFile
-from api.main import app, get_repo
+from api.main import app, get_repo, news_provider
 from api.records import Flow, GroupStats
 
 
@@ -19,6 +19,8 @@ class FakeRepo:
                 revenue=16e9,
                 group_id="group_4_sb",
             ),
+            # потенциальный клиент: ему лента не положена
+            "U_5": make_company(id="U_5", revenue=1e8, client_type="PROSPECT", group_id="group_5_sb"),
         }
 
     def get_company(self, company_id):
@@ -182,3 +184,106 @@ def test_personas(client):
 
 def test_openapi(client):
     assert client.get("/api/openapi.json").status_code == 200
+
+
+class FakeNews:
+    name = "тест"
+
+    def events(self, since, limit):
+        import datetime as dt
+
+        from api.ranking import MSK, NewsEvent
+
+        now = dt.datetime.now(MSK)
+        return [
+            NewsEvent(
+                id="src:news:rate", title="Ставка", published_at=now, factors=[("rate", 1.0, "ставка")]
+            ),
+            NewsEvent(
+                id="src:news:gold", title="Золото", published_at=now, factors=[("commodity_gold", 1.0, "")]
+            ),
+        ]
+
+    def has_bank_view(self, factors):
+        return "rate" in factors
+
+
+def test_feed(client):
+    app.dependency_overrides[news_provider] = FakeNews
+    body = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()
+    assert (body["company_id"], body["role"], body["candidates"], body["news_source"]) == (
+        "U_1",
+        "cfo",
+        2,
+        "тест",
+    )
+    assert [i["event_id"] for i in body["items"]] == ["src:news:rate"]  # золото компанию не задевает
+    item = body["items"][0]
+    assert item["has_bank_view"] is True
+    assert item["relevance"]["breakdown"][0]["code"] == "rate"
+    assert client.get("/api/feed", params={"persona": "p-u404-cfo"}).status_code == 404
+    assert client.get("/api/feed", params={"persona": "кто-то"}).status_code == 404
+    # брифинг — то же, что лента (так его вызывает фронт)
+    briefing = client.get("/api/briefing", params={"persona": "p-u1-cfo"}).json()
+    assert briefing["items"][0]["event_id"] == "src:news:rate"
+    # U_5 — потенциальный клиент: лента только для действующих
+    assert client.get("/api/feed", params={"persona": "p-u5-cfo"}).status_code == 404
+
+
+def test_empty_news_base_falls_back_to_snapshot(tmp_path):
+    from api.news import FallbackNews, SnapshotNews
+
+    class EmptySearch:
+        name = "база новостей"
+
+        def events(self, since, limit):
+            return []
+
+        def has_bank_view(self, factors):
+            return True
+
+    snapshot = tmp_path / "news.jsonl"
+    good = (
+        '{"id": "src:news:s", "title": "Ставка", "published_at": "2026-10-23T10:00:00+03:00",'
+        ' "tags": {"factors": [{"code": "rate", "strength": 1}]}}'
+    )
+    snapshot.write_text("\n".join([good, "{битая строка", ""]), "utf-8")
+    news = FallbackNews(EmptySearch(), SnapshotNews(snapshot))
+    assert [e.id for e in news.events(None, 10)] == ["src:news:s"]
+    assert news.name.startswith("снимок")
+    assert news.has_bank_view(["rate"]) is False  # в снимке аналитики нет
+
+
+def test_group_impact_endpoint(client):
+    body = client.get("/api/companies/U_1/group-impact", params={"okved": "49"}).json()
+    assert body["affected_count"] == 1
+    assert body["affected"][0]["id"] == "U_2"  # перевозчик из той же группы
+    assert body["intra_payments"] == 1e9
+    # U_4 — одна в своей группе: блока нет
+    assert client.get("/api/companies/U_4/group-impact", params={"okved": "35"}).json() is None
+    assert client.get("/api/companies/U_404/group-impact").status_code == 404
+
+
+def test_feed_group_impact_only_for_owner_and_ceo(client):
+    app.dependency_overrides[news_provider] = GroupNews
+    owner = client.get("/api/feed", params={"persona": "p-u1-owner"}).json()["items"][0]
+    assert owner["group_impact"]["affected"][0]["id"] == "U_2"
+    cfo = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]
+    assert cfo["group_impact"] is None
+
+
+class GroupNews(FakeNews):
+    def events(self, since, limit):
+        import datetime as dt
+
+        from api.ranking import MSK, NewsEvent
+
+        return [
+            NewsEvent(
+                id="src:news:trucks",
+                title="Грузоперевозки",
+                published_at=dt.datetime.now(MSK),
+                factors=[("rate", 1.0, "ставка")],
+                sectors=[("49", 1.0)],
+            )
+        ]

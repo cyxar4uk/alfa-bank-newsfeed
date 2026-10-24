@@ -8,7 +8,7 @@
 import re
 
 from ingest.models import Expectation
-from ingest.tagging.rules import Dictionaries, load_dictionaries, prepare
+from ingest.tagging.rules import Dictionaries, blank, load_dictionaries, prepare
 
 _MARKER = re.compile(
     r"(?<![\w-])(ожида|прогноз|консенсус|рассчитыва|предполага|допуска|не исключа|закладыва|предсказ|"
@@ -81,11 +81,12 @@ def _who(sentence: str) -> tuple[str, str]:
 
 def _indicator(sentence: str, dicts: Dictionaries, use_weak: bool) -> str | None:
     """Первый по тексту фактор; слабые шаблоны — только когда известно, кто ожидает."""
-    text = prepare(sentence)
+    text = blank(dicts.noise, prepare(sentence))
     best, best_pos = None, len(text) + 1
     for entry in dicts.factors:
+        own = blank(entry.exclude, text)
         for pattern in (entry.strong, entry.weak if use_weak else None):
-            m = pattern.search(text) if pattern else None
+            m = pattern.search(own) if pattern else None
             if m and m.start() < best_pos:
                 best, best_pos = entry.code, m.start()
     return best

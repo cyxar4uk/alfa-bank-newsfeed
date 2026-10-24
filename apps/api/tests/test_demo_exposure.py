@@ -152,3 +152,44 @@ def test_large_by_group_revenue(repo):
     assert all(c.client_type == "CLIENT" for c in leaders)
     stats = repo.group_stats(["group_133141_sb"])["group_133141_sb"]  # группа U_8318
     assert round(stats.revenue / 1e9, 1) == 55.7
+
+
+def test_demo_feeds_differ_by_company_and_role(repo):
+    import datetime as dt
+    import itertools
+    from pathlib import Path
+
+    from api.news import SnapshotNews
+    from api.ranking import MSK
+    from api.service import persona_feed
+
+    news = SnapshotNews(Path(__file__).resolve().parents[3] / "data" / "demo" / "news_snapshot.jsonl")
+    now = dt.datetime(2026, 10, 24, 12, tzinfo=MSK)
+
+    def top(persona):
+        return [i.event_id for i in persona_feed(repo, news, persona, limit=5, now=now).items]
+
+    main = {p: top(p) for p in ("p-u8318-cfo", "p-u57706-owner", "p-u34911-ceo", "p-u258116-ceo")}
+    # у основных пользователей четырёх демо-клиентов топ-5 различаются минимум на 3 события из 5
+    for a, b in itertools.combinations(main, 2):
+        assert len(set(main[a]) & set(main[b])) <= 2, (a, b)
+    # смена роли без смены компании меняет порядок
+    assert top("p-u8318-cfo") != top("p-u8318-acc")
+    assert top("p-u57706-owner") != top("p-u57706-tre")
+
+
+def test_demo_group_impact(repo):
+    from api.service import company_group_impact
+
+    # топливный холдинг: событие про дороги и госрасходы задевает дорожных строителей группы
+    _, impact = company_group_impact(repo, "U_57706", ["42"], ["gov"])
+    ids = {m.id for m in impact.affected}
+    assert {"U_191099", "U_417124"} <= ids
+    assert impact.companies_total == 369
+    # оптовик автозапчастей: событие по авторынку — импортёры группы, платежи с ними отдельно
+    _, auto = company_group_impact(repo, "U_8318", ["45"], [])
+    importers = {m.id: m for m in auto.affected if m.id in ("U_92457", "U_52177")}
+    assert set(importers) == {"U_92457", "U_52177"}
+    assert importers["U_92457"].intra_payments > 7e9
+    # зернотрейдер вне группы — блока нет
+    assert company_group_impact(repo, "U_34911", ["01"], []) == (True, None)

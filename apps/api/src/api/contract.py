@@ -448,6 +448,120 @@ class Insight(BaseModel):
         return {r for r in refs if not resolved(r)}
 
 
+# --- Лента -----------------------------------------------------------------------------------------
+
+
+class ScoreTerm(BaseModel):
+    """Слагаемое оценки события: сумма слагаемых равна `relevance.score`."""
+
+    kind: Literal["factor", "chain", "bank", "repeat"]
+    code: str = Field(examples=["rate", "chain:buyers:56", "bank_view"])
+    label: str = Field(description="что дало вклад, человеческим текстом")
+    value: float = Field(description="вклад в итоговую оценку")
+    event_strength: float | None = Field(
+        default=None, description="сила связи события с фактором или отраслью"
+    )
+    exposure: float | None = Field(
+        default=None, description="чувствительность компании (карта) или сила канала"
+    )
+    role_weight: float | None = Field(default=None, description="вес роли пользователя")
+
+
+class FeedRelevance(BaseModel):
+    score: float = Field(ge=0, le=1)
+    reason: str
+    refs: list[str] = Field(default_factory=list, description="exp:… карты, feat:… профиля, src:… события")
+    breakdown: list[ScoreTerm] = Field(default_factory=list)
+    freshness: float = Field(ge=0, le=1, description="множитель свежести — уже учтён в слагаемых")
+    source_quality: float = Field(
+        ge=0, le=1, description="множитель качества источника — уже учтён в слагаемых"
+    )
+
+
+class FeedFactor(BaseModel):
+    code: str
+    label: str
+
+
+class AffectedMember(BaseModel):
+    """Компания группы, которую задевает событие."""
+
+    id: str
+    display_name: str
+    okved: str | None = None
+    sector: str | None = None
+    region: str | None = None
+    revenue: float | None = Field(default=None, description="выручка, ₽")
+    revenue_bn: float | None = Field(default=None, description="выручка, млрд ₽")
+    channel: str = Field(description="через что задевает — человеческим текстом")
+    factors: list[FeedFactor] = Field(
+        default_factory=list, description="факторы события, к которым она чувствительна"
+    )
+    direct: bool = Field(description="событие в её отрасли")
+    strength: float = Field(ge=0, le=1, description="сила связи: событие × её чувствительность")
+    intra_payments: float | None = Field(
+        default=None, description="платежи между ней и компанией пользователя, ₽ (внутригрупповые)"
+    )
+
+
+class GroupImpact(BaseModel):
+    """Каких компаний группы пользователя касается событие — без самой компании. Нет группы — блока нет.
+
+    «Касается» — не обязательно в минус (высокая ставка — выгода держателям депозитов).
+    """
+
+    group_id: str
+    companies_total: int = Field(description="компаний в группе, включая компанию пользователя")
+    affected_count: int = Field(description="сколько компаний группы затрагивает событие")
+    major_count: int = Field(default=0, description="из них с выручкой от 1 млрд ₽")
+    affected_revenue: float = Field(description="суммарная выручка задетых компаний, ₽")
+    affected_revenue_bn: float
+    affected_share: float = Field(
+        ge=0, le=1, description="доля задетых в выручке группы без компании пользователя"
+    )
+    affected: list[AffectedMember] = Field(
+        default_factory=list, description="крупнейшие по выручке затронутые — не больше 10"
+    )
+    intra_payments: float = Field(description="платежи компании пользователя с задетыми компаниями группы, ₽")
+    intra_share: float = Field(ge=0, le=1, description="их доля в платёжном обороте компании пользователя")
+    text: str = Field(description="коротко для блока «Ваша группа»")
+    refs: list[str] = Field(default_factory=list)
+
+
+class FeedItem(BaseModel):
+    """Событие в ленте пользователя: почему оно здесь — без полного инсайта."""
+
+    event_id: str
+    event: InsightEvent
+    relevance: FeedRelevance
+    has_bank_view: bool = Field(description="есть ли аналитика Альфа-Банка по факторам события")
+    source: Source
+    factors: list[FeedFactor] = Field(
+        default_factory=list, description="факторы события, задевающие компанию"
+    )
+    channel: ChannelKind = Field(
+        description="главный путь влияния: сама компания, покупатели, поставщики, группа"
+    )
+    channel_text: str
+    group_impact: GroupImpact | None = Field(
+        default=None,
+        description="для собственника и гендиректора: каких компаний группы касается событие;"
+        " null — группы нет или событие её не касается",
+    )
+
+
+class Feed(BaseModel):
+    persona_id: str
+    company_id: str
+    role: Role
+    items: list[FeedItem]
+    candidates: int = Field(description="сколько событий рассмотрено")
+    news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+    summary: list[Statement] = Field(
+        default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
+    )
+
+
 # --- Трасса ---------------------------------------------------------------------------------------
 
 
