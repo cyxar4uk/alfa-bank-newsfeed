@@ -36,6 +36,7 @@ def defective_draft():
     draft = good_draft(
         what_happened=[fact(refs=[])],
         bank_view=[bank(quote="банк ждёт снижения ставки до 10% уже в октябре")],
+        bank_position=None,
     )
     for s in [*draft.why_it_matters, *draft.risks]:
         s.factor, s.refs = "rate", ["feat:CL_PRODUCT_LOA_MARK"]
@@ -61,6 +62,8 @@ def test_happy_path_builds_insight_by_contract():
         "multi_factor",
         "role",
         "not_retelling",
+        "verdict",
+        "plain_language",
     ]
     assert insight.unresolved_refs() == set()
     assert all(s.origin == "bank" for s in insight.bank_view)
@@ -88,7 +91,7 @@ def test_estimates_come_from_tool_not_model():
     estimates = [s for s in insight.consequences.risks if s.origin == "estimate"]
     assert len(estimates) == 1
     assert "+5 млн ₽" in estimates[0].text and "долг × Δставки" in estimates[0].text
-    assert "src:alfa:keyrate-2026-09#p2" in estimates[0].refs
+    assert "src:alfa:keyrate-2026-09#p1" in estimates[0].refs
     assert insight.unresolved_refs() == set()
 
 
@@ -99,7 +102,7 @@ def test_no_estimate_when_bank_forecast_not_on_page():
     agent, _ = make_agent(reply(GOOD_PLAN), *drafts, library=library)
     insight = agent.run(PERSONA, make_event()).insight
     assert not [s for s in insight.consequences.risks if s.origin == "estimate"]
-    assert any("не сверился" in w for w in insight.quality.warnings)
+    assert any("не удалось сверить" in w for w in insight.quality.warnings)
 
 
 def test_offer_is_separate_and_says_check_terms_when_product_exists():
@@ -148,7 +151,8 @@ def test_at_most_two_revisions_then_bad_statements_are_removed():
     passed = set(insight.quality.checks_passed)
     assert "multi_factor" not in passed
     assert any("убрано утверждений" in w for w in insight.quality.warnings)
-    assert any("позиции Альфа-Банка по теме нет" in w for w in insight.quality.warnings)
+    # материал банка был, но выдуманная цитата не прошла — «не подтвердилось», а не «банк не публиковал»
+    assert not insight.bank_position.found and "подтвердить" in insight.bank_position.statement
 
 
 def test_invalid_model_json_is_retried_inside_client():

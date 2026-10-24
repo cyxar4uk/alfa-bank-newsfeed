@@ -98,6 +98,33 @@ def cited(s: DraftStatement) -> list[str]:
     return [*s.refs, *conflict]
 
 
+class DraftVerdict(BaseModel):
+    level: Literal["act", "watch", "info"] = Field(
+        description="act — компании стоит действовать, watch — следить, info — к сведению: почти не влияет"
+    )
+    headline: str = Field(
+        min_length=1,
+        description="ответ на «важно ли это мне» одной фразой, до 120 знаков: «Для вас важно: …»,"
+        " «Стоит следить: …» или «На вашу компанию почти не влияет: …»",
+    )
+    why: str = Field(
+        min_length=1, description="почему — одно предложение с числом из данных о компании или из новости"
+    )
+    actions: list[str] = Field(
+        default_factory=list, description="что делать: 1–3 коротких шага для роли; у info — пусто"
+    )
+    refs: Refs = Field(default_factory=list, description="на чём основан итог: feat:… и src:…")
+
+
+class DraftBankPosition(BaseModel):
+    statement: str = Field(
+        min_length=1,
+        description="позиция банка одной фразой: «Альфа-Банк ожидает/считает/рекомендует …»",
+    )
+    refs: Refs = Field(description="фрагменты аналитики банка (src:alfa:…), на которых она основана")
+    quote: str = Field(description="дословная выдержка из фрагмента (10–200 символов)")
+
+
 class DraftAction(BaseModel):
     text: str = Field(min_length=1)
     kind: Literal["question", "scenario"]
@@ -105,8 +132,14 @@ class DraftAction(BaseModel):
 
 
 class Draft(BaseModel):
-    """Черновик инсайта: шесть вопросов кейса, у каждого утверждения — происхождение и ссылки."""
+    """Черновик инсайта: итог для руководителя и шесть вопросов кейса с происхождением и ссылками."""
 
+    verdict: DraftVerdict | None = Field(
+        default=None, description="итог: важно ли это компании, почему (с числом), что делать"
+    )
+    bank_position: DraftBankPosition | None = Field(
+        default=None, description="позиция Альфа-Банка одной фразой; нет позиции по теме — null"
+    )
     relevance_reason: str = Field(description="почему событие важно этой компании, одна фраза")
     relevance_refs: Refs = Field(default_factory=list)
     what_happened: list[DraftStatement] = Field(description="факты события, origin=fact")

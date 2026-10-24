@@ -22,6 +22,7 @@ from api.agent.loop import insight_id
 from api.agent.routes import get_agent
 from api.agent.service import AgentService
 from api.agent.store import MemoryAgentStore
+from api.agent.trace import ProgressStep
 from api.llm import TransportResponse
 from api.main import app
 
@@ -79,7 +80,17 @@ def test_first_request_returns_status_and_one_build_per_pair(api):
     transport.release.set()
     done = wait_status(client, {"done", "failed"})
     assert done["status"] == "done", done
-    assert "Пишу разбор" in done["stages_done"] and "Ищу аналитику Альфа-Банка" in done["stages_done"]
+    assert "Формулирую вывод: важно ли это вам и что делать" in done["stages_done"]
+    assert "Ищу, что пишет об этом Альфа-Банк" in done["stages_done"]
+    # ход разбора — шаги человеческим языком с тем, что найдено
+    steps = done["steps"]
+    assert steps and all(st["state"] == "done" for st in steps)
+    bank_step = next(st for st in steps if st["title"] == "Ищу, что пишет об этом Альфа-Банк")
+    assert any(f.startswith("Материал банка «") for f in bank_step["found"])
+    from api.agent.plain import technical
+
+    for st in steps:
+        assert not technical(st["title"]) and not any(technical(f) for f in st["found"]), st
     assert done["trace_id"].startswith("tr:") and done["elapsed_s"] >= 0
     ready = client.get(f"/api/insights/{NEWS_ID}", params=ASYNC)
     assert ready.status_code == 200 and ready.json()["id"] == KEY
@@ -120,9 +131,9 @@ def test_parallel_builds_are_limited_and_queued():
     gate = threading.Event()
     started = []
 
-    def run(on_stage):
+    def run(on_progress):
         started.append(1)
-        on_stage("Пишу разбор")
+        on_progress([ProgressStep(title="Пишу разбор")])
         gate.wait(5)
         return "tr:x"
 
@@ -214,7 +225,7 @@ def test_running_in_db_but_not_in_this_process_is_failed():
 def test_finished_status_is_kept_in_memory_not_db():
     store = MemoryAgentStore()
     jobs = Jobs(store)
-    jobs.submit(KEY, NEWS_ID, PERSONA.id, lambda on_stage: "tr:x")
+    jobs.submit(KEY, NEWS_ID, PERSONA.id, lambda on_progress: "tr:x")
     assert jobs.wait(KEY, 5).status == "done"
     store.jobs[KEY] = store.jobs[KEY].model_copy(update={"status": "running"})  # итог в БД не записался
     assert jobs.get(KEY).status == "done"

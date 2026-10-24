@@ -12,27 +12,32 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from api.agent.checks import Checker, Report
+from api.agent.checks import Checker, Report, quote_in
 from api.agent.context import AgentContext
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
+from api.agent.numbers import numbers_in
+from api.agent.plain import humanize_note, is_plain
 from api.agent.ports import CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
 from api.agent.relevance import combine as relevance_combine
 from api.agent.relevance import formula as relevance_formula
 from api.agent.relevance import terms_for as relevance_terms
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
-from api.agent.trace import TOOL_STAGES, TraceRecorder
+from api.agent.trace import TOOL_STAGES, ProgressStep, TraceRecorder
 from api.contract import (
     Action,
+    BankPosition,
     Consequences,
     Insight,
     InsightEvent,
     Persona,
     Quality,
+    Quote,
     Relevance,
     Source,
     Trace,
+    Verdict,
 )
 from api.llm import BudgetExceeded, LlmClient, LlmError
 
@@ -83,6 +88,7 @@ class Agent:
         profile = self.company.profile(persona.company_id)
         if profile is None:
             raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
+        trace.found(profile.display_name)
         trace.tool(
             "get_profile", {"company_id": profile.id}, [f.id for f in profile.features], profile.display_name
         )
@@ -167,39 +173,51 @@ class Agent:
 
     # --- сборка -----------------------------------------------------------------------------------
 
-    def run(self, persona: Persona, event: Event, on_stage: Callable[[str], None] | None = None) -> Result:
-        """Собрать карточку. `on_stage(подпись)` — этапы сборки по ходу, для статуса пользователю."""
-        trace = TraceRecorder(on_stage=on_stage)
+    def run(
+        self,
+        persona: Persona,
+        event: Event,
+        on_progress: Callable[[list[ProgressStep]], None] | None = None,
+    ) -> Result:
+        """Собрать карточку. `on_progress(шаги)` — ход разбора по мере работы, для статуса пользователю."""
+        trace = TraceRecorder(on_progress=on_progress)
         try:
-            return self._run(persona, event, trace)
+            result = self._run(persona, event, trace)
+            trace.finish(ok=True)
+            return result
         except (LlmError, BudgetExceeded) as exc:
+            trace.finish(ok=False)
             trace.llm("ошибка", exc.calls)
             trace.check(False, f"агент остановлен: {exc}")
             raise AgentError(str(exc), trace.trace) from exc
         except AgentError as exc:
+            trace.finish(ok=False)
             exc.trace = trace.trace
             raise
         except Exception as exc:
+            trace.finish(ok=False)
             # любой другой сбой (данные, разметка) — с трассой до места сбоя, без подробностей наружу
             trace.check(False, f"агент остановлен: внутренняя ошибка {type(exc).__name__}")
             raise AgentError("внутренняя ошибка агента", trace.trace) from exc
 
     def _run(self, persona: Persona, event: Event, trace: TraceRecorder) -> Result:
         ctx, tools = self.gather(persona, event, trace)
-        trace.stage("Составляю план: какие факторы и каналы проверить")
+        trace.stage("Решаю, что проверить в первую очередь")
         plan = self.plan(ctx, trace)
+        trace.found(plan.role_focus)
         self.execute(ctx, tools, plan)
-        trace.stage("Пишу разбор")
+        trace.stage("Формулирую вывод: важно ли это вам и что делать")
         draft = self.draft(ctx, trace)
-        trace.stage("Проверяю источники, цитаты и цифры")
+        trace.stage("Сверяю каждую цифру и цитату с источниками")
         report = self.check(ctx, draft, trace)
+        trace.found(_check_found(report))
         best = (draft, report)
         for n in range(1, MAX_REVISIONS + 1):
             if not _worth_revising(ctx, report, n):
                 break
             extra = self.dig(ctx, tools, report, plan)
             trace.retry(f"круг {n}: {len(report.issues)} проблем(ы). {extra}".strip())
-            trace.stage(f"Дорабатываю разбор (круг {n} из {MAX_REVISIONS})")
+            trace.stage(f"Исправляю неточности (круг {n} из {MAX_REVISIONS})")
             completion = self.llm.complete(
                 "revise",
                 revise_messages(ctx, draft, report, extra),
@@ -209,6 +227,7 @@ class Agent:
             trace.llm("revise", completion.calls)
             draft = completion.value
             report = self.check(ctx, draft, trace)
+            trace.found(_check_found(report))
             # доработка могла выйти хуже — дальше работаем с лучшим из черновиков, он же идёт в карточку
             if _badness(report) <= _badness(best[1]):
                 best = (draft, report)
@@ -236,14 +255,21 @@ class Agent:
 
         used_sources: dict[str, Source] = {}
         quotes: dict[str, list[str]] = {}
-        for _, _, s in clean.statements():
-            for ref in cited(s):
+        cited_refs = [
+            (cited(s), s.quote if s.origin in ("fact", "bank") else None) for _, _, s in clean.statements()
+        ]
+        if clean.verdict:
+            cited_refs.append((clean.verdict.refs, None))
+        if clean.bank_position:
+            cited_refs.append((clean.bank_position.refs, clean.bank_position.quote))
+        for refs_, quote in cited_refs:
+            for ref in refs_:
                 if ref.startswith("src:"):
                     src = sources.get(ref) or sources.get(ref.split("#", 1)[0]) or _page_of(ctx, ref)
                     if src is not None:
                         used_sources.setdefault(src.id, src)
-                    if s.quote and s.origin in ("fact", "bank"):
-                        quotes.setdefault(src.id if src else ref, []).append(s.quote.strip())
+                    if quote:
+                        quotes.setdefault(src.id if src else ref, []).append(quote.strip())
 
         consequences = Consequences(
             risks=[to_statement(s) for s in clean.risks],
@@ -275,21 +301,33 @@ class Agent:
         refs = {r for _, _, s in clean.statements() for r in cited(s)}
         refs |= {r for e in ctx.estimates for r in e.statement.refs} | {r for a in actions for r in a.refs}
         refs |= set(clean.relevance_refs)
+        refs |= set(clean.verdict.refs) if clean.verdict else set()
         known = ctx.feature_ids()
         features_used = sorted(r for r in refs if r.startswith("feat:") and r in known)
 
-        warnings = list(dict.fromkeys([*ctx.warnings, *clean.warnings, *report.warnings]))
-        if not clean.bank_view:
-            warnings.append("позиции Альфа-Банка по теме нет")
+        raw = list(dict.fromkeys([*ctx.warnings, *clean.warnings, *report.warnings]))
+        if not clean.bank_view and not clean.bank_position and not any(not h.stale for h in ctx.analytics):
+            raw.append("позиции Альфа-Банка по теме нет")
         if dropped:
-            warnings.append(f"убрано утверждений, не прошедших самопроверку: {dropped}")
+            raw.append(f"убрано утверждений, которые не подтвердились источниками: {dropped}")
         for issue in final.issues:
-            if not issue.hard:
-                warnings.append(f"самопроверка: {issue.message}")
+            note = SOFT_NOTES.get(issue.check)
+            if not issue.hard and note:
+                raw.append(note)
+        # пользователь видит только предупреждения человеческим языком; служебные — в трассе
+        shown = {w: humanize_note(w) for w in dict.fromkeys(raw)}
+        warnings = list(dict.fromkeys(h for h in shown.values() if h))
+        hidden = [w for w, h in shown.items() if not h]
+        if hidden:
+            trace.check(True, "служебные предупреждения (не показаны): " + "; ".join(hidden))
 
+        reason = next(
+            (r for r in (clean.relevance_reason, formal.reason) if r and is_plain(r)),
+            "событие касается того, от чего зависит бизнес компании",
+        )
         relevance = Relevance(
             score=score,
-            reason=clean.relevance_reason or formal.reason,
+            reason=reason,
             refs=[r for r in dict.fromkeys([*formal.refs, *clean.relevance_refs]) if r in known],
         )
         published = ctx.event.source.published_at
@@ -306,13 +344,106 @@ class Agent:
             features_used=features_used,
             quality=Quality(checks_passed=final.passed, warnings=warnings),
             trace_id=trace.id,
+            verdict=_verdict(clean, score, reason, actions),
+            bank_position=_bank_position(ctx, clean),
+            quotes=_quotes(ctx, clean),
         )
         missing = insight.unresolved_refs()
         if missing:
             # не должно случаться после самопроверки; если случилось — не отдаём битые ссылки молча
-            insight.quality.warnings.append(f"ссылки без источника: {', '.join(sorted(missing)[:5])}")
+            trace.check(False, f"ссылки без источника: {', '.join(sorted(missing)[:5])}")
+            insight.quality.warnings.append("часть ссылок на источники не удалось проверить")
             insight.quality.checks_passed = [c for c in insight.quality.checks_passed if c != "refs"]
         return insight
+
+
+# мягкие проблемы самопроверки — пользователю человеческим языком; остальные — только в трассе
+SOFT_NOTES = {
+    "multi_factor": "Событие касается компании только с одной стороны — другие связи в данных не видны",
+    "role": "Не всё в разборе удалось привязать к задачам вашей роли",
+    "bank_quotes": "Позицию Альфа-Банка по этой теме подтвердить материалом не удалось",
+}
+NO_BANK_POSITION = (
+    "Альфа-Банк не публиковал позицию по этой теме — вывод сделан по данным о компании и новости"
+)
+UNCONFIRMED_BANK_POSITION = "Позицию Альфа-Банка по этой теме подтвердить материалом не удалось"
+
+
+def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> Verdict:
+    """Итог из черновика; если модель его не дала или он не прошёл проверку — по оценке и выводам карточки."""
+    v = draft.verdict
+    if v is not None:
+        return Verdict(
+            level=v.level,
+            headline=v.headline,
+            why=v.why,
+            actions=v.actions[:3],
+            refs=list(dict.fromkeys(v.refs)),
+        )
+    level = "act" if score >= 0.5 else "watch" if score >= 0.2 else "info"
+    headline = {
+        "act": "Для вас важно: событие задевает деньги или ключевых контрагентов компании",
+        "watch": "Стоит следить: влияние на компанию возможно, но не прямое",
+        "info": "На вашу компанию почти не влияет",
+    }[level]
+    plain = [s.text for s in draft.why_it_matters if s.origin == "data" and is_plain(s.text)]
+    why = next((t for t in plain if numbers_in(t)), plain[0] if plain else reason)
+    steps = (
+        [a.text for a in actions if a.kind != "product" and is_plain(a.text)][:3] if level != "info" else []
+    )
+    return Verdict(level=level, headline=headline, why=why, actions=steps)
+
+
+def _hit_for(ctx: AgentContext, refs: list[str]):
+    return next((h for h in ctx.analytics if h.source.id in refs or h.page_ref in refs), None)
+
+
+def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
+    """Позиция банка одной фразой с материалом и датой; нет позиции — так и сказано."""
+    bp = draft.bank_position
+    if bp is not None:
+        statement, refs = bp.statement, bp.refs
+    elif draft.bank_view:
+        statement, refs = draft.bank_view[0].text, draft.bank_view[0].refs
+    elif any(not h.stale for h in ctx.analytics):
+        # материал банка был, но позиция не подтвердилась самопроверкой — это не «банк не публиковал»
+        return BankPosition(found=False, statement=UNCONFIRMED_BANK_POSITION)
+    else:
+        return BankPosition(found=False, statement=NO_BANK_POSITION)
+    hit = _hit_for(ctx, refs)
+    # ссылка — та, что процитирована и проверена (страница или фрагмент), а не id найденного фрагмента
+    cited = next((r for r in refs if r.startswith("src:alfa:")), None)
+    return BankPosition(
+        found=True,
+        statement=statement,
+        # имени аналитика в распознанных материалах нет — не выдумываем
+        analyst=None,
+        material=hit.source.title if hit else None,
+        date=hit.material_date if hit else None,
+        source_id=cited or (hit.source.id if hit else None),
+        url=hit.source.url if hit else None,
+    )
+
+
+def _quotes(ctx: AgentContext, draft: Draft) -> list[Quote]:
+    """Дословные выдержки из новости, на которые опираются факты карточки, — для подсветки в полном тексте."""
+    out: list[Quote] = []
+    for s in draft.what_happened + draft.why_it_matters + draft.watch:
+        if s.origin != "fact" or not s.quote or ctx.event.id not in s.refs:
+            continue
+        text = s.quote.strip()
+        if quote_in(text, ctx.event.text) and all(q.text != text for q in out):
+            out.append(Quote(text=text, source_id=ctx.event.id))
+    return out
+
+
+def _check_found(report: Report) -> str:
+    hard = sum(1 for i in report.issues if i.hard)
+    if not report.issues:
+        return "Всё сходится с источниками"
+    if hard:
+        return f"Не подтвердилось утверждений: {hard} — исправляю или убираю"
+    return "Цифры и цитаты сходятся, уточняю формулировки"
 
 
 def _badness(report: Report) -> tuple[int, int]:
@@ -350,6 +481,10 @@ def _without(draft: Draft, report: Report) -> Draft:
         items = getattr(data, block)
         setattr(data, block, [s for i, s in enumerate(items) if (block, i) not in bad])
     data.actions = [a for i, a in enumerate(data.actions) if ("actions", i) not in bad]
+    if ("verdict", 0) in bad:
+        data.verdict = None
+    if ("bank_position", 0) in bad:
+        data.bank_position = None
     return data
 
 

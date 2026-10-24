@@ -6,7 +6,9 @@
 - учтено не меньше двух факторов или каналов компании;
 - роль отражена в «почему важно» и в действиях;
 - числа только из данных и источников, суммы в рублях модель сама не пишет (их дают расчётные инструменты);
-- нет утверждений про контрагентов, которых нет в цепочке или группе.
+- нет утверждений про контрагентов, которых нет в цепочке или группе;
+- есть итог «важно ли → почему (с числом) → что делать», позиция банка — одной фразой со ссылкой на материал;
+- в том, что видит пользователь, нет служебных слов («карта чувствительности», «канал», «фактор», коды).
 
 Проблема конкретного утверждения — «жёсткая»: если доработка её не исправит, утверждение убирается из
 карточки. Проблемы карточки целиком (факторы, роль, пересказ) — повод переписать; не исправлены —
@@ -20,7 +22,8 @@ from dataclasses import dataclass, field
 from api.agent.context import ROLE_STEMS, AgentContext
 from api.agent.drafts import Draft, DraftStatement
 from api.agent.forecasts import superseded
-from api.agent.numbers import NumberBank, money_in
+from api.agent.numbers import NumberBank, money_in, numbers_in
+from api.agent.plain import technical
 
 CHECKS = (
     "refs",
@@ -32,6 +35,14 @@ CHECKS = (
     "multi_factor",
     "role",
     "not_retelling",
+    "verdict",
+    "plain_language",
+)
+
+# позиция банка — от лица банка: «Альфа-Банк ожидает …», «Аналитики Альфа-Банка считают …»
+_BANK_VOICE = re.compile(
+    r"^[«\"]?(?:по (?:оценке|прогнозу|мнению) |в )?(?:аналитики |эксперты )?[«\"]?альфа[- ]банк",
+    re.IGNORECASE,
 )
 
 QUOTE_MIN, QUOTE_MAX = 10, 300
@@ -271,6 +282,93 @@ class Checker:
         unknown = self.unknown_companies(s.text, s.refs)
         if unknown:
             bad("counterparties_in_chain", f"контрагентов нет в цепочке и группе: {', '.join(unknown[:3])}")
+        words = technical(s.text, quoting=s.origin in ("fact", "bank"))
+        if words:
+            bad(
+                "plain_language",
+                f"служебные слова для пользователя ({', '.join(words)}) — скажи по-человечески",
+            )
+        return out
+
+    # --- итог и позиция банка ----------------------------------------------------------------------
+
+    def verdict(self, draft: Draft) -> list[Issue]:
+        v = draft.verdict
+        if v is None:
+            return [
+                Issue("verdict", "нет итога verdict: важно ли это компании, почему (с числом), что делать")
+            ]
+        out: list[Issue] = []
+
+        def bad(check: str, message: str, hard: bool = True) -> None:
+            out.append(Issue(check, message, "verdict", 0, hard))
+
+        unresolved = [r for r in v.refs if not self.resolves(r)]
+        if unresolved:
+            bad("refs", f"ссылки не из контекста: {', '.join(unresolved[:4])}")
+        text = " ".join([v.headline, v.why, *v.actions])
+        # суммы в рублях — только из расчётного инструмента: они есть в его утверждениях
+        allowed = self.ctx.all_numbers()
+        for e in self.ctx.estimates:
+            allowed.add_text(e.statement.text)
+        missing = allowed.unsupported(text)
+        if missing:
+            bad("numbers_from_tools", f"чисел нет ни в данных, ни в источниках: {', '.join(missing[:4])}")
+        unknown = self.unknown_companies(text, v.refs)
+        if unknown:
+            bad("counterparties_in_chain", f"контрагентов нет в цепочке и группе: {', '.join(unknown[:3])}")
+        words = technical(text)
+        if words:
+            bad("plain_language", f"служебные слова в итоге ({', '.join(words)}) — скажи по-человечески")
+        if v.level != "info":
+            if not numbers_in(v.why):
+                bad("verdict", "в «почему» нет числа из данных о компании или новости", hard=False)
+            if not v.actions:
+                bad("verdict", "итог «действовать/следить» без шагов: что делать", hard=False)
+        if len(v.headline) > 160:
+            bad("verdict", "итог длиннее 160 знаков — одна короткая фраза", hard=False)
+        return out
+
+    def bank_position(self, draft: Draft) -> list[Issue]:
+        bp = draft.bank_position
+        if bp is None:
+            return []  # одной фразой её соберёт сборка из bank_view, а нет и его — проверка карточки ниже
+        out: list[Issue] = []
+
+        def bad(check: str, message: str) -> None:
+            out.append(Issue(check, message, "bank_position", 0, True))
+
+        pages = [r for r in bp.refs if self.ctx.page_ref_of(r)]
+        stray = [r for r in bp.refs if not self.resolves(r)]
+        if stray:
+            bad("refs", f"ссылки не из контекста: {', '.join(stray[:4])}")
+        if not pages:
+            bad("bank_quotes", "позиция банка без ссылки на фрагмент аналитики Альфа-Банка")
+            return out
+        if any(h.stale and (h.source.id in bp.refs or h.page_ref in bp.refs) for h in self.ctx.analytics):
+            bad("bank_quotes", "ссылка на устаревший материал — это не позиция банка")
+        if not _BANK_VOICE.match(bp.statement.strip()):
+            bad("bank_quotes", "позицию начни со слов «Альфа-Банк ожидает/считает/рекомендует …»")
+        texts = [self.source_text(r) for r in pages]
+        if not any(quote_in(bp.quote, t) for t in texts):
+            bad("bank_quotes", f"выдержка не найдена в распознанном тексте страницы: «{bp.quote[:80]}»")
+        cited = NumberBank()
+        for t in texts:
+            cited.add_text(t)
+        missing = cited.unsupported(bp.statement)
+        if missing:
+            bad("bank_quotes", f"чисел нет в материале банка: {', '.join(missing[:4])}")
+        for hit in self.ctx.analytics:
+            if hit.source.id in bp.refs or hit.page_ref in bp.refs:
+                newer = superseded(bp.statement, hit.source.id.split("#", 1)[0], hit.material_date)
+                if newer:
+                    bad(
+                        "fresh_forecast", f"прогноз банк пересмотрел {newer.date:%d.%m.%Y}: возьми актуальный"
+                    )
+                    break
+        words = technical(bp.statement, quoting=True)
+        if words:
+            bad("plain_language", f"служебные слова в позиции банка ({', '.join(words)})")
         return out
 
     def unknown_companies(self, text: str, refs: list[str]) -> list[str]:
@@ -310,6 +408,24 @@ class Checker:
 
     def run(self, draft: Draft) -> Report:
         report = Report()
+        report.issues += self.verdict(draft)
+        report.issues += self.bank_position(draft)
+        for i, a in enumerate(draft.actions):
+            words = technical(a.text)
+            if words:
+                report.issues.append(
+                    Issue(
+                        "plain_language",
+                        f"служебные слова в действии ({', '.join(words)})",
+                        "actions",
+                        i,
+                        True,
+                    )
+                )
+        if technical(draft.relevance_reason):
+            report.issues.append(
+                Issue("plain_language", "служебные слова в relevance_reason — скажи по-человечески")
+            )
         for block, i, s in draft.statements():
             report.issues += self.statement(block, i, s)
             allowed = BLOCK_ORIGINS[block]
@@ -354,7 +470,7 @@ class Checker:
         available = self.ctx.factor_codes()
         if len(covered) < 2:
             if len(available) < 2:
-                report.warnings.append("в данных компании меньше двух факторов, связанных с событием")
+                report.warnings.append("в данных о компании видна только одна связь с этим событием")
             report.issues.append(
                 Issue(
                     "multi_factor",
@@ -397,7 +513,7 @@ class Checker:
             report.issues.append(Issue("role", "нет действий"))
 
         usable = [h for h in self.ctx.analytics if not h.stale]
-        if usable and not draft.bank_view:
+        if usable and not draft.bank_view and not draft.bank_position:
             report.issues.append(
                 Issue("bank_quotes", "в контексте есть аналитика банка, а позиции банка в карточке нет")
             )
