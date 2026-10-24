@@ -12,7 +12,9 @@ from api.ranking import (
     RankingConfig,
     default_ranking,
     event_from,
+    foreign_countries,
     freshness,
+    linked_countries,
     rank,
     score_event,
 )
@@ -27,14 +29,15 @@ CAFE = make_company(id="U_10", okved_code="56.10", group_id=None)
 FLOWS = [Flow("U_10", "in", 1e9, 10, CAFE), Flow("U_99", "out", 1e9, 5, None)]
 
 
-def news(event_id, factors=(), sectors=(), days=1, publisher="Интерфакс"):
+def news(event_id, factors=(), sectors=(), days=1, publisher="Интерфакс", title=None, countries=()):
     return NewsEvent(
         id=event_id if event_id.startswith("src:") else f"src:news:{event_id}",
-        title=f"Новость {event_id}",
+        title=title or f"Новость {event_id}",
         published_at=NOW - dt.timedelta(days=days),
         publisher=publisher,
         factors=[(code, strength, code) for code, strength in factors],
         sectors=list(sectors),
+        countries=list(countries),
     )
 
 
@@ -207,3 +210,111 @@ def test_repeat_label_plural():
     from api.ranking import _times
 
     assert [_times(n) for n in (1, 2, 5, 12, 22)] == ["1 раз", "2 раза", "5 раз", "12 раз", "22 раза"]
+
+
+def test_foreign_countries_by_title():
+    def foreign(title):
+        return foreign_countries(news("x", title=title))
+
+    # первой в заголовке названа зарубежная страна — событие за рубежом
+    assert foreign("В Конгресс США внесён законопроект об энергоносителях РФ") == {"США"}
+    assert foreign("Франция притормаживает") == {"Франция"}
+    assert foreign("Вашингтон и Пекин договорились о пошлинах") == {"США", "Китай"}  # синонимы из словаря
+    assert foreign("Еврокомиссия предложила новый пакет") == {"Евросоюз"}
+    assert foreign("Ставки в Южной Корее снизились") == {"Южная Корея"}
+    # Россия первой или стран в заголовке нет — событие российское, что бы ни было в тексте
+    assert foreign("Россия нарастила импорт шин из Китая") == set()
+    assert foreign("ЦБ опустил курс доллара ниже 82 рублей") == set()
+    assert foreign("Глава НОВАТЭКа допустил пересмотр Европой запрета на СПГ") == set()
+    # российское ведомство в начале — это Россия; «Минфин США» — нет
+    assert foreign("Правительство обнулило пошлины на ввоз товаров из Индии и Китая") == set()
+    assert foreign("ЦБ ограничит переводы в Киргизию") == set()
+    assert foreign("Минфин США продлил лицензию") == {"США"}
+    # не страны: основы слов не путаются со словами
+    for title in [
+        "Налоговые каникулы для индивидуальных предпринимателей",
+        "Грузовые перевозки подорожали",
+        "Каналы продаж",
+        "Катастрофа на складе",
+        "Герман Греф о ставке",
+    ]:
+        assert foreign(title) == set(), title
+
+
+def test_linked_countries_expand_eu_and_hong_kong():
+    assert linked_countries(["Литва", "Гонконг"]) == {"литва", "евросоюз", "гонконг", "китай"}
+    tax = [("tax_regulation", 1.0)]
+    eu = news("eu", factors=tax, title="Еврокомиссия ужесточила отчётность")
+    # торгует с Литвой — событие ЕС её касается в полную силу
+    assert feed([eu], "chief_accountant", countries={"Литва"})[0].relevance.breakdown[0].event_strength == 1.0
+    assert feed([eu], "chief_accountant", countries={"Китай"})[0].relevance.breakdown[0].event_strength == 0.3
+    # страны ВЭД неизвестны — правило не применяется
+    assert feed([eu], "chief_accountant")[0].relevance.breakdown[0].event_strength == 1.0
+
+
+def test_foreign_law_does_not_change_russian_taxes():
+    # законопроект в Конгрессе США — не российские налоги: у главбуха он уступает российскому закону
+    tax = [("tax_regulation", 1.0)]
+    home = news("home", factors=tax, title="Госдума приняла закон о налоге", countries=["Россия"])
+    abroad = news("us", factors=tax, title="В Конгресс США внесён законопроект", countries=["Россия", "США"])
+    items = {i.event_id: i for i in feed([home, abroad], "chief_accountant", countries={"Китай", "ОАЭ"})}
+    us = items["src:news:us"].relevance
+    assert us.score < items["src:news:home"].relevance.score
+    term = us.breakdown[0]
+    assert term.event_strength == pytest.approx(0.3)
+    assert term.label.endswith("(событие за рубежом: США)")
+    # ВЭД компании с этой страной — канал есть, событие не ослабляется
+    linked = feed([abroad], "chief_accountant", countries={"США"})[0]
+    assert linked.relevance.breakdown[0].event_strength == 1.0
+
+
+def test_trade_between_other_countries_needs_company_trade_with_them():
+    duties = news(
+        "duties",
+        factors=[("ved_logistics", 1.0)],
+        title="США отменят пошлины на товары из Канады",
+        countries=["США", "Канада"],
+    )
+    sanctions = news(
+        "sanctions",
+        factors=[("ved_logistics", 1.0)],
+        title="ЕС ввёл пошлины на товары из России",
+        countries=["Россия", "Евросоюз"],
+    )
+    one = news("one", factors=[("ved_logistics", 1.0)], title="США ввели пошлины на сталь", countries=["США"])
+    items = {i.event_id: i for i in feed([duties, sanctions, one], "ceo", countries={"Китай"})}
+    assert items["src:news:duties"].relevance.breakdown[0].event_strength == pytest.approx(0.3)
+    # событие с Россией касается ВЭД любой компании; одна страна — не «между другими странами»
+    assert items["src:news:sanctions"].relevance.breakdown[0].event_strength == 1.0
+    assert items["src:news:one"].relevance.breakdown[0].event_strength == 1.0
+    with_canada = feed([duties], "ceo", countries={"Канада"})[0]
+    assert with_canada.relevance.breakdown[0].event_strength == 1.0
+
+
+def test_event_about_many_industries_shares_strength():
+    # утильсбор на буровое оборудование: метки нефтесервиса, машиностроения, добычи — и торговли топливом
+    many = news("many", sectors=[("09", 1.0), ("46", 1.0), ("28", 0.6), ("08", 0.6)])
+    single = news("single", sectors=[("46", 1.0)])
+    items = {i.event_id: i for i in feed([many, single], "ceo")}
+    direct = next(t for t in items["src:news:many"].relevance.breakdown if t.code == "chain:direct:46")
+    assert direct.event_strength == pytest.approx(1.0 / 3.2, abs=1e-3)
+    assert items["src:news:many"].relevance.score < items["src:news:single"].relevance.score
+    single_direct = next(
+        t for t in items["src:news:single"].relevance.breakdown if t.code == "chain:direct:46"
+    )
+    assert single_direct.event_strength == 1.0
+    # у события с факторами отрасли выводятся из факторов — не делятся
+    with_factor = news("factor", factors=[("rate", 0.5)], sectors=[("09", 1.0), ("46", 1.0), ("28", 0.6)])
+    terms = feed([with_factor], "ceo")[0].relevance.breakdown
+    assert next(t for t in terms if t.code == "chain:direct:46").event_strength == 1.0
+
+
+def test_foreign_event_only_about_industries_is_weaker():
+    # «Венгрия игнорирует запросы Росатома»: только отрасль, за рубежом — каналы слабее
+    abroad = news("hu", sectors=[("46", 1.0)], title="Венгрия игнорирует запросы поставщиков")
+    home = news("ru", sectors=[("46", 1.0)], title="Поставщики топлива подняли цены")
+    items = {i.event_id: i for i in feed([abroad, home], "ceo", countries={"Китай"})}
+    direct = items["src:news:hu"].relevance.breakdown[0]
+    assert direct.event_strength == pytest.approx(0.3)
+    assert direct.label.endswith("(событие за рубежом: Венгрия)")
+    assert items["src:news:hu"].relevance.score < items["src:news:ru"].relevance.score
