@@ -69,7 +69,7 @@ CASE WHEN length(f.fragment) <= {PUBLIC_FRAGMENT_CHARS} OR qq.q IS NULL THEN f.f
 """
 
 _NEWS_COLUMNS = (
-    "n.id, n.title, n.publisher, n.url, n.published_at, n.fragment, n.tags, n.expectations,"
+    "n.id, n.title, n.publisher, n.reliability, n.url, n.published_at, n.fragment, n.tags, n.expectations,"
     " n.also_reported_by"
 )
 
@@ -154,6 +154,7 @@ def news_from_row(row: dict[str, Any], score: float | None = None) -> NewsItem:
         id=row["id"],
         title=row["title"],
         publisher=row["publisher"],
+        reliability=row.get("reliability"),
         url=row["url"],
         published_at=_msk(row["published_at"]),
         fragment=row["fragment"],

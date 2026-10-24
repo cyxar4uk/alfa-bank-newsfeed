@@ -89,6 +89,7 @@ def normalize(item: RawItem) -> Source | None:
         kind="news",
         title=title,
         publisher=item.publisher,
+        reliability=item.reliability,
         url=url,
         published_at=parse_date(item.published),
         fragment=lead or title,

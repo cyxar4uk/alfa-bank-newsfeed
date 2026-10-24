@@ -3,10 +3,12 @@
 import tomllib
 from dataclasses import dataclass
 from importlib import resources
+from urllib.parse import urlsplit
 
 import feedparser
 import httpx
 
+RELIABILITY = frozenset({"official", "agency", "business_media", "other"})
 USER_AGENT = "Mozilla/5.0 (compatible; alfa-newsfeed-ingest/0.1)"
 
 
@@ -18,6 +20,10 @@ class Feed:
     priority: int = 5
     enabled: bool = True
     terms: str = ""
+    reliability: str = "other"
+    # домены ссылок ленты: запись с чужого домена (спорт-сайт, партнёрский журнал) не берём — иначе в карточке
+    # был бы не тот издатель
+    hosts: tuple[str, ...] = ()
 
 
 @dataclass
@@ -29,6 +35,7 @@ class RawItem:
     summary: str
     link: str
     published: str | None
+    reliability: str = "other"
 
 
 @dataclass
@@ -47,18 +54,28 @@ def load_feeds(path: str | None = None) -> list[Feed]:
             data = tomllib.load(f)
     else:
         data = tomllib.loads(resources.files("ingest.news").joinpath("sources.toml").read_text("utf-8"))
-    return [Feed(**item) for item in data.get("feed", [])]
+    feeds = []
+    for item in data.get("feed", []):
+        feed = Feed(**{**item, "hosts": tuple(item.get("hosts", ()))})
+        if feed.reliability not in RELIABILITY:
+            raise ValueError(f"лента {feed.id}: reliability должен быть одним из {sorted(RELIABILITY)}")
+        feeds.append(feed)
+    return feeds
 
 
 def parse_feed(feed: Feed, content: bytes) -> list[RawItem]:
     parsed = feedparser.parse(content)
     items = []
     for entry in parsed.entries:
+        host = (urlsplit(entry.get("link", "")).hostname or "").removeprefix("www.")
+        if feed.hosts and host not in {h.removeprefix("www.") for h in feed.hosts}:
+            continue
         items.append(
             RawItem(
                 feed_id=feed.id,
                 publisher=feed.publisher,
                 priority=feed.priority,
+                reliability=feed.reliability,
                 title=entry.get("title", ""),
                 summary=entry.get("summary", "") or entry.get("description", ""),
                 link=entry.get("link", ""),
