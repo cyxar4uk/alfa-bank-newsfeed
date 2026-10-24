@@ -9,16 +9,20 @@
 
 import hashlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from api.agent.checks import Checker, Report
 from api.agent.context import AgentContext
-from api.agent.drafts import Draft, DraftStatement, Plan
+from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
-from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
+from api.agent.ports import CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
+from api.agent.relevance import combine as relevance_combine
+from api.agent.relevance import formula as relevance_formula
+from api.agent.relevance import terms_for as relevance_terms
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
-from api.agent.trace import TraceRecorder
+from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import (
     Action,
     Consequences,
@@ -28,7 +32,6 @@ from api.contract import (
     Quality,
     Relevance,
     Source,
-    Statement,
     Trace,
 )
 from api.llm import BudgetExceeded, LlmClient, LlmError
@@ -76,6 +79,7 @@ class Agent:
     # --- шаги -------------------------------------------------------------------------------------
 
     def gather(self, persona: Persona, event: Event, trace: TraceRecorder) -> tuple[AgentContext, Tools]:
+        trace.stage(TOOL_STAGES["get_profile"])
         profile = self.company.profile(persona.company_id)
         if profile is None:
             raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
@@ -163,8 +167,9 @@ class Agent:
 
     # --- сборка -----------------------------------------------------------------------------------
 
-    def run(self, persona: Persona, event: Event) -> Result:
-        trace = TraceRecorder()
+    def run(self, persona: Persona, event: Event, on_stage: Callable[[str], None] | None = None) -> Result:
+        """Собрать карточку. `on_stage(подпись)` — этапы сборки по ходу, для статуса пользователю."""
+        trace = TraceRecorder(on_stage=on_stage)
         try:
             return self._run(persona, event, trace)
         except (LlmError, BudgetExceeded) as exc:
@@ -181,9 +186,12 @@ class Agent:
 
     def _run(self, persona: Persona, event: Event, trace: TraceRecorder) -> Result:
         ctx, tools = self.gather(persona, event, trace)
+        trace.stage("Составляю план: какие факторы и каналы проверить")
         plan = self.plan(ctx, trace)
         self.execute(ctx, tools, plan)
+        trace.stage("Пишу разбор")
         draft = self.draft(ctx, trace)
+        trace.stage("Проверяю источники, цитаты и цифры")
         report = self.check(ctx, draft, trace)
         best = (draft, report)
         for n in range(1, MAX_REVISIONS + 1):
@@ -191,6 +199,7 @@ class Agent:
                 break
             extra = self.dig(ctx, tools, report, plan)
             trace.retry(f"круг {n}: {len(report.issues)} проблем(ы). {extra}".strip())
+            trace.stage(f"Дорабатываю разбор (круг {n} из {MAX_REVISIONS})")
             completion = self.llm.complete(
                 "revise",
                 revise_messages(ctx, draft, report, extra),
@@ -211,18 +220,24 @@ class Agent:
         clean = _without(draft, report)
         dropped = len(draft.statements()) - len(clean.statements()) + len(draft.actions) - len(clean.actions)
         final = Checker(ctx).run(clean)
+        # значимость — согласованная с объяснением: формальная оценка и факторы, на которых строится карточка
+        formal = self.company.relevance(ctx.persona, ctx.event.source) or relevance_formula(ctx)
+        checker = Checker(ctx)
+        terms = relevance_terms(ctx, checker.covered_factors(clean), checker.stated_factors(clean))
+        score, basis = relevance_combine(formal, terms)
+        trace.tool(
+            "relevance",
+            {"formal": formal.score},
+            [],
+            f"итог {score:.2f} — {basis}; " + "; ".join(t.describe() for t in terms[:5]),
+        )
         trace.check(final.ok, f"итог после очистки (убрано {dropped}): " + final.summary())
         sources = ctx.sources()
-
-        def to_statement(s: DraftStatement) -> Statement:
-            return Statement(
-                text=s.text, origin=s.origin, refs=list(dict.fromkeys(s.refs)), confidence=s.confidence
-            )
 
         used_sources: dict[str, Source] = {}
         quotes: dict[str, list[str]] = {}
         for _, _, s in clean.statements():
-            for ref in s.refs:
+            for ref in cited(s):
                 if ref.startswith("src:"):
                     src = sources.get(ref) or sources.get(ref.split("#", 1)[0]) or _page_of(ctx, ref)
                     if src is not None:
@@ -257,7 +272,7 @@ class Agent:
         if ctx.event.id not in used_sources:
             out_sources.insert(0, ctx.event.source)
 
-        refs = {r for _, _, s in clean.statements() for r in s.refs}
+        refs = {r for _, _, s in clean.statements() for r in cited(s)}
         refs |= {r for e in ctx.estimates for r in e.statement.refs} | {r for a in actions for r in a.refs}
         refs |= set(clean.relevance_refs)
         known = ctx.feature_ids()
@@ -272,11 +287,10 @@ class Agent:
             if not issue.hard:
                 warnings.append(f"самопроверка: {issue.message}")
 
-        relevance = self.company.relevance(ctx.persona, ctx.event.source) or _fallback_relevance(ctx)
         relevance = Relevance(
-            score=relevance.score,
-            reason=clean.relevance_reason or relevance.reason,
-            refs=[r for r in dict.fromkeys([*relevance.refs, *clean.relevance_refs]) if r in known],
+            score=score,
+            reason=clean.relevance_reason or formal.reason,
+            refs=[r for r in dict.fromkeys([*formal.refs, *clean.relevance_refs]) if r in known],
         )
         published = ctx.event.source.published_at
         insight = Insight(
@@ -355,23 +369,4 @@ def _page_source(ref: str, page_text: str) -> Source:
         publisher="Альфа-Банк",
         page=int(m.group(1)) if m else None,
         fragment=snippet or None,
-    )
-
-
-def _fallback_relevance(ctx: AgentContext) -> Relevance:
-    """Пока нет ранжирования: сила события по фактору × сила фактора у компании, лучший канал."""
-    exposure = {f.code: f for f in ctx.exposure}
-    best, refs = 0.0, []
-    for tag in ctx.event.factors:
-        f = exposure.get(tag.code)
-        if f is None:
-            continue
-        strength = f.strength if f.strength is not None else LEVEL_RANK.get(f.level, 0) / 3
-        if tag.strength * strength > best:
-            best, refs = tag.strength * strength, f.refs
-    for ch in ctx.chain.channels:
-        if (ch.strength or 0) > best:
-            best, refs = ch.strength or 0, ch.refs
-    return Relevance(
-        score=round(min(best, 1.0), 2), reason="совпадение факторов события и карты компании", refs=refs
     )

@@ -62,3 +62,24 @@ def test_insight_trace_feedback_roundtrip(store):
     stats = store.feedback_stats(insight.id)
     assert (stats.total, stats.useful, stats.reasons) == (2, 1, {"too_general": 1})
     assert store.feedback_stats("ins:other").total == 0
+
+
+def test_jobs_and_version_roundtrip(store):
+    from api.agent.jobs import RESTART_ERROR, JobStatus
+
+    job = JobStatus(
+        insight_id="ins:1", event_id="src:news:1", persona_id="p", status="running", stage="Пишу разбор"
+    )
+    store.save_job(job)
+    assert store.get_job("ins:1").stage == "Пишу разбор"
+    store.save_job(JobStatus(insight_id="ins:2", event_id="src:news:2", persona_id="p", status="done"))
+    assert store.fail_unfinished(RESTART_ERROR) == 1
+    failed = store.get_job("ins:1")
+    assert (failed.status, failed.error, failed.stage) == ("failed", RESTART_ERROR, "")
+    assert store.get_job("ins:2").status == "done" and store.get_job("ins:none") is None
+
+    transport = ScriptedTransport(reply(GOOD_PLAN), reply(good_draft()))
+    service = AgentService(make_llm(transport), FakeCompany(), FakeLibrary(), store)
+    insight = service.insight(NEWS_ID, PERSONA.id)
+    stored = store.get_insight(insight.id)
+    assert stored.version == service.version and "_version" not in stored.context

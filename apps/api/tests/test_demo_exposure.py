@@ -176,3 +176,20 @@ def test_demo_feeds_differ_by_company_and_role(repo):
     # смена роли без смены компании меняет порядок
     assert top("p-u8318-cfo") != top("p-u8318-acc")
     assert top("p-u57706-owner") != top("p-u57706-tre")
+
+
+def test_demo_group_impact(repo):
+    from api.service import company_group_impact
+
+    # топливный холдинг: событие про дороги и госрасходы задевает дорожных строителей группы
+    _, impact = company_group_impact(repo, "U_57706", ["42"], ["gov"])
+    ids = {m.id for m in impact.affected}
+    assert {"U_191099", "U_417124"} <= ids
+    assert impact.companies_total == 369
+    # оптовик автозапчастей: событие по авторынку — импортёры группы, платежи с ними отдельно
+    _, auto = company_group_impact(repo, "U_8318", ["45"], [])
+    importers = {m.id: m for m in auto.affected if m.id in ("U_92457", "U_52177")}
+    assert set(importers) == {"U_92457", "U_52177"}
+    assert importers["U_92457"].intra_payments > 7e9
+    # зернотрейдер вне группы — блока нет
+    assert company_group_impact(repo, "U_34911", ["01"], []) == (True, None)

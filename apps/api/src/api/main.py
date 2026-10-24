@@ -17,6 +17,7 @@ from api.contract import (
     CompanySummary,
     ExposureMap,
     Feed,
+    GroupImpact,
     Health,
     InfluenceChain,
     Persona,
@@ -30,7 +31,7 @@ from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
 from api.search.repo import SearchRepo
 from api.search.routes import router as search_router
-from api.service import company_chain, company_exposure, company_profile, persona_feed
+from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
 
 logger = logging.getLogger("api")
 
@@ -49,6 +50,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
+        # задачи, прерванные перезапуском, — failed, а не «идёт» вечно; только здесь: прогрев из того же
+        # контейнера не должен ронять задачи работающего API
+        app.state.agent.jobs.recover()
     except Exception:
         # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
         logger.exception("агент не запустился")
@@ -56,6 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if app.state.agent is not None:
+            app.state.agent.jobs.shutdown()  # фоновые сборки не переживут остановку — после старта они failed
         pool.close()
 
 
@@ -175,6 +181,22 @@ def get_chain(
     if chain is None:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
     return chain
+
+
+@app.get("/api/companies/{company_id}/group-impact", response_model=GroupImpact | None, tags=["компании"])
+def get_group_impact(
+    company_id: str,
+    repo: Repo,
+    okved: Annotated[list[str], Query(description="отрасли события, например 42 или 41,42")] = [],  # noqa: B006
+    factor: Annotated[list[str], Query(description="факторы события, например rate или gov")] = [],  # noqa: B006
+) -> GroupImpact | None:
+    """Какие компании группы задевает событие, через что и на какую выручку; нет группы — null."""
+    codes = [c for value in okved for c in value.split(",") if c.strip()]
+    factors = [f for value in factor for f in value.split(",") if f.strip()]
+    found, impact = company_group_impact(repo, company_id, codes, factors)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
+    return impact
 
 
 def news_provider(request: Request) -> NewsProvider:

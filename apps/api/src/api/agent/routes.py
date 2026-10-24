@@ -3,9 +3,11 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
 from api.agent.ask import AskIn, AskOut
+from api.agent.jobs import JobStatus
 from api.agent.loop import AgentError, CompanyNotFound
 from api.agent.ports import ParseError
 from api.agent.service import AgentService, NotFound, NotRelevant
@@ -28,6 +30,24 @@ def get_agent(request: Request) -> AgentService:
 Agent = Annotated[AgentService, Depends(get_agent)]
 
 NOT_RELEVANT = {204: {"description": "событие не касается компании пользователя"}}
+BUILDING = {
+    202: {
+        "model": JobStatus,
+        "description": "карточка собирается: статус с этапом; опрашивайте /api/insights/{event_id}/status",
+    }
+}
+WAIT = Query(
+    description="true — ждать готовую карточку в этом же запросе (до пары минут); false — сразу 202 и статус"
+)
+
+
+def _answer(result: Insight | JobStatus):
+    """Готовая карточка — 200; сборка идёт — 202 со статусом."""
+    if isinstance(result, JobStatus):
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=result.model_dump(mode="json"))
+    return result
+
+
 UNAVAILABLE = {
     503: {"description": "модели недоступны или исчерпан суточный бюджет (Budget has been exceeded)"}
 }
@@ -50,17 +70,24 @@ def _fail(exc: Exception) -> HTTPException:
 @router.get(
     "/insights/{event_id}",
     response_model=Insight,
-    responses={**NOT_RELEVANT, 404: {"description": "нет события или пользователя"}, **UNAVAILABLE},
+    responses={
+        **BUILDING,
+        **NOT_RELEVANT,
+        404: {"description": "нет события или пользователя"},
+        **UNAVAILABLE,
+    },
 )
 def get_insight(
     event_id: str,
     agent: Agent,
     persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
     refresh: Annotated[bool, Query(description="пересобрать, не брать из кэша")] = False,
+    wait: Annotated[bool, WAIT] = True,
 ):
-    """Инсайт по паре «событие × пользователь». Собирается при первом запросе, дальше — из кэша."""
+    """Инсайт по паре «событие × пользователь». Готов — 200 из кэша; нет — сборка: с `wait=false` в фоне и
+    сразу 202 со статусом (повторный запрос во время сборки новую не запускает)."""
     try:
-        return agent.insight(event_id, persona, refresh=refresh)
+        return _answer(agent.insight(event_id, persona, refresh=refresh, wait=wait))
     except NotRelevant:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
     except Exception as exc:
@@ -79,15 +106,34 @@ class AnalyzeIn(BaseModel):
         return self
 
 
+@router.get(
+    "/insights/{event_id}/status",
+    response_model=JobStatus,
+    responses={404: {"description": "сборка не запускалась или нет пользователя"}},
+)
+def insight_status(
+    event_id: str,
+    agent: Agent,
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+) -> JobStatus:
+    """Как идёт сборка карточки: этап, пройденные этапы, прошло и примерно осталось секунд. done — карточка
+    готова (GET /api/insights/{event_id} вернёт 200), failed — текст ошибки, повторный GET начнёт заново."""
+    try:
+        return agent.status(event_id, persona)
+    except Exception as exc:
+        raise _fail(exc) from exc
+
+
 @router.post(
     "/analyze",
     response_model=Insight,
-    responses={422: {"description": "новость не разобрана"}, **UNAVAILABLE},
+    responses={**BUILDING, 422: {"description": "новость не разобрана"}, **UNAVAILABLE},
 )
-def analyze(body: AnalyzeIn, agent: Agent) -> Insight:
-    """Своя новость: текст или ссылка → разбор → инсайт для пользователя."""
+def analyze(body: AnalyzeIn, agent: Agent, wait: Annotated[bool, WAIT] = True):
+    """Своя новость: текст или ссылка → разбор → инсайт. С `wait=false` сборка карточки — в фоне: 202 со
+    статусом, в нём `event_id` новости для опроса /api/insights/{event_id}/status."""
     try:
-        return agent.analyze(body.persona_id, body.text, body.url)
+        return _answer(agent.analyze(body.persona_id, body.text, body.url, wait=wait))
     except Exception as exc:
         raise _fail(exc) from exc
 

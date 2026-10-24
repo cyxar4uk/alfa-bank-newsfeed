@@ -34,6 +34,8 @@ class HttpTransport:
 
     def __init__(self, base_url: str, api_key: str, timeout: float = 180.0) -> None:
         self._url = base_url.rstrip("/") + "/chat/completions"
+        # остаток бюджета ключа у шлюза: GET <адрес без /v1>/key/info (ответ организаторов)
+        self._info_url = base_url.rstrip("/").removesuffix("/v1") + "/key/info"
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._client = httpx.Client(timeout=timeout)
 
@@ -51,6 +53,15 @@ class HttpTransport:
         return TransportResponse(
             status=resp.status_code, data=data if isinstance(data, dict) else None, text=resp.text
         )
+
+    def key_info(self) -> dict | None:
+        """Сведения шлюза о ключе (расход и лимит за сутки); не ответил — None."""
+        try:
+            resp = self._client.get(self._info_url, headers=self._headers, timeout=10)
+            data = resp.json() if resp.status_code == 200 else None
+        except (httpx.HTTPError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
 
     def close(self) -> None:
         self._client.close()

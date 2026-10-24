@@ -12,7 +12,7 @@ from pathlib import Path
 
 from api.agent.context import AgentContext, Estimate, Offer
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, CompanyData, Event, Library
-from api.agent.trace import TraceRecorder
+from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import Statement
 
 PRODUCTS_FILE = Path(__file__).with_name("products.toml")
@@ -78,6 +78,8 @@ class Tools:
     def _call(
         self, name: str, args: dict, fn: Callable, refs: Callable[[object], list[str]], summary: Callable
     ):
+        if name in TOOL_STAGES:
+            self.trace.stage(TOOL_STAGES[name])
         try:
             result = fn()
         except Exception as exc:  # инструмент упал — агент работает с тем, что есть, и пишет об этом
@@ -191,6 +193,7 @@ class Tools:
 
     def products_for_risk(self, ctx: AgentContext) -> None:
         """Одно предложение продукта под самый сильный риск события — только при силе не ниже средней."""
+        self.trace.stage(TOOL_STAGES["get_products_for_risk"])
         direct = {f.code for f in ctx.event.factors}
         event_codes = direct | {ch.factor for ch in ctx.chain.channels if ch.factor}
         # сначала факторы самого события, потом каналы цепочки; внутри — по силе риска у компании
@@ -241,6 +244,7 @@ class Tools:
         Объёмов долга, остатков и ВЭД в данных нет — считаем «на единицу», сумму вводит пользователь.
         """
         self.load_pages(ctx, set(BANK_RATE["pages"]))
+        self.trace.stage(TOOL_STAGES["estimate_rate_impact"])  # после сверки страниц — она пишет свой этап
         verified = all(
             all(_number_on_page(n, ctx.page_texts.get(ref, "")) for n in numbers)
             for ref, numbers in BANK_RATE["pages"].items()

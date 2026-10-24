@@ -39,10 +39,10 @@ QUOTE_MIN, QUOTE_MAX = 10, 300
 # какое происхождение допустимо в блоке карточки: позиция банка — отдельно, последствия — выводы модели
 BLOCK_ORIGINS = {
     "what_happened": {"fact"},
-    "why_it_matters": {"data", "ai", "fact"},
-    "risks": {"ai"},
-    "opportunities": {"ai"},
-    "watch": {"ai", "fact", "data"},
+    "why_it_matters": {"data", "ai", "hypothesis", "fact"},
+    "risks": {"ai", "hypothesis"},
+    "opportunities": {"ai", "hypothesis"},
+    "watch": {"ai", "hypothesis", "fact", "data"},
     "bank_view": {"bank"},
 }
 BLOCK_RULES = {
@@ -233,7 +233,9 @@ class Checker:
             missing = self.company_numbers.unsupported(s.text)
             if missing:
                 bad("numbers_from_tools", f"чисел нет в данных о компании: {', '.join(missing[:4])}")
-        elif s.origin == "ai":
+        elif s.origin in ("ai", "hypothesis"):
+            if s.origin == "hypothesis" and not (s.confirm or s.refute):
+                bad("not_retelling", "у гипотезы нет условий проверки: что её подтвердит и что опровергнет")
             money = money_in(s.text)
             if money:
                 bad("numbers_from_tools", f"суммы в рублях пишет только расчётный инструмент: {money[0]}")
@@ -241,7 +243,20 @@ class Checker:
             if missing:
                 bad("numbers_from_tools", f"чисел нет ни в данных, ни в источниках: {', '.join(missing[:4])}")
 
-        if s.origin in ("bank", "ai"):
+        if s.bank_conflict is not None and s.origin in ("ai", "hypothesis"):
+            pages = [r for r in s.bank_conflict.refs if self.ctx.page_ref_of(r)]
+            stray = [r for r in s.bank_conflict.refs if not self.resolves(r)]
+            if stray:
+                bad("refs", f"в расхождении с банком ссылки не из контекста: {', '.join(stray[:4])}")
+            if not pages:
+                bad("bank_quotes", "расхождение с банком без ссылки на материал Альфа-Банка")
+            conflict_numbers = NumberBank()
+            for r in pages:
+                conflict_numbers.add_text(self.source_text(r))
+            missing = conflict_numbers.unsupported(s.bank_conflict.text)
+            if missing:
+                bad("bank_quotes", f"в расхождении с банком чисел нет в материале: {', '.join(missing[:4])}")
+        if s.origin in ("bank", "ai", "hypothesis"):
             for hit in self.ctx.analytics:
                 if hit.source.id in s.refs or hit.page_ref in s.refs:
                     newer = superseded(s.text, hit.source.id.split("#", 1)[0], hit.material_date)
@@ -264,6 +279,15 @@ class Checker:
         return sorted(m for m in mentioned if m not in self.counterparties)
 
     # --- карточка целиком ------------------------------------------------------------------------
+
+    def stated_factors(self, draft: Draft) -> set[str]:
+        """Факторы, явно названные в выводах карточки (без гипотез) — опора значимости по связи агента."""
+        known = self.ctx.factor_codes()
+        return {
+            s.factor
+            for s in [*draft.why_it_matters, *draft.risks, *draft.opportunities]
+            if s.factor and s.factor in known and s.origin != "hypothesis"
+        }
 
     def covered_factors(self, draft: Draft) -> set[str]:
         known = self.ctx.factor_codes()
@@ -363,7 +387,7 @@ class Checker:
             report.issues.append(
                 Issue("not_retelling", "в «почему важно» нет данных о компании (origin=data)")
             )
-        if not any(s.origin == "ai" for s in draft.why_it_matters):
+        if not any(s.origin in ("ai", "hypothesis") for s in draft.why_it_matters):
             report.issues.append(
                 Issue("not_retelling", "в «почему важно» нет вывода для компании (origin=ai)")
             )
