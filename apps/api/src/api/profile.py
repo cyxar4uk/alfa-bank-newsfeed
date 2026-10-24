@@ -70,6 +70,17 @@ def format_share(share: float) -> str:
     return f"{percent:.0f} %" if percent >= 1 else f"{percent:.1f} %".replace(".", ",")
 
 
+def companies(n: int) -> str:
+    """«1 компания», «3 компании», «12 компаний»."""
+    if n % 10 == 1 and n % 100 != 11:
+        word = "компания"
+    elif n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        word = "компании"
+    else:
+        word = "компаний"
+    return f"{n} {word}"
+
+
 def scale_for(revenue: float) -> str:
     if revenue > LARGE_REVENUE:
         return "крупный бизнес"
@@ -99,10 +110,15 @@ class _Builder:
         self.missing: list[MissingFeature] = []
         self.notes: list[str] = []
 
-    def dataset(self, column: str, label: str, value, display: str | None = None) -> None:
+    def dataset(
+        self, column: str, label: str, value, display: str | None = None, reason: str | None = None
+    ) -> None:
         feature_id = f"feat:{column}"
         if value is None:
-            self.missing.append(MissingFeature(id=feature_id, label=label))
+            missing = MissingFeature(id=feature_id, label=label)
+            if reason:
+                missing.reason = reason
+            self.missing.append(missing)
             return
         self.features.append(
             Feature(id=feature_id, label=label, value=value, display=display, source="dataset")
@@ -149,6 +165,7 @@ def build_profile(
     group_size: int = 1,
     group_members: list[str] | None = None,
     industry: IndustryPosition | None = None,
+    group_revenue: float | None = None,
 ) -> CompanyProfile:
     b = _Builder()
 
@@ -162,12 +179,47 @@ def build_profile(
 
     # масштаб
     revenue = company.revenue
-    b.dataset("REVENUE_COMPANY", "Выручка", revenue, display=format_rub(revenue) if revenue else None)
+    b.dataset(
+        "REVENUE_COMPANY",
+        "Выручка за 2025 год",
+        revenue,
+        display=format_rub(revenue) if revenue else None,
+        reason="нет в выгрузке или заглушка 1000",
+    )
+    in_group = bool(company.group_id and group_size > 1)
+    own_refs = ["feat:REVENUE_COMPANY"] if revenue else []
+    if in_group:
+        b.derived(
+            "group_revenue",
+            "Выручка группы",
+            group_revenue,
+            ["feat:GROUP_ID", *own_refs],
+            display=f"{format_rub(group_revenue)} — {companies(group_size)}" if group_revenue else None,
+            reason="нет выручки ни у одной компании группы",
+        )
+        share = revenue / group_revenue if revenue and group_revenue else None
+        b.derived(
+            "group_revenue_share",
+            "Доля компании в выручке группы",
+            round(share, 4) if share is not None else None,
+            ["feat:REVENUE_COMPANY", "feat:group_revenue"],
+            display=format_share(share) if share is not None else None,
+            reason="нет своей выручки или выручки группы",
+        )
+    # сегмент считается по выручке группы (ответ организаторов), у компании вне группы — по своей;
+    # своей выручке сегмент не приписываем
+    basis = group_revenue if in_group and group_revenue else revenue
+    scale = scale_for(basis) if basis else None
+    scale_display = None
+    if scale and in_group and group_revenue:
+        own = f"своя выручка — {format_rub(revenue)}" if revenue else "своей выручки в данных нет"
+        scale_display = f"{scale} по выручке группы ({format_rub(group_revenue)}); {own}"
     b.derived(
         "scale",
         "Масштаб",
-        scale_for(revenue) if revenue else None,
-        ["feat:REVENUE_COMPANY"],
+        scale,
+        ["feat:group_revenue", *own_refs] if in_group and group_revenue else own_refs,
+        display=scale_display,
         reason="нет выручки",
     )
     b.dataset("AMOUNT_WORKERS_FNS_GRADATION", "Сотрудники по данным ФНС", company.workers_fns)
@@ -177,7 +229,9 @@ def build_profile(
     b.dataset(
         "OKFS_NAME", "Форма собственности", company.okfs_name.capitalize() if company.okfs_name else None
     )
-    b.dataset("NEGATIVEMARK", "Признак ключевого собственника", company.negative_mark)
+    b.dataset(
+        "NEGATIVEMARK", "У банка есть достоверные сведения о ключевом собственнике", company.negative_mark
+    )
 
     # отношения с банком
     client_type = company.client_type
@@ -212,12 +266,14 @@ def build_profile(
     group = None
     if company.group_id:
         members = (group_members or [])[:GROUP_MEMBERS_SHOWN]
-        group = CompanyGroup(id=company.group_id, size=max(group_size, 1), members=members)
+        group = CompanyGroup(
+            id=company.group_id, size=max(group_size, 1), revenue=group_revenue, members=members
+        )
         b.dataset(
             "GROUP_ID",
             "Группа компаний",
             company.group_id,
-            display="компания вне группы" if group.size == 1 else f"{group.size} компаний в группе",
+            display="компания вне группы" if group.size == 1 else f"{companies(group.size)} в группе",
         )
     else:
         b.dataset("GROUP_ID", "Группа компаний", None)
@@ -227,11 +283,6 @@ def build_profile(
     b.dataset("CITY", "Город", company.city)
 
     counterparties, payments = _counterparties(company, flows, b)
-
-    if company.duplicates > 1:
-        b.notes.append(
-            f"id {company.id} встречается в выгрузке {company.duplicates} раз — взята первая запись"
-        )
 
     return CompanyProfile(
         id=company.id,

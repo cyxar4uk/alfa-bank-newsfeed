@@ -46,7 +46,7 @@
 | pydantic-settings | 2.16.1 | MIT |
 | psycopg, psycopg-binary | 3.3.6 | LGPL-3.0 |
 | psycopg-pool | 3.3.3 | LGPL-3.0 |
-| HTTPX (парсер; в API — клиент моделей) | 0.28.1 | BSD-3-Clause |
+| HTTPX (парсер; в API — клиент моделей, загрузка своей новости, тесты) | 0.28.1 | BSD-3-Clause |
 | feedparser | 6.0.14 | BSD-2-Clause |
 | pypdfium2 (PDFium) | 5.14.0 | Apache-2.0 / BSD-3-Clause |
 | Pillow | 13.0.0 | MIT-CMU |
