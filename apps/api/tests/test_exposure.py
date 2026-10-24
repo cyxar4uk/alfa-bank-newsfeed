@@ -136,8 +136,8 @@ def test_unknown_counterparties_only():
     supply = by_code(exposure)["supply"]
     assert supply.level == "none"
     assert supply.coverage == 0
-    assert "отрасль известна у 0,0 % суммы" in supply.notes[0]
-    assert "отрасль известна лишь у 0,0 % внешних платежей поставщикам" in exposure.warnings
+    assert "отрасль известна у 0 % суммы" in supply.notes[0]
+    assert "отрасль известна лишь у 0 % внешних платежей поставщикам" in exposure.warnings
 
 
 def test_no_foreign_trade():

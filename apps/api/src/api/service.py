@@ -16,13 +16,14 @@ from api.contract import (
     InfluenceChain,
     InsightEvent,
 )
+from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
 from api.group import group_context, group_impact
 from api.images import proxied
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
-from api.ranking import MSK, NewsEvent, default_ranking, rank
+from api.ranking import MSK, NewsEvent, rank
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
 from api.takeaway import takeaways
@@ -130,19 +131,20 @@ def persona_feed(
         ranked = {i.event_id for i in items}
         items += [unrelated_item(e) for e in events if e.id not in ranked]
     items = items[:limit]
-    # собственнику и гендиректору — блок «Ваша группа»: какие компании группы задевает событие
-    if role in GROUP_ROLES and (ctx := group_context(company, group, flows)):
+    # охват в группе — то же число, что получает агент (api.coverage); блок «Ваша группа» в ответе —
+    # собственнику и гендиректору, а число в выводе — всем ролям
+    if ctx := group_context(company, group, flows):
         by_id = {e.id: e for e in events}
-        aliases = default_ranking().aliases
         for item in items:
-            event = by_id[item.event_id]
-            impact = group_impact(ctx, [(c, s) for c, s, _ in event.factors], event.sectors, aliases)
-            if not impact.affected_count and item.channel == "group":
-                # главный путь карточки — через группу: блок не может сказать «группу не касается»,
-                # показываем участников и при слабой связи
-                impact = group_impact(ctx, [(c, s) for c, s, _ in event.factors], event.sectors, aliases, 0.0)
-            item.group_impact = impact if impact.affected_count else None
-    takeaways(items, role, exposure)  # после блока группы: вывод берёт из него число
+            event = by_id.get(item.event_id)
+            if event is None:
+                continue
+            item.coverage = coverage_in(
+                ctx, company, flows, group, [(c, s) for c, s, _ in event.factors], event.sectors
+            )
+            if role in GROUP_ROLES:
+                item.group_impact = item.coverage
+    takeaways(items, role, exposure)  # после охвата: вывод берёт из него число
     return Feed(
         persona_id=persona,
         company_id=company.id,
@@ -188,16 +190,17 @@ def company_group_impact(
         return False, None
     if not company.group_id:
         return True, None
-    group = repo.group_records(company.group_id, exclude=company.id)
-    ctx = group_context(company, group, repo.flows(company.id))
-    if ctx is None:
-        return True, None
     event_factors = [(c, s) for c, s, _ in event.factors] if event else []
     event_sectors = list(event.sectors) if event else []
-    impact = group_impact(
-        ctx,
+    impact = event_coverage(
+        repo,
+        company.id,
         [*((f, 1.0) for f in factors), *event_factors],
         [*((o, 1.0) for o in okved), *event_sectors],
-        default_ranking().aliases,
     )
+    if impact is None:
+        # группа есть, событие её не касается — блок с нулём, а не «группы нет»
+        group = repo.group_records(company.group_id, exclude=company.id)
+        ctx = group_context(company, group, repo.flows(company.id))
+        return True, group_impact(ctx, [], [], {}) if ctx else None
     return True, impact

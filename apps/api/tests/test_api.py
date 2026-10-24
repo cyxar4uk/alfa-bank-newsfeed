@@ -555,3 +555,26 @@ def test_catalog_from_parser_catalog(monkeypatch):
     assert sources.entry_id("cbr-events") == "cbr"
     message = sources.connect_message(rows[0])
     assert "REUTERS_API_KEY" in message and message.endswith("Перезапустите парсер.")
+
+
+def test_feed_and_coverage_give_one_number():
+    """Число задетых компаний группы в ленте — то же, что общая функция охвата отдаёт агенту."""
+    from api.coverage import event_coverage
+    from api.service import persona_feed
+
+    repo = FakeRepo()
+    news = GroupNews()
+    for persona in ("p-u1-owner", "p-u1-cfo"):
+        feed = persona_feed(repo, news, persona)
+        by_id = {e.id: e for e in news.events(None, 10)}
+        for item in feed.items:
+            event = by_id[item.event_id]
+            expected = event_coverage(repo, "U_1", [(c, s) for c, s, _ in event.factors], event.sectors)
+            assert (item.coverage.affected_count, item.coverage.affected_revenue) == (
+                expected.affected_count,
+                expected.affected_revenue,
+            )
+            assert str(expected.affected_count) in item.takeaway.text
+            # блок группы — только собственнику и гендиректору, наружу coverage не отдаётся
+            assert (item.group_impact is not None) == persona.endswith("owner")
+            assert "coverage" not in item.model_dump()

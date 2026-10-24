@@ -646,6 +646,8 @@ class FeedItem(BaseModel):
     takeaway: Takeaway | None = Field(default=None, description="вывод: важно ли, почему, что делать")
     image_url: str | None = Field(default=None, description="картинка новости (og:image источника)")
     source_icon_url: str | None = Field(default=None, description="значок издания")
+    # охват в группе для вывода у любой роли (api.coverage); наружу не отдаётся — блок только в group_impact
+    coverage: GroupImpact | None = Field(default=None, exclude=True)
     group_impact: GroupImpact | None = Field(
         default=None,
         description="для собственника и гендиректора: каких компаний группы касается событие;"
