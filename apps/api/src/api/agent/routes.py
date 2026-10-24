@@ -36,7 +36,9 @@ BUILDING = {
         "description": "карточка собирается: статус с этапом; опрашивайте /api/insights/{event_id}/status",
     }
 }
-WAIT = Query(description="ждать готовую карточку в этом же запросе (до пары минут) вместо статуса 202")
+WAIT = Query(
+    description="true — ждать готовую карточку в этом же запросе (до пары минут); false — сразу 202 и статус"
+)
 
 
 def _answer(result: Insight | JobStatus):
@@ -80,9 +82,9 @@ def get_insight(
     agent: Agent,
     persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
     refresh: Annotated[bool, Query(description="пересобрать, не брать из кэша")] = False,
-    wait: Annotated[bool, WAIT] = False,
+    wait: Annotated[bool, WAIT] = True,
 ):
-    """Инсайт по паре «событие × пользователь». Готов — 200 из кэша; нет — запускается сборка в фоне и
+    """Инсайт по паре «событие × пользователь». Готов — 200 из кэша; нет — сборка: с `wait=false` в фоне и
     сразу 202 со статусом (повторный запрос во время сборки новую не запускает)."""
     try:
         return _answer(agent.insight(event_id, persona, refresh=refresh, wait=wait))
@@ -127,9 +129,9 @@ def insight_status(
     response_model=Insight,
     responses={**BUILDING, 422: {"description": "новость не разобрана"}, **UNAVAILABLE},
 )
-def analyze(body: AnalyzeIn, agent: Agent, wait: Annotated[bool, WAIT] = False):
-    """Своя новость: текст или ссылка → разбор → инсайт. Разбор текста — сразу; сборка карточки — в фоне,
-    202 со статусом, в нём `event_id` новости для опроса /api/insights/{event_id}/status."""
+def analyze(body: AnalyzeIn, agent: Agent, wait: Annotated[bool, WAIT] = True):
+    """Своя новость: текст или ссылка → разбор → инсайт. С `wait=false` сборка карточки — в фоне: 202 со
+    статусом, в нём `event_id` новости для опроса /api/insights/{event_id}/status."""
     try:
         return _answer(agent.analyze(body.persona_id, body.text, body.url, wait=wait))
     except Exception as exc:

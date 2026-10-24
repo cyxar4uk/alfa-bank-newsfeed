@@ -17,6 +17,7 @@ from api.llm import BudgetExceeded, LlmClient
 
 MAX_RUNS = 3
 RUN_WAIT_SECONDS = 60
+JOB_WAIT_SECONDS = 180  # `wait=true` при уже идущей фоновой сборке: дождаться её, а не запускать вторую
 RUN_RESERVE_RUB = 3.0  # дороже карточка не выходила: черновик ~0,7 ₽, две доработки ~0,4 ₽ каждая
 
 
@@ -36,13 +37,15 @@ class AgentService:
         library: Library,
         store: AgentStore,
         jobs: Jobs | None = None,
+        version: str | None = None,
     ) -> None:
         self.llm = llm
         self.company = company
         self.library = library
         self.store = store
         self.jobs = jobs or Jobs(store, max_workers=MAX_RUNS)
-        self.version = agent_version(llm.models if llm else None, llm.step_params if llm else None)
+        # версию передаёт build_service по настройкам: без ключа модели неизвестны, а прогретые карточки нужны
+        self.version = version or agent_version(llm.models if llm else None, llm.step_params if llm else None)
         self._locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
         self._guard = threading.Lock()
         # одновременно собираются не больше MAX_RUNS карточек: лента не должна разом сжечь суточный бюджет
@@ -138,6 +141,19 @@ class AgentService:
 
         return self.jobs.submit(key, event.id, persona.id, run)
 
+    def _await(self, job: JobStatus, wait: bool) -> Insight | JobStatus:
+        """Идёт фоновая сборка: с `wait` — дождаться её и отдать карточку, без — статус."""
+        if not wait:
+            return job
+        job = self.jobs.wait(job.insight_id, JOB_WAIT_SECONDS) or job
+        if job.status == "done":
+            stored = self.cached(job.insight_id)
+            if stored is not None:
+                return stored.insight
+        if job.status == "failed":
+            raise AgentError(job.error or "сборка карточки не удалась")
+        return job
+
     def insight(
         self, event_id: str, persona_id: str, refresh: bool = False, wait: bool = True
     ) -> Insight | JobStatus:
@@ -146,19 +162,21 @@ class AgentService:
         key = insight_id(event_id, persona.id)
         with self._lock(key):
             active = self.jobs.get(key)
-            if active is not None and active.status in ("queued", "running"):
-                return active
-            stored = None if refresh else self.cached(key)
-            if stored is not None:
-                return stored.insight
-            event = self.library.get_event(event_id)
-            if event is None:
-                raise NotFound(f"событие {event_id} не найдено")
-            if self.company.profile(persona.company_id) is None:
-                raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
-            if not self.touches(persona, event):
-                raise NotRelevant(event_id)
-            return self._run(persona, event) if wait else self._submit(persona, event)
+            if active is None or active.status not in ("queued", "running"):
+                stored = None if refresh else self.cached(key)
+                if stored is not None:
+                    return stored.insight
+                event = self.library.get_event(event_id)
+                if event is None:
+                    raise NotFound(f"событие {event_id} не найдено")
+                if self.company.profile(persona.company_id) is None:
+                    raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
+                # карточку уже собирали (своя новость из /analyze, старая версия, сбой) — связь уже проверена
+                built_before = active is not None or self.store.get_insight(key) is not None
+                if not built_before and not self.touches(persona, event):
+                    raise NotRelevant(event_id)
+                return self._run(persona, event) if wait else self._submit(persona, event)
+        return self._await(active, wait)
 
     def analyze(
         self, persona_id: str, text: str | None, url: str | None, wait: bool = True
@@ -168,12 +186,12 @@ class AgentService:
         key = insight_id(event.id, persona.id)
         with self._lock(key):
             active = self.jobs.get(key)
-            if active is not None and active.status in ("queued", "running"):
-                return active
-            stored = self.cached(key)
-            if stored is not None:
-                return stored.insight
-            return self._run(persona, event) if wait else self._submit(persona, event)
+            if active is None or active.status not in ("queued", "running"):
+                stored = self.cached(key)
+                if stored is not None:
+                    return stored.insight
+                return self._run(persona, event) if wait else self._submit(persona, event)
+        return self._await(active, wait)
 
     def status(self, event_id: str, persona_id: str) -> JobStatus:
         """Как идёт сборка карточки; готовая карточка без задачи (из кэша) — status=done."""
@@ -220,6 +238,7 @@ def build_service(settings, pool, repo, search=None) -> AgentService:
     from api.agent.bridges import SearchLibrary, ServiceCompanyData, optional
     from api.agent.store import PgAgentStore
     from api.llm import client_from_settings
+    from api.llm.client import DEFAULT_STEP_MODELS, DEFAULT_STEP_PARAMS
 
     store = PgAgentStore(pool)
     store.ensure_schema()
@@ -237,6 +256,7 @@ def build_service(settings, pool, repo, search=None) -> AgentService:
         )
     else:
         library = JsonlLibrary(settings.data_dir / "derived", snapshot=settings.news_snapshot)
-    service = AgentService(client_from_settings(settings), company, library, store)
-    service.jobs.recover()  # задачи, прерванные перезапуском, — failed, а не «идёт» вечно
-    return service
+    version = agent_version(
+        {**DEFAULT_STEP_MODELS, **settings.llm_models}, {**DEFAULT_STEP_PARAMS, **settings.llm_step_params}
+    )
+    return AgentService(client_from_settings(settings), company, library, store, version=version)

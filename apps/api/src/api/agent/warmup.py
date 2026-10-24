@@ -23,7 +23,7 @@ from api.agent.ports import LEVEL_RANK, Event
 from api.agent.relevance import formula
 from api.agent.service import AgentService, NotRelevant, build_service
 from api.config import get_settings
-from api.contract import Persona
+from api.contract import Insight, Persona
 from api.llm import BudgetExceeded
 from api.personas import DEMO_COMPANIES, personas_for
 from api.repo import PgCompanyRepo
@@ -121,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                 return _report(built, skipped, failed, spent)
             started = time.monotonic()
             try:
-                service.insight(event.id, persona.id, wait=True)
+                result = service.insight(event.id, persona.id, wait=True)
             except NotRelevant:
                 print(f"  не касается {label}")
                 continue
@@ -131,6 +131,10 @@ def main(argv: list[str] | None = None) -> int:
             except Exception as exc:  # одна неудачная карточка не останавливает прогрев остальных
                 failed += 1
                 print(f"  ошибка    {label}: {exc}")
+                continue
+            if not isinstance(result, Insight):  # её ещё собирает API — не считаем собранной
+                failed += 1
+                print(f"  не дождался {label}: {result.status} {result.stage or result.error or ''}")
                 continue
             built += 1
             print(f"  собрано   {label} · {time.monotonic() - started:.0f} с")

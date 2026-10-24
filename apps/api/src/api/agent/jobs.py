@@ -3,10 +3,13 @@
 Одна задача на пару «событие × пользователь»: повторный запрос, пока карточка собирается, получает статус
 той же задачи. Одновременно собирается не больше `max_workers` карточек, остальные ждут в очереди. Этапы
 сборки («Ищу аналитику Альфа-Банка», «Пишу разбор»…) приходят из агента и видны в статусе. Задачи хранятся
-в БД: после перезапуска API незаконченная задача честно становится failed, а не висит.
+в БД: после перезапуска API незаконченная задача честно становится failed, а не висит. Запись в БД —
+вспомогательная: её сбой не роняет сборку и не оставляет задачу «идущей»; правда о задачах этого процесса —
+в памяти.
 """
 
 import datetime as dt
+import logging
 import threading
 import time
 from collections.abc import Callable
@@ -18,6 +21,10 @@ from pydantic import BaseModel, Field
 JobState = Literal["queued", "running", "done", "failed"]
 DEFAULT_ETA_SECONDS = 75.0  # средняя сборка карточки по живым прогонам — 55–115 с
 RESTART_ERROR = "API перезапущен во время сборки — запросите карточку заново"
+INTERNAL_ERROR = "внутренняя ошибка сборки — запросите карточку заново"
+KEEP_FINISHED = 1000  # сколько последних законченных задач держать в памяти
+
+log = logging.getLogger("api.agent.jobs")
 
 
 class JobStatus(BaseModel):
@@ -59,6 +66,8 @@ class Jobs:
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="insight")
         self._lock = threading.Lock()
         self._active: dict[str, JobStatus] = {}
+        self._finished: dict[str, JobStatus] = {}  # итог задач этого процесса — важнее записи в БД
+        self._done: dict[str, threading.Event] = {}
         self._order: list[str] = []  # очередь — по порядку постановки
         self._started: dict[str, float] = {}
         self._durations: list[float] = []
@@ -73,7 +82,26 @@ class Jobs:
             job = self._active.get(insight_id)
             if job is not None:
                 return self._view(job)
-        return self.store.get_job(insight_id)
+            job = self._finished.get(insight_id)
+            if job is not None:
+                return job.model_copy(deep=True)
+        try:
+            stored = self.store.get_job(insight_id)
+        except Exception:
+            log.exception("не прочитан статус задачи %s", insight_id)
+            return None
+        if stored is not None and stored.status in ("queued", "running"):
+            # «идёт» в БД, но этот процесс её не ведёт — сборка прервалась (перезапуск, сбой записи итога)
+            return stored.model_copy(update={"status": "failed", "stage": "", "error": RESTART_ERROR})
+        return stored
+
+    def wait(self, insight_id: str, timeout: float) -> JobStatus | None:
+        """Дождаться конца задачи (не дольше `timeout` секунд) и вернуть её статус."""
+        with self._lock:
+            done = self._done.get(insight_id)
+        if done is not None:
+            done.wait(timeout)
+        return self.get(insight_id)
 
     def submit(self, insight_id: str, event_id: str, persona_id: str, run: Run) -> JobStatus:
         """Поставить сборку в очередь; уже идёт — вернуть статус той же задачи, вторую не запускать."""
@@ -84,42 +112,62 @@ class Jobs:
             job = JobStatus(insight_id=insight_id, event_id=event_id, persona_id=persona_id, status="queued")
             self._active[insight_id] = job
             self._order.append(insight_id)
-        self.store.save_job(job)
-        self._pool.submit(self._work, insight_id, run)
+            self._done[insight_id] = threading.Event()
+            self._finished.pop(insight_id, None)
+        self._save(job)
+        try:
+            self._pool.submit(self._work, insight_id, run)
+        except RuntimeError:  # пул остановлен — API выключается: задачу не оставляем «в очереди»
+            with self._lock:
+                self._active.pop(insight_id, None)
+                self._order.remove(insight_id)
+                self._done.pop(insight_id).set()
+            raise
         return self.get(insight_id) or job
 
-    def _work(self, insight_id: str, run: Run) -> None:
-        with self._lock:
-            job = self._active[insight_id]
-            job.status, job.started_at = "running", _now()
-            self._order.remove(insight_id)
-            self._started[insight_id] = time.monotonic()
-        self.store.save_job(job)
-
-        def on_stage(text: str) -> None:
-            with self._lock:
-                if job.stage:
-                    job.stages_done.append(job.stage)
-                job.stage = text
-            self.store.save_job(job)
-
+    def _save(self, job: JobStatus) -> None:
+        """Записать статус в БД; сбой записи не роняет сборку — статус этого процесса есть в памяти."""
         try:
+            self.store.save_job(job)
+        except Exception:
+            log.exception("не записан статус задачи %s", job.insight_id)
+
+    def _work(self, insight_id: str, run: Run) -> None:
+        status: JobState = "failed"
+        error: str | None = INTERNAL_ERROR
+        trace_id: str | None = None
+        try:
+            with self._lock:
+                job = self._active[insight_id]
+                job.status, job.started_at = "running", _now()
+                self._order.remove(insight_id)
+                self._started[insight_id] = time.monotonic()
+            self._save(job)
+
+            def on_stage(text: str) -> None:
+                with self._lock:
+                    if job.stage:
+                        job.stages_done.append(job.stage)
+                    job.stage = text
+                self._save(job)
+
             trace_id = run(on_stage)
+            status, error = "done", None
         except Exception as exc:  # сбой сборки — статус failed с понятным текстом
-            self._finish(
-                insight_id,
-                "failed",
-                error=str(exc) or type(exc).__name__,
-                trace_id=getattr(getattr(exc, "trace", None), "id", None),
-            )
-        else:
-            self._finish(insight_id, "done", trace_id=trace_id)
+            error = str(exc) or type(exc).__name__
+            trace_id = getattr(getattr(exc, "trace", None), "id", None)
+        finally:
+            self._finish(insight_id, status, error=error, trace_id=trace_id)
 
     def _finish(
         self, insight_id: str, status: JobState, error: str | None = None, trace_id: str | None = None
     ) -> None:
         with self._lock:
-            job = self._active.pop(insight_id)
+            job = self._active.pop(insight_id, None)
+            if job is None:
+                return
+            if insight_id in self._order:
+                self._order.remove(insight_id)
             started = self._started.pop(insight_id, None)
             if started is not None:
                 job.elapsed_s = round(time.monotonic() - started, 1)
@@ -129,7 +177,13 @@ class Jobs:
                 job.stages_done.append(job.stage)
             job.status, job.stage, job.error, job.trace_id = status, "", error, trace_id
             job.finished_at, job.eta_s = _now(), None
-        self.store.save_job(job)
+            self._finished[insight_id] = job
+            while len(self._finished) > KEEP_FINISHED:
+                del self._finished[next(iter(self._finished))]
+            done = self._done.pop(insight_id, None)
+        if done is not None:
+            done.set()
+        self._save(job)
 
     def _view(self, job: JobStatus) -> JobStatus:
         """Копия статуса с прошедшим временем, оценкой оставшегося и местом в очереди."""

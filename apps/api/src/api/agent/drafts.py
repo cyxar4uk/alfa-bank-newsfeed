@@ -94,7 +94,8 @@ def to_statement(s: DraftStatement) -> Statement:
 
 def cited(s: DraftStatement) -> list[str]:
     """Все ссылки утверждения, включая материалы банка, с которыми вывод расходится."""
-    return [*s.refs, *(s.bank_conflict.refs if s.bank_conflict else [])]
+    conflict = s.bank_conflict.refs if s.bank_conflict and s.origin in ("ai", "hypothesis") else []
+    return [*s.refs, *conflict]
 
 
 class DraftAction(BaseModel):

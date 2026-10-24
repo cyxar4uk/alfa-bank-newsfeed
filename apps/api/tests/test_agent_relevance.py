@@ -67,6 +67,28 @@ def test_link_found_by_agent_raises_score_consistently():
     assert "связь найдена агентом" in basis
 
 
+def test_agent_link_counts_only_for_factor_named_in_a_conclusion():
+    ctx = ctx_for(make_event(factors=[], okved=["29"]), [SUPPLY_45, RATE], CHAIN_29)
+    # rate попал в «использованные» только через ссылку на признак — слагаемого по нему нет
+    terms = terms_for(ctx, {"supply_45", "rate"}, stated={"supply_45"})
+    assert [t.code for t in terms] == ["supply_45"]
+
+
+def test_hypothesis_factor_does_not_raise_score():
+    from test_agent_organizers import hypothesis
+
+    from api.agent.checks import Checker
+
+    ctx = ctx_for(make_event(factors=[], okved=["29"]), [SUPPLY_45, RATE], CHAIN_29)
+    draft = good_draft()
+    draft = draft.model_copy(
+        update={"risks": [hypothesis(factor="rate", refs=[])], "why_it_matters": [], "opportunities": []}
+    )
+    assert Checker(ctx).stated_factors(draft) == set()
+    concluded = draft.model_copy(update={"risks": [hypothesis(factor="rate", refs=[], origin="ai")]})
+    assert Checker(ctx).stated_factors(concluded) == {"rate"}
+
+
 def test_tagged_link_uses_tag_strength():
     event = make_event(factors=[FactorTag(code="rate", strength=0.9)])
     ctx = ctx_for(event, [RATE], Chain())

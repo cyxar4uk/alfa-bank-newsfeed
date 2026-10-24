@@ -38,6 +38,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
+        # задачи, прерванные перезапуском, — failed, а не «идёт» вечно; только здесь: прогрев из того же
+        # контейнера не должен ронять задачи работающего API
+        app.state.agent.jobs.recover()
     except Exception:
         # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
         logger.exception("агент не запустился")

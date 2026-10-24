@@ -193,6 +193,7 @@ class Tools:
 
     def products_for_risk(self, ctx: AgentContext) -> None:
         """Одно предложение продукта под самый сильный риск события — только при силе не ниже средней."""
+        self.trace.stage(TOOL_STAGES["get_products_for_risk"])
         direct = {f.code for f in ctx.event.factors}
         event_codes = direct | {ch.factor for ch in ctx.chain.channels if ch.factor}
         # сначала факторы самого события, потом каналы цепочки; внутри — по силе риска у компании
@@ -243,6 +244,7 @@ class Tools:
         Объёмов долга, остатков и ВЭД в данных нет — считаем «на единицу», сумму вводит пользователь.
         """
         self.load_pages(ctx, set(BANK_RATE["pages"]))
+        self.trace.stage(TOOL_STAGES["estimate_rate_impact"])  # после сверки страниц — она пишет свой этап
         verified = all(
             all(_number_on_page(n, ctx.page_texts.get(ref, "")) for n in numbers)
             for ref, numbers in BANK_RATE["pages"].items()

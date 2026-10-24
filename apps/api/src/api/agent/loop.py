@@ -22,7 +22,7 @@ from api.agent.relevance import combine as relevance_combine
 from api.agent.relevance import formula as relevance_formula
 from api.agent.relevance import terms_for as relevance_terms
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
-from api.agent.trace import TraceRecorder
+from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import (
     Action,
     Consequences,
@@ -79,6 +79,7 @@ class Agent:
     # --- шаги -------------------------------------------------------------------------------------
 
     def gather(self, persona: Persona, event: Event, trace: TraceRecorder) -> tuple[AgentContext, Tools]:
+        trace.stage(TOOL_STAGES["get_profile"])
         profile = self.company.profile(persona.company_id)
         if profile is None:
             raise CompanyNotFound(f"нет данных о компании {persona.company_id}")
@@ -221,7 +222,8 @@ class Agent:
         final = Checker(ctx).run(clean)
         # значимость — согласованная с объяснением: формальная оценка и факторы, на которых строится карточка
         formal = self.company.relevance(ctx.persona, ctx.event.source) or relevance_formula(ctx)
-        terms = relevance_terms(ctx, Checker(ctx).covered_factors(clean))
+        checker = Checker(ctx)
+        terms = relevance_terms(ctx, checker.covered_factors(clean), checker.stated_factors(clean))
         score, basis = relevance_combine(formal, terms)
         trace.tool(
             "relevance",

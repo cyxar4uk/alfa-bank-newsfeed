@@ -26,6 +26,7 @@ from api.llm import TransportResponse
 from api.main import app
 
 KEY = insight_id(NEWS_ID, PERSONA.id)
+ASYNC = {"persona": PERSONA.id, "wait": "false"}  # фоновый режим — по запросу клиента
 
 
 class SlowTransport(ScriptedTransport):
@@ -66,13 +67,13 @@ def wait_status(client, want, timeout=5.0):
 def test_first_request_returns_status_and_one_build_per_pair(api):
     transport = SlowTransport(reply(GOOD_PLAN), reply(good_draft()))
     client, _ = api(transport)
-    first = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    first = client.get(f"/api/insights/{NEWS_ID}", params=ASYNC)
     assert first.status_code == 202
     job = first.json()
     assert job["insight_id"] == KEY and job["status"] in ("queued", "running")
     running = wait_status(client, {"running"})
     # повторный запрос во время сборки — тот же статус, вторая сборка не запускается
-    again = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    again = client.get(f"/api/insights/{NEWS_ID}", params=ASYNC)
     assert again.status_code == 202 and again.json()["insight_id"] == KEY
     assert running["stage"] and running["eta_s"] is not None
     transport.release.set()
@@ -80,7 +81,7 @@ def test_first_request_returns_status_and_one_build_per_pair(api):
     assert done["status"] == "done", done
     assert "Пишу разбор" in done["stages_done"] and "Ищу аналитику Альфа-Банка" in done["stages_done"]
     assert done["trace_id"].startswith("tr:") and done["elapsed_s"] >= 0
-    ready = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    ready = client.get(f"/api/insights/{NEWS_ID}", params=ASYNC)
     assert ready.status_code == 200 and ready.json()["id"] == KEY
     assert len(transport.bodies) == 2  # план и черновик — одна сборка
 
@@ -88,11 +89,11 @@ def test_first_request_returns_status_and_one_build_per_pair(api):
 def test_failed_build_is_reported_and_can_be_retried(api):
     error = TransportResponse(400, {"error": "bad"}, '{"error": "bad"}')
     client, service = api(ScriptedTransport(reply(GOOD_PLAN), error, reply(GOOD_PLAN), reply(good_draft())))
-    assert client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id}).status_code == 202
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     failed = wait_status(client, {"failed", "done"})
     assert failed["status"] == "failed" and "400" in failed["error"] and failed["trace_id"]
     # повторный запрос после сбоя — новая сборка
-    assert client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id}).status_code == 202
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     assert wait_status(client, {"done", "failed"})["status"] == "done"
 
 
@@ -109,7 +110,7 @@ def test_unfinished_job_fails_after_restart(api):
     status = client.get(f"/api/insights/{NEWS_ID}/status", params={"persona": PERSONA.id}).json()
     assert status["status"] == "failed" and status["error"] == RESTART_ERROR
     # после перезапуска запрос карточки запускает сборку заново, а не ждёт мёртвую задачу
-    assert client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id}).status_code == 202
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     assert wait_status(client, {"done", "failed"})["status"] == "done"
 
 
@@ -154,7 +155,7 @@ def test_analyze_returns_status_with_event_id(api):
     text = (
         "Совет директоров Банка России сохранил ключевую ставку на уровне 14% годовых. Снижение не обсуждали."
     )
-    r = client.post("/api/analyze", json={"persona_id": PERSONA.id, "text": text})
+    r = client.post("/api/analyze", params={"wait": "false"}, json={"persona_id": PERSONA.id, "text": text})
     assert r.status_code == 202 and r.json()["event_id"] == "src:news:user-1"
 
 
@@ -162,7 +163,7 @@ def test_budget_problem_is_immediate_not_a_job(api):
     transport = ScriptedTransport()
     client, service = api(transport)
     service.llm.budget.limit_rub = 0.0
-    r = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    r = client.get(f"/api/insights/{NEWS_ID}", params=ASYNC)
     assert r.status_code == 503 and "Budget has been exceeded" in r.json()["detail"]
     assert service.jobs.get(KEY) is None
 
@@ -178,7 +179,7 @@ def test_card_of_other_agent_version_is_not_served(api):
     assert service.cached(KEY) is not None
     service.version = "другая"  # сменились промпты или модели
     assert service.cached(KEY) is None
-    assert client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id}).status_code == 202
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
 
 
 def test_version_changes_with_models():
@@ -186,3 +187,67 @@ def test_version_changes_with_models():
 
     assert agent_version({"draft": "a"}) != agent_version({"draft": "b"})
     assert agent_version() == agent_version()
+
+
+class FlakyStore(MemoryAgentStore):
+    """БД, которая не принимает запись статусов задач."""
+
+    def save_job(self, job):
+        raise OSError("БД недоступна")
+
+
+def test_store_failure_does_not_break_or_hang_the_build(api):
+    client, service = api(ScriptedTransport(reply(GOOD_PLAN), reply(good_draft())), store=FlakyStore())
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
+    done = wait_status(client, {"done", "failed"})
+    assert done["status"] == "done", done  # запись этапов и итога упала — сборка всё равно закончилась
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 200
+
+
+def test_running_in_db_but_not_in_this_process_is_failed():
+    store = MemoryAgentStore()
+    store.save_job(JobStatus(insight_id=KEY, event_id=NEWS_ID, persona_id=PERSONA.id, status="running"))
+    job = Jobs(store).get(KEY)  # recover() не звали: задача «идёт» в БД, но её никто не ведёт
+    assert job.status == "failed" and job.error == RESTART_ERROR
+
+
+def test_finished_status_is_kept_in_memory_not_db():
+    store = MemoryAgentStore()
+    jobs = Jobs(store)
+    jobs.submit(KEY, NEWS_ID, PERSONA.id, lambda on_stage: "tr:x")
+    assert jobs.wait(KEY, 5).status == "done"
+    store.jobs[KEY] = store.jobs[KEY].model_copy(update={"status": "running"})  # итог в БД не записался
+    assert jobs.get(KEY).status == "done"
+    jobs.shutdown()
+
+
+def test_wait_true_joins_the_running_build(api):
+    transport = SlowTransport(reply(GOOD_PLAN), reply(good_draft()))
+    client, _ = api(transport)
+    assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
+    wait_status(client, {"running"})
+    threading.Timer(0.2, transport.release.set).start()
+    # синхронный запрос во время фоновой сборки дожидается её, а не запускает вторую и не отвечает 202
+    r = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    assert r.status_code == 200 and r.json()["id"] == KEY
+    assert len(transport.bodies) == 2
+
+
+def test_default_is_synchronous_for_old_clients(api):
+    client, _ = api(ScriptedTransport(reply(GOOD_PLAN), reply(good_draft())))
+    r = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id})
+    assert r.status_code == 200 and r.json()["disclaimer"]
+
+
+def test_failed_own_news_is_rebuilt_by_get(api):
+    error = TransportResponse(400, {"error": "bad"}, '{"error": "bad"}')
+    client, service = api(ScriptedTransport(reply(GOOD_PLAN), error))
+    text = "Совет директоров Банка России сохранил ключевую ставку на уровне 14% годовых."
+    r = client.post("/api/analyze", params={"wait": "false"}, json={"persona_id": PERSONA.id, "text": text})
+    event_id = r.json()["event_id"]
+    deadline = time.monotonic() + 5
+    while service.jobs.get(r.json()["insight_id"]).status != "failed" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    service.touches = lambda persona, event: False  # своя новость связь по разметке может и не пройти
+    again = client.get(f"/api/insights/{event_id}", params=ASYNC)
+    assert again.status_code == 202, again.text  # сборка запущена заново, а не «не касается» (204)

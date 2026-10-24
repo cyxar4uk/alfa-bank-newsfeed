@@ -245,6 +245,9 @@ class Checker:
 
         if s.bank_conflict is not None and s.origin in ("ai", "hypothesis"):
             pages = [r for r in s.bank_conflict.refs if self.ctx.page_ref_of(r)]
+            stray = [r for r in s.bank_conflict.refs if not self.resolves(r)]
+            if stray:
+                bad("refs", f"в расхождении с банком ссылки не из контекста: {', '.join(stray[:4])}")
             if not pages:
                 bad("bank_quotes", "расхождение с банком без ссылки на материал Альфа-Банка")
             conflict_numbers = NumberBank()
@@ -276,6 +279,15 @@ class Checker:
         return sorted(m for m in mentioned if m not in self.counterparties)
 
     # --- карточка целиком ------------------------------------------------------------------------
+
+    def stated_factors(self, draft: Draft) -> set[str]:
+        """Факторы, явно названные в выводах карточки (без гипотез) — опора значимости по связи агента."""
+        known = self.ctx.factor_codes()
+        return {
+            s.factor
+            for s in [*draft.why_it_matters, *draft.risks, *draft.opportunities]
+            if s.factor and s.factor in known and s.origin != "hypothesis"
+        }
 
     def covered_factors(self, draft: Draft) -> set[str]:
         known = self.ctx.factor_codes()

@@ -42,8 +42,13 @@ def _strength(f) -> float:
     return f.strength if f.strength is not None else LEVEL_RANK.get(f.level, 0) / 3
 
 
-def terms_for(ctx: AgentContext, covered: set[str]) -> list[Term]:
-    """Слагаемые по факторам и каналам, которые использует карточка."""
+def terms_for(ctx: AgentContext, covered: set[str], stated: set[str] | None = None) -> list[Term]:
+    """Слагаемые по факторам и каналам, которые использует карточка.
+
+    Связь, которой нет в разметке, засчитывается только по фактору, явно названному в выводе (`stated`):
+    ссылка на признак задевает много факторов карты сразу, а гипотеза — ещё не вывод.
+    """
+    stated = covered if stated is None else stated
     exposure = {f.code: f for f in ctx.exposure}
     tags = {t.code: t.strength for t in ctx.event.factors}
     channels = {ch.factor: ch for ch in ctx.chain.channels if ch.factor}
@@ -74,7 +79,7 @@ def terms_for(ctx: AgentContext, covered: set[str]) -> list[Term]:
             )
         elif code in tags:
             out.append(Term(code, f.label, round(s * tags[code], 4), s, tags[code], "tag"))
-        else:
+        elif code in stated:
             out.append(Term(code, f.label, round(s * AGENT_LINK_WEIGHT, 4), s, AGENT_LINK_WEIGHT, "agent"))
     return sorted(out, key=lambda t: -t.value)
 

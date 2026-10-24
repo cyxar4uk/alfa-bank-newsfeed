@@ -75,6 +75,11 @@ def test_bank_conflict_needs_bank_material():
         bank_conflict=DraftConflict(text="банк ждёт 11,0% до конца года", refs=[FRAGMENT])
     )
     assert ("risks", 2) in run(good_draft(risks=[*good_draft().risks, wrong_number])).hard_at()
+    invented = conflict_ai(
+        bank_conflict=DraftConflict(text="банк ждёт 14,0% до конца года", refs=[FRAGMENT, "src:alfa:выдумка"])
+    )
+    # выдуманная ссылка рядом с настоящей страницей банка не проходит
+    assert ("risks", 2) in run(good_draft(risks=[*good_draft().risks, invented])).hard_at()
 
 
 # --- карточка ---------------------------------------------------------------------------------------
