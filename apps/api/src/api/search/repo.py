@@ -70,7 +70,7 @@ CASE WHEN length(f.fragment) <= {PUBLIC_FRAGMENT_CHARS} OR qq.q IS NULL THEN f.f
 
 _NEWS_COLUMNS = (
     "n.id, n.title, n.publisher, n.reliability, n.url, n.published_at, n.fragment, n.tags, n.expectations,"
-    " n.also_reported_by"
+    " n.also_reported_by, n.image_url, n.source_icon_url"
 )
 
 
@@ -158,6 +158,9 @@ def news_from_row(row: dict[str, Any], score: float | None = None) -> NewsItem:
         url=row["url"],
         published_at=_msk(row["published_at"]),
         fragment=row["fragment"],
+        image_url=row.get("image_url"),
+        source_icon_url=row.get("source_icon_url"),
+        text=row.get("text"),
         tags=SourceTags(
             topics=tags.get("topics", []),
             sectors=tags.get("sectors", []),
@@ -489,14 +492,21 @@ class SearchRepo:
         return [news_from_row(r, r["score"] if has_query else None) for r in rows], total
 
     def _news_row(self, source_id: str) -> dict[str, Any] | None:
-        return self._news_rows([source_id]).get(source_id)
+        """Одна новость — с полным текстом (если он есть); в списках его нет."""
+        return self._news_rows([source_id], with_text=True).get(source_id)
 
-    def _news_rows(self, ids: list[str], feed_only: bool = False) -> dict[str, dict[str, Any]]:
+    def _news_rows(
+        self, ids: list[str], feed_only: bool = False, with_text: bool = False
+    ) -> dict[str, dict[str, Any]]:
         if not ids:
             return {}
         where = "n.id = ANY(%s)" + (" AND n.origin = 'feed'" if feed_only else "")
+        # текст присланной на разбор новости — чужая статья целиком: наружу отдаём только полный текст лент,
+        # а его парсер хранит лишь там, где разрешают условия издателя
+        text = ", CASE WHEN n.origin = 'feed' THEN n.body END AS text"
+        columns = _NEWS_COLUMNS + (text if with_text else "")
         with self.pool.connection() as conn, conn.cursor(row_factory=dict_row) as cur:
-            rows = cur.execute(f"SELECT {_NEWS_COLUMNS} FROM news n WHERE {where}", (ids,)).fetchall()
+            rows = cur.execute(f"SELECT {columns} FROM news n WHERE {where}", (ids,)).fetchall()
         return {r["id"]: r for r in rows}
 
     def _material_exists(self, material_id: str) -> bool:
