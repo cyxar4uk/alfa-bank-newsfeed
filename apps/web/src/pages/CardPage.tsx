@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { CompanyProfile, FeedItem, Insight } from '../api/types';
+import type { AgentStep, CompanyProfile, EventDetail, FeedItem, Insight } from '../api/types';
 import { AskBox } from '../components/AskBox';
 import { Disclaimer } from '../components/Disclaimer';
 import { FeedbackBox } from '../components/FeedbackBox';
@@ -20,7 +20,9 @@ import { bankOf, LEVEL_LABEL, levelWith, plain, whyOf } from '../state/news';
 import { tracePath } from '../state/routes';
 import { cardScreen, isHypothesis, type CardMenuItem, type CardRow } from '../state/screens';
 import { useCurrentUser } from '../state/session';
-import { useAsync } from '../state/useAsync';
+import { markRead } from '../state/read';
+import { stepsOf } from '../state/steps';
+import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
 
 const ROW_ICON: Record<CardRow['id'], IconName> = {
@@ -99,12 +101,17 @@ function Card({
   personaId,
   eventId,
   item,
+  detail,
+  steps,
 }: {
   insight: Insight;
   company: CompanyProfile;
   personaId: string;
   eventId: string;
   item: FeedItem | null;
+  detail: AsyncState<EventDetail | null> & { retry: () => void };
+  /** шаги разбора, если он собирался у нас на глазах; пусто — разбор взят готовым */
+  steps: AgentStep[];
 }) {
   const exposure = useAsync((signal) => api.exposure(company.id, signal), company.id);
   const { hide } = useHidden();
@@ -173,7 +180,7 @@ function Card({
 
   return (
     <div className="article-page">
-      <aside className="verdict appear" aria-label="Что это значит для компании" ref={verdictRef} tabIndex={-1}>
+      <aside className="verdict side-col appear" aria-label="Что это значит для компании" ref={verdictRef} tabIndex={-1}>
         <section className="card verdict__card">
           <p className={`verdict__level verdict__level--${level}`}>
             <LevelIcon level={level} />
@@ -250,8 +257,30 @@ function Card({
               </ol>
             </>
           )}
+          {steps.length > 0 && (
+            <details className="howgot">
+              <summary>
+                <Icon name="model" size={16} />
+                Как получен вывод · {steps.length} {stepsWord(steps.length)}
+                <Icon name="chevronDown" size={14} className="howgot__chevron" />
+              </summary>
+              <ol className="howgot__list">
+                {steps.map((st, i) => (
+                  <li key={`${i}-${st.title}`}>
+                    <Icon name="check" size={14} />
+                    {st.title}
+                  </li>
+                ))}
+              </ol>
+              {insight.trace_id && (
+                <Link to={tracePath(insight.trace_id)} className="link-action">
+                  Подробнее: инструменты, источники, проверки
+                </Link>
+              )}
+            </details>
+          )}
           <div className="verdict__links">
-            {insight.trace_id && (
+            {insight.trace_id && steps.length === 0 && (
               <Link to={tracePath(insight.trace_id)} className="chip-link chip-link--plain">
                 <Icon name="model" size={16} />
                 Как получен вывод
@@ -302,9 +331,9 @@ function Card({
           publisher={leadNews?.publisher ?? item?.source.publisher ?? null}
           date={leadNews?.published_at ?? item?.source.published_at ?? insight.event.date ?? null}
           factor={item?.factors[0]?.code ?? 'industry'}
-          image={item?.image_url ?? null}
+          image={imageOf(detail, item)}
         />
-        <FullText eventId={eventId} quotes={quotes} lead={leadNews} />
+        <FullText detail={detail} quotes={quotes} lead={leadNews} />
         <div className="discuss">
           <AskBox insight={insight} personaId={personaId} index={index} />
         </div>
@@ -314,6 +343,20 @@ function Card({
   );
 }
 
+function stepsWord(n: number): string {
+  const a = n % 100;
+  const b = n % 10;
+  if (a > 10 && a < 20) return 'шагов';
+  if (b === 1) return 'шаг';
+  if (b >= 2 && b <= 4) return 'шага';
+  return 'шагов';
+}
+
+function imageOf(detail: AsyncState<EventDetail | null>, item: FeedItem | null): string | null {
+  const d = detail.status === 'ok' ? detail.data : null;
+  return d?.image_url ?? d?.source?.image_url ?? item?.image_url ?? null;
+}
+
 /** Карточка события — макеты «A+ · Новость целиком» и «A+ · Ход разбора». */
 export function CardPage() {
   const { eventId = '' } = useParams();
@@ -321,33 +364,43 @@ export function CardPage() {
   const { load, retry } = useInsight(eventId, persona.id);
   const briefing = useBriefing();
   const item = briefing.status === 'ok' ? (briefing.data.items.find((i) => i.event_id === eventId) ?? null) : null;
+  // Новость грузится сразу и отдельно от разбора: её видно, пока разбор собирается.
+  const detail = useAsync((signal) => api.eventDetail(eventId, signal), eventId);
+  const d = detail.status === 'ok' ? detail.data : null;
+
+  // Шаги разбора, которые прошли у нас на глазах, — для «Как получен вывод · N шагов» после готовности.
+  const [seen, setSeen] = useState<{ key: string; steps: AgentStep[] }>({ key: '', steps: [] });
+  const key = `${eventId}|${persona.id}`;
+  if (load.status === 'building') {
+    const now = stepsOf(load.job);
+    if (seen.key !== key || seen.steps.length !== now.length || seen.steps.at(-1)?.title !== now.at(-1)?.title) setSeen({ key, steps: now });
+  }
+  const doneSteps = seen.key === key ? seen.steps.map((st) => ({ ...st, state: 'done' as const })) : [];
+
+  useEffect(() => markRead(persona.id, eventId), [persona.id, eventId]);
 
   return (
     <div className="page article-wrap">
       <BackToNews />
       {(load.status === 'loading' || load.status === 'building') && (
         <div className="article-page">
+          <div className="side-col side-col--live">
+            <Thinking steps={stepsOf(load.status === 'building' ? load.job : null)} eta={load.status === 'building' ? load.job.eta_s : null} />
+          </div>
           <article className="card article">
-            {item ? (
+            {item || d?.source?.title ? (
               <NewsHead
-                title={item.event.title}
-                publisher={item.source.publisher ?? null}
-                date={item.source.published_at ?? item.event.date ?? null}
-                factor={item.factors[0]?.code ?? 'industry'}
-                image={item.image_url ?? null}
+                title={item?.event.title ?? d?.source?.title ?? ''}
+                publisher={item?.source.publisher ?? d?.source?.publisher ?? null}
+                date={item?.source.published_at ?? d?.source?.published_at ?? item?.event.date ?? null}
+                factor={item?.factors[0]?.code ?? 'industry'}
+                image={imageOf(detail, item)}
               />
             ) : (
-              <Skeleton width="80%" height={28} />
+              detail.status === 'loading' && <Skeleton width="80%" height={28} />
             )}
-            <div className="article__wait" aria-hidden="true">
-              <Skeleton width="100%" />
-              <Skeleton width="96%" />
-              <Skeleton width="80%" />
-              <Skeleton width="60%" />
-            </div>
-            <p className="fulltext__note">Вывод появится, когда разбор закончится.</p>
+            <FullText detail={detail} quotes={[]} />
           </article>
-          <Thinking job={load.status === 'building' ? load.job : null} />
         </div>
       )}
       {load.status === 'error' &&
@@ -364,7 +417,9 @@ export function CardPage() {
           нашлось. <Link to="/radar">Вернуться к новостям</Link>
         </EmptyState>
       )}
-      {load.status === 'ready' && <Card insight={load.insight} company={company} personaId={persona.id} eventId={eventId} item={item} />}
+      {load.status === 'ready' && (
+        <Card insight={load.insight} company={company} personaId={persona.id} eventId={eventId} item={item} detail={detail} steps={doneSteps} />
+      )}
     </div>
   );
 }

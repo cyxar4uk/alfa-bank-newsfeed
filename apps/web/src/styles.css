@@ -140,6 +140,9 @@ svg {
   position: absolute;
   width: 1px;
   height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
@@ -5624,6 +5627,17 @@ a:hover .thumb img,
     position: static;
   }
 
+  /* ход разбора на узком экране прилипает сверху и не закрывает больше половины экрана */
+  .article-page > .side-col--live {
+    position: sticky;
+    z-index: 5;
+    top: 0;
+    max-height: 45vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow: 0 6px 16px rgb(0 0 0 / 8%);
+  }
+
   .source-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5756,9 +5770,15 @@ a:hover .thumb img,
 
 /* вывод идёт в разметке первым (порядок чтения); на широком экране он справа, на узком — над новостью */
 @media (min-width: 1101px) {
-  .article-page > .verdict {
+  .article-page > .side-col {
+    position: sticky;
+    top: 16px;
     grid-column: 2;
     grid-row: 1;
+    align-self: start;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 
   .article-page > .article {
@@ -5769,6 +5789,140 @@ a:hover .thumb img,
 
 .verdict:focus {
   outline: none;
+}
+
+/* ход разбора: готовые шаги — одной строкой, раскрываются по клику */
+.side-col {
+  display: grid;
+  gap: 12px;
+}
+
+.thinking__fold summary {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 14px;
+  gap: 10px;
+  align-items: start;
+  list-style: none;
+  cursor: pointer;
+}
+
+.thinking__fold summary::-webkit-details-marker {
+  display: none;
+}
+
+.thinking__fold .thinking__text {
+  display: block;
+  padding: 4px 0 0 32px;
+}
+
+.thinking__chevron {
+  margin-top: 4px;
+  color: var(--ink-3);
+  transition: transform var(--t-fast) var(--ease);
+}
+
+.thinking__fold[open] .thinking__chevron {
+  transform: rotate(180deg);
+}
+
+.thinking__step--done .thinking__step-title {
+  font-weight: 400;
+}
+
+/* «Как получен вывод · N шагов» */
+.howgot summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+
+.howgot summary::-webkit-details-marker {
+  display: none;
+}
+
+.howgot__chevron {
+  transition: transform var(--t-fast) var(--ease);
+}
+
+.howgot[open] .howgot__chevron {
+  transform: rotate(180deg);
+}
+
+.howgot__list {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.howgot__list li {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.howgot__list svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ok-text);
+}
+
+/* прочитанное — приглушено, непрочитанное — с точкой «новое» */
+.is-read .day-row__headline,
+.is-read .event-row__title {
+  color: var(--ink-2);
+  font-weight: 500;
+}
+
+.is-read .thumb {
+  opacity: 0.7;
+}
+
+.event-row__source .read-mark {
+  margin-left: 8px;
+}
+
+.read-mark {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.new-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--red);
+  vertical-align: 1px;
+}
+
+.thinking__step--fold {
+  display: block;
+}
+
+.fulltext .fulltext__mark {
+  padding: 1px 2px;
+  border-radius: 3px;
+  background: var(--warn-bg);
+  color: inherit;
+}
+
+.fulltext__sup {
+  margin-left: 2px;
+  color: var(--level-watch);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 @media (prefers-reduced-motion: reduce) {
