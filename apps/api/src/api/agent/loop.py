@@ -9,6 +9,7 @@
 
 import hashlib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from api.agent.checks import Checker, Report
@@ -165,8 +166,9 @@ class Agent:
 
     # --- сборка -----------------------------------------------------------------------------------
 
-    def run(self, persona: Persona, event: Event) -> Result:
-        trace = TraceRecorder()
+    def run(self, persona: Persona, event: Event, on_stage: Callable[[str], None] | None = None) -> Result:
+        """Собрать карточку. `on_stage(подпись)` — этапы сборки по ходу, для статуса пользователю."""
+        trace = TraceRecorder(on_stage=on_stage)
         try:
             return self._run(persona, event, trace)
         except (LlmError, BudgetExceeded) as exc:
@@ -183,9 +185,12 @@ class Agent:
 
     def _run(self, persona: Persona, event: Event, trace: TraceRecorder) -> Result:
         ctx, tools = self.gather(persona, event, trace)
+        trace.stage("Составляю план: какие факторы и каналы проверить")
         plan = self.plan(ctx, trace)
         self.execute(ctx, tools, plan)
+        trace.stage("Пишу разбор")
         draft = self.draft(ctx, trace)
+        trace.stage("Проверяю источники, цитаты и цифры")
         report = self.check(ctx, draft, trace)
         best = (draft, report)
         for n in range(1, MAX_REVISIONS + 1):
@@ -193,6 +198,7 @@ class Agent:
                 break
             extra = self.dig(ctx, tools, report, plan)
             trace.retry(f"круг {n}: {len(report.issues)} проблем(ы). {extra}".strip())
+            trace.stage(f"Дорабатываю разбор (круг {n} из {MAX_REVISIONS})")
             completion = self.llm.complete(
                 "revise",
                 revise_messages(ctx, draft, report, extra),

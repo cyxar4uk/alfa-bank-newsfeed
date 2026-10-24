@@ -12,7 +12,7 @@ from pathlib import Path
 
 from api.agent.context import AgentContext, Estimate, Offer
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, CompanyData, Event, Library
-from api.agent.trace import TraceRecorder
+from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import Statement
 
 PRODUCTS_FILE = Path(__file__).with_name("products.toml")
@@ -78,6 +78,8 @@ class Tools:
     def _call(
         self, name: str, args: dict, fn: Callable, refs: Callable[[object], list[str]], summary: Callable
     ):
+        if name in TOOL_STAGES:
+            self.trace.stage(TOOL_STAGES[name])
         try:
             result = fn()
         except Exception as exc:  # инструмент упал — агент работает с тем, что есть, и пишет об этом

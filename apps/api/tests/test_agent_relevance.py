@@ -113,7 +113,9 @@ def test_disclaimer_in_http_responses():
     app.dependency_overrides[get_agent] = lambda: service
     try:
         client = TestClient(app)
-        insight = client.get(f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id}).json()
+        insight = client.get(
+            f"/api/insights/{NEWS_ID}", params={"persona": PERSONA.id, "wait": "true"}
+        ).json()
         ask = client.post(
             f"/api/insights/{insight['id']}/ask", json={"question": "Что дальше со ставкой?"}
         ).json()

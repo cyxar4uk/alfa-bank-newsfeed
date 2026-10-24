@@ -45,6 +45,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
+        if app.state.agent is not None:
+            app.state.agent.jobs.shutdown()  # фоновые сборки не переживут остановку — после старта они failed
         pool.close()
 
 
