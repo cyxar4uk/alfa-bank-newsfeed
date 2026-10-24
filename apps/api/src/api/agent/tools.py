@@ -5,6 +5,7 @@
 4): агент может только читать данные этой компании и материалы, других действий у него нет.
 """
 
+import re
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -114,11 +115,7 @@ class Tools:
                     or "нет значимых"
                 )
             ),
-            lambda r: [
-                f"Заметно зависит: {f.label}"
-                for f in sorted(r, key=lambda f: -LEVEL_RANK.get(f.level, 0))
-                if LEVEL_RANK.get(f.level, 0) >= 2
-            ][:3],
+            lambda r: _depends_found(r),
         )
         ctx.exposure = result or []
         if result is None:
@@ -138,7 +135,7 @@ class Tools:
             ),
             lambda r: "; ".join(ch.text for ch in r.channels) or ("каналов нет: " + "; ".join(r.gaps)),
             lambda r: (
-                [ch.text for ch in r.channels][:3]
+                [_chain_found(ch.text) for ch in r.channels][:3]
                 or [
                     "Оценить влияние через покупателей и поставщиков не удалось — данных мало"
                     if r.gaps
@@ -377,6 +374,33 @@ class Tools:
             sorted({r for e in out for r in e.statement.refs}),
             "; ".join(e.id for e in out) or "честной формулы для события нет — расчёта нет",
         )
+
+
+def _depends_found(exposure) -> list[str]:
+    """«Сильнее всего на ваш бизнес влияют: стоимость заёмных денег, курс валют» — одной фразой."""
+    strong = sorted(
+        (f for f in exposure if LEVEL_RANK.get(f.level, 0) >= 2), key=lambda f: -LEVEL_RANK.get(f.level, 0)
+    )[:3]
+    if not strong:
+        return []
+    # «Сырьё: нефть, газ и топливо» → «цены на нефть, газ и топливо»
+    labels = []
+    for f in strong:
+        rest = f.label.split(":", 1)[1].strip() if f.label.startswith("Сырьё:") else ""
+        labels.append(f"цены на {rest}" if rest else f.label[:1].lower() + f.label[1:])
+    verb = "влияют" if len(labels) > 1 else "влияет"
+    # внутри меток бывают запятые («нефть, газ и топливо») — между метками точка с запятой
+    return [f"Сильнее всего на ваш бизнес {verb}: " + "; ".join(labels)]
+
+
+def _chain_found(text: str) -> str:
+    """«событие → недвижимость (68) → компании вашей группы: … → вы» → без стрелок и кодов отраслей."""
+    text = re.sub(r"\s*\(\d{2}(?:\.\d+)?\)", "", text)
+    text = re.sub(r"\s*класса ОКВЭД \d{2}(?:\.\d+)*", "", text)
+    text = re.sub(r"\b\d{2}(?:\.\d{1,2}){1,2}\s+", "", text)  # «46.71 Торговля…» → «Торговля…»
+    text = re.sub(r"^событие\s*→\s*", "Как дойдёт до вас: ", text)
+    text = re.sub(r"\s*→\s*вы\s*$", "", text)
+    return text.replace(" → ", ", затем ")
 
 
 def _short(text: str, limit: int = 150) -> str:

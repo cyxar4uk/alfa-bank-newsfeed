@@ -152,7 +152,7 @@ class Draft(BaseModel):
     bank_view: list[DraftStatement] = Field(
         default_factory=list, description="только origin=bank, из аналитики Альфа-Банка; нет позиции — пусто"
     )
-    actions: list[DraftAction] = Field(default_factory=list, description="2–4 конкретных шага для роли")
+    actions: list[DraftAction] = Field(default_factory=list, description="2–3 конкретных шага для роли")
     warnings: list[str] = Field(default_factory=list, description="чего не хватает в данных")
 
     def statements(self) -> list[tuple[str, int, DraftStatement]]:
