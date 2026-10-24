@@ -7,10 +7,15 @@
 Набор детерминирован; компании, которой нет в загруженных данных, просто нет в списке.
 """
 
+from typing import TYPE_CHECKING
+
 from api.contract import ROLE_LABELS, Persona
 from api.okved import sector_for
 from api.profile import company_number
 from api.records import CompanyRecord
+
+if TYPE_CHECKING:
+    from api.repo import CompanyRepo
 
 MAX_COMPANIES = 8
 
@@ -113,3 +118,14 @@ def make_personas(companies: list[CompanyRecord]) -> list[Persona]:
     for i, company in enumerate(fill):
         personas.append(_persona(company, FILL_ROLES[i % len(FILL_ROLES)], company_label(company)))
     return personas
+
+
+def personas_for(repo: "CompanyRepo") -> list[Persona]:
+    """Все тестовые пользователи — один источник для API и агента.
+
+    Персоны — у действующих клиентов крупного бизнеса: демо-клиенты и крупнейшие компании групп.
+    """
+    leaders = repo.list_companies(large=True, limit=1000, offset=0, clients_only=True, per_group=True)
+    known = {c.id for c in leaders}
+    demo = [repo.get_company(cid) for cid in DEMO_COMPANIES if cid not in known]
+    return make_personas([*leaders, *(c for c in demo if c)])
