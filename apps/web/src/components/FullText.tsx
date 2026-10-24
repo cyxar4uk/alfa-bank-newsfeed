@@ -1,16 +1,24 @@
-import { api } from '../api/client';
-import type { Source } from '../api/types';
+import type { EventDetail, Source } from '../api/types';
 import { highlight } from '../state/highlight';
-import { useAsync } from '../state/useAsync';
+import type { AsyncState } from '../state/useAsync';
 import { Icon } from './Icon';
 import { Skeleton } from './States';
 
 /**
- * Новость целиком (макет «A+ · Новость целиком»): абзацы с цитатами, на которые опирается вывод, подсвечены и
- * пронумерованы. Полного текста нет — фрагмент из источника и ссылка на оригинал.
+ * Новость целиком (макет «A+ · Новость целиком»): показывается сразу, параллельно с разбором. Полного текста нет —
+ * первый абзац из источника и ссылка на оригинал. Когда разбор готов, абзацы с цитатами, на которые опирается
+ * вывод, подсвечены и пронумерованы.
  */
-export function FullText({ eventId, quotes, lead }: { eventId: string; quotes: string[]; lead: Source | undefined }) {
-  const detail = useAsync((signal) => api.eventDetail(eventId, signal), eventId);
+export function FullText({
+  detail,
+  quotes,
+  lead,
+}: {
+  detail: AsyncState<EventDetail | null> & { retry: () => void };
+  quotes: string[];
+  /** источник из разбора — запасной фрагмент, если новости по адресу события нет */
+  lead?: Source;
+}) {
   if (detail.status === 'loading')
     return (
       <div className="fulltext" aria-busy="true">
@@ -19,10 +27,11 @@ export function FullText({ eventId, quotes, lead }: { eventId: string; quotes: s
         <Skeleton width="70%" />
       </div>
     );
-  const full = detail.status === 'ok' && detail.data?.text ? detail.data.text : null;
-  const text = full ?? lead?.fragment ?? null;
-  const url = (detail.status === 'ok' && detail.data?.url) || lead?.url || null;
-  const publisher = lead?.publisher ?? 'источника';
+  const d = detail.status === 'ok' ? detail.data : null;
+  const full = d?.text || null;
+  const text = full ?? d?.source?.fragment ?? lead?.fragment ?? null;
+  const url = d?.source?.url || d?.url || lead?.url || null;
+  const publisher = d?.source?.publisher ?? lead?.publisher ?? 'источника';
   let n = 0;
   return (
     <div className="fulltext">
@@ -30,9 +39,28 @@ export function FullText({ eventId, quotes, lead }: { eventId: string; quotes: s
         text.split(/\n{2,}/).map((p, i) => {
           const segs = highlight(p, quotes);
           const quoted = segs.some((s) => s.mark);
+          // Короткий абзац с цитатой — выделяем блоком; в длинном — только саму цитату с номером.
+          if (quoted && p.length > 400)
+            return (
+              <p key={i}>
+                {segs.map((seg, j) => {
+                  if (!seg.mark) return seg.text;
+                  n += 1;
+                  return (
+                    <span key={j}>
+                      <mark className="fulltext__mark">{seg.text}</mark>
+                      <sup className="fulltext__sup" aria-hidden="true">
+                        {n}
+                      </sup>
+                      <span className="visually-hidden"> (цитата {n})</span>
+                    </span>
+                  );
+                })}
+              </p>
+            );
           if (quoted) n += 1;
           return quoted ? (
-            <p key={i} className="fulltext__quote">
+            <p key={i} className="fulltext__quote appear">
               {segs.map((seg, j) => (seg.mark ? <mark key={j}>{seg.text}</mark> : seg.text))}
               <span className="fulltext__n" aria-hidden="true">
                 {n}
@@ -48,11 +76,11 @@ export function FullText({ eventId, quotes, lead }: { eventId: string; quotes: s
       )}
       <p className="fulltext__note">
         {n > 0 ? 'Подсвечены фрагменты, на которые опирается вывод. ' : ''}
-        {full ? `Полный текст — с сайта ${publisher}.` : text ? 'Показан фрагмент новости.' : ''}
+        {full ? `Полный текст — с сайта ${publisher}.` : text ? 'Показано начало новости.' : ''}
         {detail.status === 'error' && (
           <>
             {' '}
-            Полный текст загрузить не удалось.{' '}
+            Новость загрузить не удалось.{' '}
             <button type="button" className="link-button" onClick={detail.retry}>
               Повторить
             </button>

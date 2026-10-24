@@ -9,6 +9,7 @@ import { ServiceTabs } from '../components/ServiceTabs';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { useBriefing } from '../state/briefing';
 import { useHidden } from '../state/hidden';
+import { readEvents } from '../state/read';
 import { LEVEL_LABEL, newsScreen, type DayRow, type EventRow } from '../state/news';
 import { eventPath } from '../state/routes';
 import { plural } from '../state/screens';
@@ -20,12 +21,27 @@ function localToday() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function Day({ row, index }: { row: DayRow; index: number }) {
+/** Прочитано или новое: приглушённый вид с меткой либо красная точка. */
+function ReadMark({ read }: { read: boolean }) {
+  return read ? (
+    <span className="read-mark">
+      <Icon name="check" size={12} />
+      Прочитано
+    </span>
+  ) : (
+    <span className="new-dot" title="Новое">
+      <span className="visually-hidden">Новое: </span>
+    </span>
+  );
+}
+
+function Day({ row, index, read }: { row: DayRow; index: number; read: boolean }) {
   return (
-    <li className="day-row appear" style={{ animationDelay: `${index * 70}ms` }}>
+    <li className={`day-row appear${read ? ' is-read' : ''}`} style={{ animationDelay: `${index * 70}ms` }}>
       <LevelBadge level={row.level} />
       <div className="day-row__body">
         <Link to={eventPath(row.eventId)} className="day-row__headline">
+          {!read && <ReadMark read={false} />}
           {row.fromModel && (
             <span className="day-row__ai" title="Вывод модели">
               <Icon name="model" size={16} />
@@ -35,15 +51,16 @@ function Day({ row, index }: { row: DayRow; index: number }) {
           {row.headline}
         </Link>
         <p className="day-row__why">{row.why}</p>
+        {read && <ReadMark read />}
         {row.todo && <p className="day-row__todo">Что делать: {row.todo}</p>}
       </div>
     </li>
   );
 }
 
-function Event({ row, index }: { row: EventRow; index: number }) {
+function Event({ row, index, read }: { row: EventRow; index: number; read: boolean }) {
   return (
-    <li className="event-row appear" style={{ animationDelay: `${Math.min(index, 8) * 50}ms` }}>
+    <li className={`event-row appear${read ? ' is-read' : ''}`} style={{ animationDelay: `${Math.min(index, 8) * 50}ms` }}>
       <Link to={eventPath(row.eventId)} className="event-row__thumb" tabIndex={-1} aria-hidden="true">
         <NewsThumb src={row.imageUrl} factor={row.factor} size="l" />
       </Link>
@@ -51,8 +68,10 @@ function Event({ row, index }: { row: EventRow; index: number }) {
         <p className="event-row__source">
           {row.iconUrl ? <img src={row.iconUrl} alt="" className="event-row__icon" /> : <Icon name="news" size={14} />}
           {row.sourceLine}
+          {read && <ReadMark read />}
         </p>
         <Link to={eventPath(row.eventId)} className="event-row__title">
+          {!read && <ReadMark read={false} />}
           {row.title}
         </Link>
         <p className={`event-row__why event-row__why--${row.level}`}>
@@ -129,6 +148,8 @@ export function NewsPage() {
     `${leadId}|${persona.id}`,
   );
 
+  // Прочитанное читаем при каждом заходе на ленту: карточка отмечает событие, возврат пересоздаёт страницу.
+  const read = useMemo(() => readEvents(persona.id), [persona.id]);
   const screen = useMemo(
     () =>
       briefing.status === 'ok'
@@ -167,7 +188,7 @@ export function NewsPage() {
             {screen.day.length > 0 ? (
               <ol className="day-list">
                 {screen.day.map((row, i) => (
-                  <Day key={row.eventId} row={row} index={i} />
+                  <Day key={row.eventId} row={row} index={i} read={read.has(row.eventId)} />
                 ))}
               </ol>
             ) : (
@@ -215,7 +236,7 @@ export function NewsPage() {
             <div className="card news-card">
               <ul className="event-list">
                 {screen.events.map((row, i) => (
-                  <Event key={row.eventId} row={row} index={i} />
+                  <Event key={row.eventId} row={row} index={i} read={read.has(row.eventId)} />
                 ))}
               </ul>
               {(screen.more > 0 || (showAll && !filter)) && (

@@ -6,7 +6,8 @@ import { factorIcon } from '../components/factorIcon';
 import { Icon, type IconName } from '../components/Icon';
 import { Skeleton } from '../components/States';
 import { TOP_EVENTS, useBriefing } from '../state/briefing';
-import { dayItems } from '../state/news';
+import { dayItems, plain } from '../state/news';
+import { LevelIcon } from '../components/NewsParts';
 import { useHidden } from '../state/hidden';
 import { formatDate, SERVICE_NAME } from '../state/labels';
 import { eventPath } from '../state/routes';
@@ -87,7 +88,13 @@ function ServicePlate() {
                 </span>
                 <span className="plate__text">
                   <span className="plate__item-title">{item.event.title}</span>
-                  <span className="plate__item-why">{item.relevance.reason}</span>
+                  {/* Вывод для компании — только из takeaway; без него технических строк не показываем. */}
+                  {item.takeaway?.text && (
+                    <span className="plate__item-why">
+                      <LevelIcon level={item.takeaway.level} />
+                      {plain(item.takeaway.text)}
+                    </span>
+                  )}
                 </span>
                 <span className="plate__aside">
                   {item.has_bank_view && <BankBadge />}

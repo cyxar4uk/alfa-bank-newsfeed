@@ -38,7 +38,12 @@ const LEVEL_ICON: Record<Level, IconName> = { act: 'warning', watch: 'eye', info
 
 /** Иконка уровня без подписи — в строке ленты перед выводом. */
 export function LevelIcon({ level }: { level: Level }) {
-  return <Icon name={LEVEL_ICON[level]} size={16} className={`level-icon level-icon--${level}`} />;
+  return (
+    <>
+      <Icon name={LEVEL_ICON[level]} size={16} className={`level-icon level-icon--${level}`} />
+      <span className="visually-hidden">{LEVEL_LABEL[level]}: </span>
+    </>
+  );
 }
 
 /** Уровень вывода: важно / следить / к сведению. */
@@ -56,16 +61,26 @@ export function LevelBadge({ level }: { level: Level }) {
  * (иконка на мягком фоне), без букв-заглушек.
  */
 export function NewsThumb({ src, factor, size = 'm' }: { src: string | null; factor: string; size?: 's' | 'm' | 'l' | 'xl' }) {
-  const [failed, setFailed] = useState(false);
-  if (src && !failed)
-    return (
-      <span className={`thumb thumb--${size}`}>
-        <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
-      </span>
-    );
+  // Иллюстрация темы лежит под фото всегда: фото не загрузилось, загрузилось пустым или ещё грузится —
+  // видна иллюстрация, а не серый прямоугольник.
+  const [loaded, setLoaded] = useState<string | null>(null);
   return (
-    <span className={`thumb thumb--${size} thumb--art thumb--${factorIcon(factor)}`} aria-hidden="true">
+    <span
+      className={`thumb thumb--${size} thumb--art thumb--${factorIcon(factor)}${loaded === src && src ? ' thumb--photo' : ''}`}
+      aria-hidden="true"
+    >
       <Icon name={factorIcon(factor)} size={size === 's' ? 18 : size === 'xl' ? 40 : 26} />
+      {src && (
+        <img
+          key={src}
+          src={src}
+          alt=""
+          loading="lazy"
+          className={loaded === src ? 'thumb__img thumb__img--on' : 'thumb__img'}
+          onLoad={(e) => e.currentTarget.naturalWidth > 1 && setLoaded(src)}
+          onError={() => setLoaded(null)}
+        />
+      )}
     </span>
   );
 }

@@ -192,12 +192,13 @@ export interface Takeaway {
 /** Новость целиком: GET /api/events/{id}. */
 export interface EventDetail {
   id: string;
-  title: string;
+  /** новость: заголовок, издание, дата, первый абзац (fragment), ссылка и картинка */
+  source?: (Pick<Source, 'title' | 'publisher' | 'url' | 'published_at' | 'fragment'> & { image_url?: string | null }) | null;
+  /** полный текст, если получен законно; нет — показываем fragment */
   text?: string | null;
   image_url?: string | null;
+  source_icon_url?: string | null;
   url?: string | null;
-  source?: string | null;
-  published_at?: string | null;
 }
 
 /** Каталог источников: GET /api/sources/catalog. */
