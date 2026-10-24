@@ -1,6 +1,7 @@
 // Имитация API на тестовых данных. Задержки — чтобы были видны состояния загрузки.
 // Параметр адреса включает состояние для проверки: ?mock=empty — пустой брифинг, ?mock=error — ошибка везде,
-// ?mock=error-briefing, error-insight, error-map, error-weekly — ошибка только одного экрана. Режим запоминается до
+// ?mock=error-briefing, error-insight, error-map, error-weekly — ошибка только одного экрана; ?mock=conflict — у первой
+// гипотезы разбора помечено расхождение с позицией банка (в эталонах его нет — только для проверки интерфейса). Режим запоминается до
 // закрытия вкладки, чтобы переживать переходы; ?mock=off его сбрасывает.
 import type { Api } from '../api/client';
 import type {
@@ -32,6 +33,30 @@ function readMode(): string | null {
 }
 
 const mode = readMode();
+
+/** ?mock=conflict: пометить первую гипотезу расхождением с первой позицией банка в разборе. */
+function withTestConflict(insight: Insight | null): Insight | null {
+  if (mode !== 'conflict' || !insight) return insight;
+  const { risks, opportunities } = insight.consequences;
+  const all = [...opportunities, ...risks];
+  const target = all.find((s) => s.origin === 'ai' && s.confidence === 'low') ?? all.find((s) => s.origin === 'ai');
+  const bankRefs = insight.bank_view[0]?.refs ?? [];
+  if (!target || bankRefs.length === 0) return insight;
+  const mark = (s: Statement): Statement =>
+    s === target
+      ? {
+          ...s,
+          bank_conflict: {
+            text: 'тестовый сценарий для проверки интерфейса — в эталонных разборах такого расхождения нет',
+            refs: bankRefs,
+          },
+        }
+      : s;
+  return {
+    ...insight,
+    consequences: { ...insight.consequences, risks: risks.map(mark), opportunities: opportunities.map(mark) },
+  };
+}
 
 function wait(ms: number, signal?: AbortSignal) {
   return new Promise<void>((resolve, reject) => {
@@ -374,7 +399,8 @@ export const mockApi: Api = {
       signal,
     ),
 
-  insight: (eventId, personaId, signal) => respond(3200, () => buildInsight(eventId, personaId), 'insight', signal),
+  insight: (eventId, personaId, signal) =>
+    respond(3200, () => withTestConflict(buildInsight(eventId, personaId)), 'insight', signal),
 
   exposureMap: (companyId, signal) =>
     respond(

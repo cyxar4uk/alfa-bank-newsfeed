@@ -57,6 +57,10 @@
   --origin-ai-bg: #eeedff;
   --origin-offer-bg: #d8eaff;
   --origin-offer: #3193fc;
+  /* гипотеза — предположение модели без опоры на данные */
+  --origin-hypothesis: var(--warn);
+  --origin-hypothesis-bg: var(--warn-bg);
+  --origin-hypothesis-text: var(--ink);
 
   /* форма */
   --r-card: 16px;
@@ -2756,6 +2760,221 @@ a.plate__row:hover {
 
 .analyze .btn {
   justify-self: start;
+}
+
+/* ─── Ответы организаторов: гипотеза, расхождение с банком, дисклеймер, действия, вход ─ */
+
+.stmt--hypothesis {
+  border-left: 2px dotted var(--origin-hypothesis);
+  background: var(--origin-hypothesis-bg);
+}
+
+.origin-tag--hypothesis {
+  color: var(--origin-hypothesis-text);
+}
+
+.origin-tag--hypothesis svg {
+  color: var(--origin-hypothesis);
+}
+
+.legend .origin-tag--hypothesis {
+  background: var(--origin-hypothesis-bg);
+}
+
+.stmt__conflict {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+  color: var(--neg-text);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.stmt__conflict svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.warnings--conflict {
+  background: var(--neg-bg);
+}
+
+.warnings__hint {
+  margin-top: 6px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.disclaimer {
+  margin-top: 32px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.relevance-legend {
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.relevance-legend summary {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.relevance-legend dl {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.relevance-legend dt {
+  font-weight: 700;
+}
+
+.relevance-legend__range,
+.relevance-legend__note,
+.relevance-legend dd {
+  color: var(--ink-2);
+  font-weight: 400;
+}
+
+.relevance-legend__note {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.next-steps {
+  display: grid;
+  gap: 12px;
+}
+
+.next-steps__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.next-steps__done {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--ok-text);
+  font-size: 14px;
+}
+
+.next-steps__done svg {
+  flex: none;
+}
+
+.next-steps__form {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+figure.analyze__field {
+  margin: 0;
+}
+
+.next-steps__context {
+  padding: 8px 12px;
+  border-radius: var(--r-control);
+  background: var(--bg);
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.stmt__check {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.stmt__check div {
+  display: flex;
+  gap: 6px;
+}
+
+.stmt__check dt {
+  font-weight: 700;
+}
+
+.stmt__check dt::after {
+  content: ':';
+}
+
+.next-steps__hide {
+  justify-self: start;
+}
+
+.hidden-events__notice:empty {
+  display: none;
+}
+
+.hidden-events__notice {
+  margin-bottom: 12px;
+  color: var(--ok-text);
+  font-size: 14px;
+}
+
+.hidden-events {
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+
+.hidden-events summary {
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.hidden-events ul {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.hidden-events li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+  max-width: 420px;
+}
+
+.login-form .btn {
+  justify-self: start;
+}
+
+.login-accounts {
+  max-width: 640px;
+  margin-top: 24px;
+  font-size: 14px;
+}
+
+.login-accounts summary {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.login-accounts p,
+.login-accounts ul {
+  margin-top: 8px;
+}
+
+.login-accounts ul {
+  display: grid;
+  gap: 4px;
 }
 
 /* ─── Узкий экран ─────────────────────────────────────────────────────────── */

@@ -30,6 +30,7 @@ import { MetalGoldMIcon } from '@alfalab/icons-glyph/MetalGoldMIcon';
 import { PercentMIcon } from '@alfalab/icons-glyph/PercentMIcon';
 import { PinLocationMIcon } from '@alfalab/icons-glyph/PinLocationMIcon';
 import { PlusMIcon } from '@alfalab/icons-glyph/PlusMIcon';
+import { QuestionCircleMIcon } from '@alfalab/icons-glyph/QuestionCircleMIcon';
 import { RadarMIcon } from '@alfalab/icons-glyph/RadarMIcon';
 import { RepeatMIcon } from '@alfalab/icons-glyph/RepeatMIcon';
 import { SafeBoxMIcon } from '@alfalab/icons-glyph/SafeBoxMIcon';
@@ -64,6 +65,7 @@ const icons = {
   data: BarChartMIcon,
   bank: BankMIcon,
   model: MagicWandMIcon,
+  hypothesis: QuestionCircleMIcon,
   calc: CalculatorMIcon,
   offer: HandPercentMIcon,
   // факторы и каналы

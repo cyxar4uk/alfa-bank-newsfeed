@@ -6,6 +6,7 @@ import { factorIcon } from '../components/factorIcon';
 import { Icon, type IconName } from '../components/Icon';
 import { Skeleton } from '../components/States';
 import { TOP_EVENTS, useBriefing } from '../state/briefing';
+import { useHidden } from '../state/hidden';
 import { formatDate, SERVICE_NAME } from '../state/labels';
 import { eventPath } from '../state/routes';
 import { useCurrentUser } from '../state/session';
@@ -29,7 +30,8 @@ const TASKS: { label: string; count: number; urgent?: boolean }[] = [
 function ServicePlate() {
   const { company } = useCurrentUser();
   const feed = useBriefing();
-  const items = feed.status === 'ok' ? feed.data.items : [];
+  const { hidden } = useHidden();
+  const items = feed.status === 'ok' ? feed.data.items.filter((i) => !hidden.includes(i.event_id)) : [];
   const top = items.slice(0, TOP_EVENTS);
 
   return (
@@ -94,7 +96,7 @@ function ServicePlate() {
           ))}
         </ul>
       )}
-      <p className="plate__note">Прототип для хакатона. Данные обезличены.</p>
+      <p className="plate__note">Прототип для хакатона. Данные обезличены. Не является инвестиционной рекомендацией.</p>
     </section>
   );
 }
