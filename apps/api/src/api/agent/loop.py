@@ -17,7 +17,7 @@ from api.agent.context import AgentContext
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
 from api.agent.numbers import numbers_in
-from api.agent.plain import humanize_note, is_plain
+from api.agent.plain import humanize_note, is_plain, ru_decimals
 from api.agent.ports import CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
 from api.agent.relevance import combine as relevance_combine
@@ -288,7 +288,7 @@ class Agent:
                 if ref.startswith("src:alfa:") and ref not in used_sources:
                     used_sources[ref] = _page_source(ref, ctx.page_texts.get(ref, ""))
 
-        actions = [Action(text=a.text, kind=a.kind, refs=a.refs) for a in clean.actions]
+        actions = [Action(text=ru_decimals(a.text), kind=a.kind, refs=a.refs) for a in clean.actions]
         if ctx.offer:
             actions.append(
                 Action(text=ctx.offer.text, kind="product", product=ctx.offer.product, refs=ctx.offer.refs)
@@ -381,9 +381,9 @@ def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> 
     if v is not None:
         return Verdict(
             level=v.level,
-            headline=v.headline,
-            why=v.why,
-            actions=v.actions[:3],
+            headline=ru_decimals(v.headline),
+            why=ru_decimals(v.why),
+            actions=[ru_decimals(a) for a in v.actions[:3]],
             refs=list(dict.fromkeys(v.refs)),
         )
     level = "act" if score >= 0.5 else "watch" if score >= 0.2 else "info"
@@ -433,7 +433,7 @@ def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
     cited, hit = _cited_hit(ctx, refs, quote)
     return BankPosition(
         found=True,
-        statement=statement,
+        statement=ru_decimals(statement),
         # имени аналитика в распознанных материалах нет — не выдумываем
         analyst=None,
         material=hit.source.title if hit else None,

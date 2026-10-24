@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 
 from pydantic import AfterValidator, BaseModel, Field
 
+from api.agent.plain import ru_decimals
 from api.contract import BankConflict, Confidence, HypothesisCheck, Statement
 
 _SHORT_SOURCE = re.compile(r"^(?:alfa|news):")
@@ -83,7 +84,7 @@ def to_statement(s: DraftStatement) -> Statement:
     if s.bank_conflict is not None and s.origin in ("ai", "hypothesis"):
         conflict = BankConflict(text=s.bank_conflict.text, refs=list(dict.fromkeys(s.bank_conflict.refs)))
     return Statement(
-        text=s.text,
+        text=ru_decimals(s.text),
         origin=s.origin,
         refs=list(dict.fromkeys(s.refs)),
         confidence=s.confidence,
