@@ -26,6 +26,8 @@ from api.contract import (
     SourceEntry,
 )
 from api.db import connect, ensure_schema
+from api.images import ImageError, proxied
+from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
@@ -44,7 +46,8 @@ from api.sources import (
     connect_message,
     entry_id,
 )
-from api.takeaway import takeaway
+from api.takeaway import takeaways
+from api.takeaway_llm import demote_unrelated, write_top
 
 logger = logging.getLogger("api")
 
@@ -335,9 +338,10 @@ def get_feed(
             feed = rerank(
                 feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""), top_n=settings.feed_llm_top
             )
-            # оценка модели меняет вывод: «не задевает» — только «к сведению»
-            for item in feed.items:  # пересортировка могла сдвинуть оценённые моделью ниже верха
-                item.takeaway = takeaway(item, feed.role)
+            # оценка модели меняет вывод: «не задевает» — к сведению и в свёрнутую часть; верх пишет модель
+            feed = demote_unrelated(feed)
+            takeaways(feed.items, feed.role, exposure)
+            feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
     return feed
 
 
@@ -388,9 +392,35 @@ def get_event(event_id: str, news: Annotated[NewsProvider, Depends(news_provider
         source=event.source(),
         text=event.text,
         url=event.url,
-        image_url=event.image_url,
-        source_icon_url=event.source_icon_url,
+        image_url=proxied(event.image_url),
+        source_icon_url=proxied(event.source_icon_url),
     )
+
+
+@app.get(
+    "/api/img",
+    tags=["лента"],
+    response_class=Response,
+    responses={
+        200: {"content": {"image/jpeg": {}}, "description": "картинка"},
+        403: {},
+        413: {},
+        415: {},
+        502: {},
+    },
+)
+def get_image(u: Annotated[str, Query(max_length=2000, description="адрес картинки у издателя")]) -> Response:
+    """Картинка новости через наш адрес: хосты изданий из каталога, публичные адреса, картинка до 2 МБ."""
+    try:
+        data, kind = fetch_image(u, get_settings().img_cache_dir)
+    except ImageError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.detail) from exc
+    headers = {
+        "Cache-Control": "public, max-age=86400",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'",
+    }
+    return Response(content=data, media_type=kind, headers=headers)
 
 
 @app.get("/api/personas", response_model=list[Persona], tags=["пользователи"])

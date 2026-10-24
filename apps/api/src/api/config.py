@@ -34,6 +34,8 @@ class Settings(BaseSettings):
     llm_daily_budget_rub: float = 150.0
     # кэш ответов моделей и журнал вызовов
     llm_cache_dir: Path = Path("data/cache/llm")
+    # кэш картинок новостей для прокси /api/img
+    img_cache_dir: Path = Path("data/cache/img")
     llm_journal: Path = Path("data/cache/llm_calls.jsonl")
     llm_timeout: float = 180.0
     # снимок новостей для проверки (в репозитории), если в DATA_DIR/derived нет свежего news.jsonl

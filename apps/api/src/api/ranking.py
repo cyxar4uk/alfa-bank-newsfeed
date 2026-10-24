@@ -32,6 +32,7 @@ from api.contract import (
     Source,
     SourceTags,
 )
+from api.images import proxied
 from api.okved import SECTOR_BY_CODE, okved_prefix
 from api.short import chain_short, factor_short
 
@@ -502,8 +503,8 @@ def score_event(
         channel=top.channel,
         channel_text=top.channel_text,
         short=top.short,
-        image_url=event.image_url,
-        source_icon_url=event.source_icon_url,
+        image_url=proxied(event.image_url),
+        source_icon_url=proxied(event.source_icon_url),
     )
 
 
