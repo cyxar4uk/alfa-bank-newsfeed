@@ -32,7 +32,7 @@ export function FeedbackBox({ insightId, personaId }: { insightId: string; perso
 
   return (
     <div className="feedback">
-      <p className="feedback__question">Разбор был полезен?</p>
+      <p className="feedback__question">Полезно?</p>
       <div className="feedback__buttons">
         <button type="button" className="btn btn--secondary" disabled={status === 'sending'} onClick={() => send(true)}>
           <Icon name="thumbUp" size={18} />

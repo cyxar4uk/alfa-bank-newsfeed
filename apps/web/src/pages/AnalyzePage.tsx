@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Insight } from '../api/types';
 import { AnalysisSteps } from '../components/AnalysisSteps';
@@ -6,6 +7,7 @@ import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
 import { EmptyState, ErrorState } from '../components/States';
 import { roleLabel } from '../state/labels';
+import { eventPath } from '../state/routes';
 import { useCurrentUser } from '../state/session';
 import { InsightView } from './EventPage';
 
@@ -55,6 +57,7 @@ export function AnalyzePage() {
 }
 
 function AnalyzeForm() {
+  const navigate = useNavigate();
   const { persona, company } = useCurrentUser();
   const [url, setUrl] = useState('');
   const [text, setText] = useState('');
@@ -84,10 +87,17 @@ function AnalyzeForm() {
     controller.current = c;
     setState({ status: 'loading' });
     try {
-      const insight = await api.analyze(
+      // Разбор собирается в фоне больше минуты: при 202 уходим на карточку события — она опрашивает статус и
+      // показывает этапы.
+      const result = await api.analyzeJob(
         { persona_id: persona.id, url: url.trim() || undefined, text: text.trim() || undefined },
         c.signal,
       );
+      if (result.kind === 'building') {
+        if (!c.signal.aborted) navigate(eventPath(result.job.event_id));
+        return;
+      }
+      const insight = result.kind === 'ready' ? result.insight : null;
       if (!c.signal.aborted) {
         save(persona.id, insight);
         setState({ status: 'ok', insight });

@@ -14,6 +14,7 @@ import { ChartLineAscMIcon } from '@alfalab/icons-glyph/ChartLineAscMIcon';
 import { CheckmarkMIcon } from '@alfalab/icons-glyph/CheckmarkMIcon';
 import { ChevronDownMIcon } from '@alfalab/icons-glyph/ChevronDownMIcon';
 import { ChevronLeftMIcon } from '@alfalab/icons-glyph/ChevronLeftMIcon';
+import { ChevronRightMIcon } from '@alfalab/icons-glyph/ChevronRightMIcon';
 import { ContainerMIcon } from '@alfalab/icons-glyph/ContainerMIcon';
 import { DocumentInfoMIcon } from '@alfalab/icons-glyph/DocumentInfoMIcon';
 import { DocumentMIcon } from '@alfalab/icons-glyph/DocumentMIcon';
@@ -23,6 +24,7 @@ import { FactoryMIcon } from '@alfalab/icons-glyph/FactoryMIcon';
 import { HandPercentMIcon } from '@alfalab/icons-glyph/HandPercentMIcon';
 import { HexagonLinkMIcon } from '@alfalab/icons-glyph/HexagonLinkMIcon';
 import { HouseHomeMIcon } from '@alfalab/icons-glyph/HouseHomeMIcon';
+import { InformationCircleMIcon } from '@alfalab/icons-glyph/InformationCircleMIcon';
 import { MagicWandMIcon } from '@alfalab/icons-glyph/MagicWandMIcon';
 import { MagnifierMIcon } from '@alfalab/icons-glyph/MagnifierMIcon';
 import { MailMIcon } from '@alfalab/icons-glyph/MailMIcon';
@@ -87,6 +89,8 @@ const icons = {
   // служебные
   chevronDown: ChevronDownMIcon,
   chevronLeft: ChevronLeftMIcon,
+  chevronRight: ChevronRightMIcon,
+  info: InformationCircleMIcon,
   external: ArrowRightUpMIcon,
   check: CheckmarkMIcon,
   warning: AlertCircleMIcon,

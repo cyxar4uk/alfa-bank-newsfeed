@@ -136,7 +136,48 @@ export interface AskAnswer {
   question: string;
   answer: Statement[];
   sources: Source[];
+  /** вопрос не по теме разбора: вежливый отказ вместо ответа */
+  refusal?: string | null;
+  warnings?: string[];
 }
+
+/** Карта чувствительности в формате API: фактор → сила, канал и доказательства из данных банка. */
+export interface CompanyExposure {
+  company_id: string;
+  factors: ExposureFactor[];
+  warnings: string[];
+}
+
+export interface ExposureFactor {
+  code: string;
+  label: string;
+  strength: number | null;
+  level: Strength;
+  channel: { kind: ChannelKind; text: string } | null;
+  /** признак компании или число из данных: «Платежи импортёрам группы — 44 %» */
+  evidence: { ref: string; label: string; value: string }[];
+  estimate: boolean;
+}
+
+/** Сборка карточки в фоне (GET /api/insights/{id}?wait=false → 202, затем /status). */
+export interface JobStatus {
+  insight_id: string;
+  event_id: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  stage: string;
+  stages_done: string[];
+  elapsed_s: number;
+  eta_s: number | null;
+  queue_position: number | null;
+  error: string | null;
+  trace_id: string | null;
+}
+
+export type InsightResult =
+  | { kind: 'ready'; insight: Insight }
+  | { kind: 'building'; job: JobStatus }
+  /** событие не касается компании пользователя */
+  | { kind: 'none' };
 
 /** Запрос разбора своей новости: ссылка или текст. */
 export interface AnalyzeRequest {
@@ -269,6 +310,8 @@ export interface Insight {
   trace_id?: string | null;
   // Предложение фронта по спецификации продукта:
   exposure?: Exposure | null;
+  /** дисклеймер от API; нет — берём свой */
+  disclaimer?: string;
   group_impact?: GroupImpact | null;
   bank_vs_market?: BankVsMarket | null;
   estimates?: Estimate[];
