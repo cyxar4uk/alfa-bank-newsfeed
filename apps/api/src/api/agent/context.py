@@ -98,6 +98,17 @@ def as_data(source_id: str, text: str | None, meta: str = "") -> str:
     return f"{head}\n{body}\n{DATA_CLOSE}"
 
 
+_COMPANY_ID = re.compile(r"\bU_(\d+)\b")
+
+
+def _named(text: str) -> str:
+    """«U_153112» → «Компания №153112»: модель пишет то, что видит, а служебные id пользователю не нужны.
+
+    Самопроверка понимает оба написания («Компания №N» сопоставляется с U_N), refs на id не нужны.
+    """
+    return _COMPANY_ID.sub(r"Компания №\1", text)
+
+
 def _short(value: float | None) -> str | None:
     return None if value is None else f"{value * 100:.0f} %"
 
@@ -175,6 +186,8 @@ class AgentContext:
 
     def counterparty_ids(self) -> set[str]:
         ids = {self.profile.id}
+        # крупнейшие контрагенты из профиля (в признаках компании) — называть их можно
+        ids.update(c.id for c in self.profile.counterparties)
         for ch in self.chain.channels:
             ids.update(c.id for c in ch.counterparties)
         if self.group:
@@ -244,7 +257,7 @@ class AgentContext:
     def render_company(self) -> str:
         p = self.profile
         lines = [
-            f"Компания: {p.display_name} (id {p.id})",
+            f"Компания: {p.display_name}",
             f"Пользователь: {self.persona.role_label} — акценты роли: "
             f"{ROLE_FOCUS.get(self.persona.role, '')}",
             "Признаки компании (id · название · значение):",
@@ -253,7 +266,7 @@ class AgentContext:
             value = f.display if f.display is not None else f.value
             if isinstance(value, list):
                 value = "; ".join(str(v) for v in value)
-            lines.append(f"- {f.id} · {f.label} · {value}")
+            lines.append(f"- {f.id} · {f.label} · {_named(str(value))}")
         if p.missing:
             lines.append("Нет в данных: " + "; ".join(f"{m.label} ({m.reason})" for m in p.missing))
         if p.data_notes:
@@ -275,7 +288,7 @@ class AgentContext:
             lines.append("- каналов через контрагентов нет")
         for ch in self.chain.channels:
             cps = "; ".join(
-                f"{c.id} {c.display_name}"
+                c.display_name
                 + (f" {_short(c.share)}" if c.share is not None else "")
                 + (" (группа)" if c.intra_group else "")
                 for c in ch.counterparties[:5]
@@ -296,7 +309,7 @@ class AgentContext:
         lines = [f"Группа {g.group_id}: {g.size} компаний. {g.text} · {', '.join(g.refs)}"]
         for m in g.members[:10]:
             rev = f", выручка {m.revenue / 1e9:.1f} млрд ₽" if m.revenue else ""
-            lines.append(f"- {m.id} {m.display_name}{rev} · факторы: {', '.join(m.factors)}")
+            lines.append(f"- {m.display_name}{rev} · факторы: {', '.join(m.factors)}")
         return "\n".join(lines)
 
     def render_event(self) -> str:

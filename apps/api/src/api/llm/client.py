@@ -43,8 +43,11 @@ DEFAULT_STEP_MODELS: dict[str, str] = {
     "rank": "google/gemma-4-26b-a4b-it",
 }
 
-# доп. параметры запроса по шагу: у DeepSeek рассуждения выключаются, ответ в 3–5 раз дешевле и быстрее
-DEFAULT_STEP_PARAMS: dict[str, dict] = {}
+# доп. параметры запроса по шагу. Рассуждения DeepSeek на черновике съедали до 12 000 токенов (обрыв на
+# лимите, 3 минуты, 1,8 ₽ за карточку); без них ответ в 3–4 раза быстрее и в 4–5 раз дешевле, а точность
+# держит детерминированная самопроверка. Параметр шлюза (OpenRouter-совместимый): reasoning.enabled=false.
+NO_REASONING = {"reasoning": {"enabled": False}}
+DEFAULT_STEP_PARAMS: dict[str, dict] = {"draft": NO_REASONING, "revise": NO_REASONING, "ask": NO_REASONING}
 
 # модель недоступна у провайдера после всех повторов — один раз пробуем запасную того же класса
 DEFAULT_FALLBACK_MODELS: dict[str, str] = {
@@ -272,7 +275,8 @@ class LlmClient:
                         )
                     )
                     # параметры шага настроены под основную модель (например, выключение рассуждений DeepSeek)
-                    own = self.step_params.get(step, {})
+                    # reasoning — общий параметр шлюза, он нужен и запасной модели
+                    own = {k for k in self.step_params.get(step, {}) if k != "reasoning"}
                     body = {k: v for k, v in body.items() if k not in own} | {"model": fallback}
                     attempt_body = {**body, "messages": conversation}
                     text, record, finish = self._call(step, attempt_body, attempt)
@@ -294,7 +298,19 @@ class LlmClient:
             record.ok, record.error = False, "ответ не прошёл схему: " + last_error[:300]
             self._log(record)
             if finish == "length":
-                body["max_tokens"] = min(body["max_tokens"] * 2, MAX_TOKENS_CAP)
+                # обрыв на лимите: тот же запрос оборвётся снова. Лимит съели рассуждения — повтор без них;
+                # ответ сам длиннее лимита — один повтор с бо́льшим лимитом; дальше не тратим минуты и рубли
+                if record.reasoning_tokens > 0 and body.get("reasoning") != NO_REASONING["reasoning"]:
+                    body = {**body, **NO_REASONING}
+                elif record.reasoning_tokens == 0 and body["max_tokens"] < MAX_TOKENS_CAP and attempt == 1:
+                    body["max_tokens"] = min(body["max_tokens"] * 2, MAX_TOKENS_CAP)
+                else:
+                    error = LlmBadResponse(
+                        f"ответ модели {body['model']} на шаге {step} оборвался на лимите"
+                        f" {body['max_tokens']} токенов"
+                    )
+                    error.calls = calls
+                    raise error
             conversation = [
                 *messages,
                 {"role": "assistant", "content": text or "(пустой ответ)"},
