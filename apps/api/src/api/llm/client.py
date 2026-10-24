@@ -40,6 +40,7 @@ DEFAULT_STEP_MODELS: dict[str, str] = {
     "revise": "deepseek/deepseek-v4.1-flash",
     "ask": "deepseek/deepseek-v4.1-flash",
     "parse": "google/gemma-4-26b-a4b-it",
+    "rank": "google/gemma-4-26b-a4b-it",
 }
 
 # доп. параметры запроса по шагу: у DeepSeek рассуждения выключаются, ответ в 3–5 раз дешевле и быстрее
