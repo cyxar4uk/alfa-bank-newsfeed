@@ -69,7 +69,7 @@ def conn():
 
     with psycopg.connect(URL, autocommit=True) as c:
         ensure_schema(c)
-        c.execute("TRUNCATE news, alfa_materials, alfa_pages, alfa_fragments, search_loads")
+        c.execute("TRUNCATE news, news_image_stubs, alfa_materials, alfa_pages, alfa_fragments, search_loads")
         yield c
 
 
@@ -247,7 +247,8 @@ def test_user_news_of_a_new_story_becomes_feed_event(conn):
     user = news("c", "Минпромторг предложил новые правила маркировки шин")
     save_user_news(conn, user, body="текст")
     assert load_news(conn, [user]).updated == 1
-    assert conn.execute("SELECT origin, body FROM news").fetchone() == ("feed", "текст")
+    # текст пользователя — чужая статья целиком: у события ленты он не остаётся
+    assert conn.execute("SELECT origin, body FROM news").fetchone() == ("feed", None)
 
 
 def test_mention_with_its_own_row_is_not_duplicated(conn):
@@ -333,3 +334,140 @@ def test_reliability_backfilled_by_publisher(conn):
     assert backfill_reliability(conn) == 1
     assert conn.execute("SELECT reliability FROM news").fetchone()[0] == "official"
     assert backfill_reliability(conn) == 0
+
+
+def test_image_icon_and_text_are_stored_and_not_wiped_by_feed(conn):
+    item = news("m", "Банк России сохранил ключевую ставку 14%", publisher="Банк России").model_copy(
+        update={"source_icon_url": "https://www.cbr.ru/favicon.ico", "text": "Полный текст пресс-релиза."}
+    )
+    load_news(conn, [item])
+    row = conn.execute("SELECT image_url, source_icon_url, body FROM news").fetchone()
+    assert row == (None, "https://www.cbr.ru/favicon.ico", "Полный текст пресс-релиза.")
+    # картинку дописала страница материала; новая версия из ленты (лид поменялся) её не стирает
+    conn.execute("UPDATE news SET image_url = 'https://www.cbr.ru/p.jpg'")
+    load_news(conn, [item.model_copy(update={"fragment": "Новый лид.", "text": None})])
+    assert conn.execute("SELECT image_url, body FROM news").fetchone() == (
+        "https://www.cbr.ru/p.jpg",
+        "Полный текст пресс-релиза.",
+    )
+
+
+def test_feed_record_fills_missing_image_without_other_changes(conn):
+    item = news("g", "Цена нефти Brent превысила $112")
+    load_news(conn, [item])
+    with_media = item.model_copy(update={"image_url": "https://x.ru/p.jpg", "text": "Полный текст."})
+    assert load_news(conn, [with_media]).updated == 1
+    assert conn.execute("SELECT image_url, body FROM news").fetchone() == ("https://x.ru/p.jpg", "Полный текст.")
+    assert load_news(conn, [with_media]).unchanged == 1
+    assert load_news(conn, [item]).unchanged == 1  # запись без картинки её не стирает
+
+
+def test_stub_image_is_not_brought_back_by_feed(conn):
+    from ingest.db.load import enrich_news
+
+    stub = "https://www.interfax.ru/share.jpg"
+    titles = ["Цена нефти Brent превысила $112", "Минфин разместил ОФЗ на 50 млрд", "Рубль укрепился к доллару"]
+    items = [news(str(n), t, hours=n).model_copy(update={"image_url": stub}) for n, t in enumerate(titles)]
+    load_news(conn, items)
+    enrich_news(conn, fetch=lambda jobs: {})
+    assert load_news(conn, items).unchanged == 3  # из ленты заглушку больше не берём
+    fresh = news("new", "Продажи легковых автомобилей выросли на 12%").model_copy(update={"image_url": stub})
+    load_news(conn, [fresh])
+    assert conn.execute("SELECT count(*) FROM news WHERE image_url IS NOT NULL").fetchone()[0] == 0
+
+
+def test_unreachable_page_is_given_up_after_attempts(conn):
+    from ingest.db.load import MEDIA_ATTEMPTS, enrich_news
+    from ingest.news.media import PageMedia
+
+    load_news(
+        conn,
+        [news("ok", "Цена нефти Brent превысила $112"), news("down", "Рубль укрепился к доллару", hours=1)],
+    )
+    conn.execute("UPDATE news SET media_checked_at = now() WHERE id = 'src:news:ok'")
+    load_news(conn, [news("ok2", "Минфин разместил ОФЗ на 50 млрд", hours=2)])
+
+    def fetch(jobs):  # сеть есть (одна страница ответила), а сайт новости «down» — нет
+        return {j.id: PageMedia() for j in jobs if j.id != "src:news:down"}
+
+    enrich_news(conn, fetch=fetch)
+    for _ in range(MEDIA_ATTEMPTS - 1):
+        conn.execute("UPDATE news SET media_checked_at = NULL WHERE id = 'src:news:ok2'")
+        enrich_news(conn, fetch=fetch)
+    row = conn.execute("SELECT media_attempts, media_checked_at IS NOT NULL FROM news WHERE id = 'src:news:down'")
+    assert row.fetchone() == (MEDIA_ATTEMPTS, True)
+
+
+def test_text_cleared_when_feed_no_longer_allows_it(conn):
+    from ingest.db.load import clear_disallowed_text
+
+    load_news(conn, [news("t", "Цена нефти Brent превысила $112").model_copy(update={"text": "Текст."})])
+    assert clear_disallowed_text(conn) == 1  # у Интерфакса full_text нет
+    assert conn.execute("SELECT body FROM news").fetchone()[0] is None
+
+
+def test_icons_backfilled_by_publisher(conn):
+    from ingest.db.load import backfill_icons
+
+    load_news(conn, [news("i", "Банк России сохранил ключевую ставку 14%", publisher="Банк России")])
+    assert backfill_icons(conn) == 1
+    assert conn.execute("SELECT source_icon_url FROM news").fetchone()[0] == "https://www.cbr.ru/favicon.ico"
+    assert backfill_icons(conn) == 0
+
+
+def test_enrich_fetches_pages_only_where_needed_and_allowed(conn):
+    from ingest.db.load import enrich_news
+    from ingest.news.media import PageMedia
+
+    load_news(
+        conn,
+        [
+            news("cbr", "Банк России сохранил ключевую ставку 14%", publisher="Банк России"),
+            news("ifx", "Цена нефти Brent превысила $112", publisher="Интерфакс", hours=1),
+            news("img", "Минфин разместил ОФЗ на 50 млрд рублей", publisher="Интерфакс", hours=2).model_copy(
+                update={"image_url": "https://www.interfax.ru/p.jpg"}
+            ),
+            news("rbc", "Продажи легковых автомобилей выросли на 12%", publisher="РБК", hours=3),
+        ],
+    )
+    asked = []
+
+    def fetch(jobs):
+        asked.extend(jobs)
+        pages = {"src:news:cbr": PageMedia("https://www.cbr.ru/p.jpg", "Текст релиза."), "src:news:ifx": PageMedia()}
+        return {j.id: pages[j.id] for j in jobs if j.id in pages}
+
+    stats = enrich_news(conn, fetch=fetch)
+    # РБК выключен (условия) — его страницы не спрашиваем; у новости с картинкой из ленты и без full_text — тоже
+    assert {(j.id, j.want_text) for j in asked} == {("src:news:cbr", True), ("src:news:ifx", False)}
+    assert (stats.checked, stats.images, stats.texts) == (3, 1, 1)
+    rows = {
+        r[0]: r[1:]
+        for r in conn.execute("SELECT id, image_url, body, media_checked_at IS NOT NULL FROM news").fetchall()
+    }
+    assert rows["src:news:cbr"] == ("https://www.cbr.ru/p.jpg", "Текст релиза.", True)
+    assert rows["src:news:ifx"] == (None, None, True)  # страница ответила без картинки — больше не спрашиваем
+    assert rows["src:news:rbc"][2] is False
+    asked.clear()
+    assert enrich_news(conn, fetch=fetch).checked == 0 and not asked
+
+
+def test_unreachable_page_is_retried_and_shared_image_is_dropped(conn):
+    from ingest.db.load import enrich_news
+
+    stub = "https://www.interfax.ru/share.jpg"
+    load_news(
+        conn,
+        [
+            news(str(n), title, publisher="Интерфакс", hours=n).model_copy(update={"image_url": stub})
+            for n, title in enumerate(
+                ["Цена нефти Brent превысила $112", "Минфин разместил ОФЗ на 50 млрд", "Рубль укрепился к доллару"]
+            )
+        ]
+        + [news("down", "Продажи легковых автомобилей выросли на 12%", publisher="Интерфакс")],
+    )
+    stats = enrich_news(conn, fetch=lambda jobs: {})  # сети нет
+    assert stats.placeholders == 3
+    assert conn.execute("SELECT count(*) FROM news WHERE image_url IS NOT NULL").fetchone()[0] == 0
+    unchecked = conn.execute("SELECT id FROM news WHERE media_checked_at IS NULL").fetchall()
+    assert unchecked == [("src:news:down",)]
