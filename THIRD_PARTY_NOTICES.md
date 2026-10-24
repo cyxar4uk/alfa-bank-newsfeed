@@ -80,7 +80,7 @@
 | Vite, `@vitejs/plugin-react` — сборка (`apps/web`) | 8.3 | MIT |
 | TypeScript — сборка (`apps/web`) | 5.9 | Apache-2.0 |
 | ESLint, typescript-eslint — проверка кода (`apps/web`) | 9.39 / 8.72 | MIT |
-| Иконки `@alfalab/icons-glyph` (`apps/web`), по одной иконке; иконки с логотипами не используются | 2.293 | MIT (по данным npm) |
+| Иконки `lucide-react` (`apps/web`), набор Lucide | 0.468 | ISC, © Lucide Contributors |
 | Значения дизайн-токенов (цвета, отступы, радиусы, тени, размеры текста) из `@alfalab/core-components-vars`, перенесены в CSS-переменные `apps/web`; сам пакет не установлен | 11.4 | MIT, © core-ds |
 
 ## Образы и инструменты сборки

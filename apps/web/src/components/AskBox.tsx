@@ -56,7 +56,7 @@ export function AskBox({ insight, personaId, index }: { insight: Insight; person
   return (
     <section className="card ask" aria-labelledby="ask-title">
       <h2 className="card__title" id="ask-title">
-        Уточнить
+        Обсудить новость
       </h2>
       <div className="ask__suggestions" role="group" aria-label="Подсказки-вопросы">
         {suggestionsFor(insight).map((s) => (

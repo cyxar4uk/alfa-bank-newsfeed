@@ -1,111 +1,158 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
-import type { CompanyProfile, Insight } from '../api/types';
+import type { CompanyProfile, FeedItem, Insight } from '../api/types';
 import { AskBox } from '../components/AskBox';
 import { Disclaimer } from '../components/Disclaimer';
 import { FeedbackBox } from '../components/FeedbackBox';
-import { Icon } from '../components/Icon';
+import { FullText } from '../components/FullText';
+import { Icon, type IconName } from '../components/Icon';
 import { MoreMenu } from '../components/MoreMenu';
-import { PrototypeNote } from '../components/PrototypeNote';
-import { SourceMark } from '../components/SourceMark';
+import { ExpandButton, LevelIcon, NewsThumb } from '../components/NewsParts';
+import { RequestForm, type RequestKind } from '../components/RequestForm';
 import { SourceView, StatementList, type RefIndex } from '../components/Statement';
-import { EmptyState, ErrorState } from '../components/States';
-import { TargetAction } from '../components/TargetAction';
+import { EmptyState, ErrorState, Skeleton } from '../components/States';
+import { Thinking } from '../components/Thinking';
 import { useBriefing } from '../state/briefing';
 import { useHidden } from '../state/hidden';
 import { roleLabel } from '../state/labels';
+import { bankOf, LEVEL_LABEL, levelWith, plain, whyOf } from '../state/news';
 import { tracePath } from '../state/routes';
-import { cardScreen, TARGET_DELAY_MS, type CardMenuItem, type CardRow } from '../state/screens';
+import { cardScreen, isHypothesis, type CardMenuItem, type CardRow } from '../state/screens';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
 
-function Building({ stage, done, eta }: { stage: string; done: string[]; eta: number | null }) {
-  return (
-    <div className="card building" aria-live="polite">
-      <p className="building__title">Собираем разбор для вашей компании</p>
-      <ol className="building__steps">
-        {done.map((s, i) => (
-          <li key={`${i}-${s}`} className="building__step building__step--done">
-            <Icon name="check" size={16} />
-            {s}
-          </li>
-        ))}
-        {stage && <li className="building__step building__step--now">{stage}…</li>}
-      </ol>
-      {eta != null && eta > 0 && <p className="muted">Осталось примерно {Math.ceil(eta)} с</p>}
-    </div>
-  );
-}
+const ROW_ICON: Record<CardRow['id'], IconName> = {
+  chain: 'group',
+  risks: 'warning',
+  hypotheses: 'hypothesis',
+  estimates: 'calc',
+  sources: 'fact',
+  trace: 'model',
+  ask: 'chat',
+};
 
+/** Раскрываемый блок подробностей: своя иконка, шеврон вниз ↔ вверх, содержимое плавно появляется. */
 function Row({ row, children }: { row: CardRow; children: ReactNode }) {
   return (
     <details className="xrow">
       <summary>
+        <span className="xrow__icon">
+          <Icon name={ROW_ICON[row.id]} size={18} />
+        </span>
         <span className="xrow__text">
           <span className="xrow__title">{row.title}</span>
           <span className="xrow__summary">{row.summary}</span>
         </span>
-        <Icon name="chevronRight" size={18} className="xrow__chevron" />
+        <Icon name="chevronDown" size={18} className="xrow__chevron" />
       </summary>
       <div className="xrow__body">{children}</div>
     </details>
   );
 }
 
-// В прототипе эти действия ничего не делают — так и говорим, не изображая результат.
-const MENU_DONE: Partial<Record<CardMenuItem['id'], string>> = {
+function BackToNews() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <button type="button" className="back back--pill" onClick={() => (location.key !== 'default' ? navigate(-1) : navigate('/radar'))}>
+      <Icon name="arrowLeft" size={18} />
+      Назад к новостям
+    </button>
+  );
+}
+
+function fullDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const date = d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).replace(' г.', '');
+  return iso.length > 10 ? `${date}, ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : date;
+}
+
+/** Шапка новости: источник с датой, заголовок, картинка (или иллюстрация по теме). */
+function NewsHead({ title, publisher, date, factor, image }: { title: string; publisher: string | null; date: string | null; factor: string; image: string | null }) {
+  return (
+    <>
+      <p className="article__source">
+        <Icon name="news" size={16} />
+        {[publisher, fullDate(date)].filter(Boolean).join(' · ')}
+      </p>
+      <h1 className="article__title" tabIndex={-1}>
+        {title}
+      </h1>
+      <NewsThumb src={image} factor={factor} size="xl" />
+    </>
+  );
+}
+
+const MENU_NOTE: Partial<Record<CardMenuItem['id'], string>> = {
   forward: 'Переслать коллеге — в прототипе недоступно: ничего не отправляется.',
-  weekly: 'Добавить в сводку недели — в прототипе недоступно: сводки недели пока нет.',
+  weekly: 'Сводки недели в прототипе пока нет.',
   remind: 'Напоминание — в прототипе недоступно: ничего не сохраняется.',
 };
 
-function Card({ insight, company, personaId, eventId }: { insight: Insight; company: CompanyProfile; personaId: string; eventId: string }) {
-  const briefing = useBriefing();
+function Card({
+  insight,
+  company,
+  personaId,
+  eventId,
+  item,
+}: {
+  insight: Insight;
+  company: CompanyProfile;
+  personaId: string;
+  eventId: string;
+  item: FeedItem | null;
+}) {
   const exposure = useAsync((signal) => api.exposure(company.id, signal), company.id);
   const { hide } = useHidden();
   const navigate = useNavigate();
-  const item = briefing.status === 'ok' ? (briefing.data.items.find((i) => i.event_id === eventId) ?? null) : null;
-  const screen = useMemo(
-    () => cardScreen({ insight, item, exposure: exposure.status === 'ok' ? exposure.data : null }),
-    [insight, item, exposure],
-  );
+  const location = useLocation();
+  const screen = cardScreen({ insight, item, exposure: exposure.status === 'ok' ? exposure.data : null });
   const index: RefIndex = {
     sources: Object.fromEntries(insight.sources.map((s) => [s.id, s])),
     features: Object.fromEntries(company.features.map((f) => [f.id, f])),
   };
 
-  // Целевое действие — через ~15 с на посте или когда дочитали карточку до конца; из ленты по кнопке
-  // «Обсудить с менеджером» — сразу открытым.
-  const location = useLocation();
-  const [openTarget] = useState(() => Boolean((location.state as { openTarget?: boolean } | null)?.openTarget));
-  const [due, setDue] = useState(openTarget);
+  // Из ленты по «Обсудить … с менеджером» форма открыта сразу (без перевода фокуса вниз, мимо новости);
+  // перезагрузка и «Назад» её снова не открывают.
+  const [arrival] = useState(() => (location.state as { openTarget?: boolean; request?: RequestKind } | null) ?? null);
+  const [request, setRequest] = useState<RequestKind | null>(arrival?.openTarget ? (arrival.request ?? 'manager') : null);
+  const [round, setRound] = useState(0);
+  const [focusForm, setFocusForm] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [details, setDetails] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    // Перезагрузка и «Назад» не должны снова открывать обращение.
-    if (openTarget) navigate('.', { replace: true, state: null, preventScrollReset: true });
+    if (arrival) navigate('.', { replace: true, state: null, preventScrollReset: true });
     // только при входе
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [productForm, setProductForm] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const endRef = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    const timer = setTimeout(() => setDue(true), TARGET_DELAY_MS);
-    const end = endRef.current;
-    const observer =
-      end && 'IntersectionObserver' in window
-        ? new IntersectionObserver((entries) => entries.some((e) => e.isIntersecting) && setDue(true))
-        : null;
-    // На первом экране конец карточки виден сразу — считаем «дочитал» только после прокрутки.
-    const onScroll = () => end && observer?.observe(end);
-    window.addEventListener('scroll', onScroll, { once: true });
-    return () => {
-      clearTimeout(timer);
-      observer?.disconnect();
-      window.removeEventListener('scroll', onScroll);
-    };
-  }, []);
+  const headRef = useRef<HTMLDivElement>(null);
+  useEffect(() => headRef.current?.querySelector<HTMLElement>('.article__title')?.focus(), []);
+
+  const level = levelWith(item, insight);
+  // Заголовок вывода — только вывод модели; нет его — показываем уровень и «почему», без подмены.
+  const model = insight.verdict?.headline ?? insight.why_it_matters.find((s) => s.origin === 'ai' && !isHypothesis(s))?.text ?? null;
+  const headline = model ? plain(model) : null;
+  const whyRaw = insight.verdict?.why ?? insight.why_it_matters.find((s) => s.origin === 'data')?.text;
+  const why = whyRaw ? plain(whyRaw) : item ? whyOf(item) : null;
+  const todo = (insight.verdict?.actions?.length ? insight.verdict.actions : insight.actions.filter((a) => a.kind !== 'product').map((a) => a.text))
+    .slice(0, 3)
+    .map(plain);
+  const bank = bankOf(insight);
+  const topic = screen.target?.topic ?? 'последствия для компании';
+  const context = [insight.event.title, headline, bank?.statement].filter(Boolean).join(' · ');
+  const quotes = (insight.quotes ?? []).map((q) => q.text);
+  const leadNews = insight.sources.find((s) => s.kind === 'news');
+
+  function open(kind: RequestKind) {
+    setFocusForm(true);
+    setRequest(kind);
+    setRound((n) => n + 1);
+  }
 
   function onMenu(id: CardMenuItem['id']) {
     if (id === 'hide') {
@@ -115,172 +162,196 @@ function Card({ insight, company, personaId, eventId }: { insight: Insight; comp
       return;
     }
     if (id === 'product') {
-      setProductForm(true);
-      setDue(true);
+      open('application');
       return;
     }
-    setNotice(MENU_DONE[id] ?? null);
+    setNote(MENU_NOTE[id] ?? null);
   }
 
-  const context = [insight.event.title, screen.forYou.phrase, screen.forYou.quote?.text].filter(Boolean).join(' · ');
-  const target = productForm
-    ? { prompt: 'Проверить условия продукта банка?', button: 'Оставить заявку', topic: 'условия продукта банка' }
-    : due
-      ? (screen.target ??
-        (openTarget ? { prompt: 'Обсудить разбор с менеджером?', button: 'Обсудить с менеджером', topic: 'последствия для компании' } : null))
-      : null;
-  const titleRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => titleRef.current?.focus(), []);
-
   return (
-    <div className="card-page">
-      <article className="card-main">
-        <div className="card-main__crumbs">
-          <Link to="/radar" className="card-main__crumb">
-            {screen.crumbs}
-          </Link>
-          <MoreMenu items={screen.menu} onPick={onMenu} />
+    <div className="article-page">
+      <article className="card article appear" ref={headRef}>
+        <NewsHead
+          title={insight.event.title}
+          publisher={leadNews?.publisher ?? item?.source.publisher ?? null}
+          date={leadNews?.published_at ?? item?.source.published_at ?? insight.event.date ?? null}
+          factor={item?.factors[0]?.code ?? 'industry'}
+          image={item?.image_url ?? null}
+        />
+        <FullText eventId={eventId} quotes={quotes} lead={leadNews} />
+        <div className="discuss">
+          <AskBox insight={insight} personaId={personaId} index={index} />
         </div>
-        <h1 className="card-main__title" tabIndex={-1} ref={titleRef}>
-          {screen.title}
-        </h1>
-        {screen.sources.length > 0 && (
-          <ul className="card-main__sources">
-            {screen.sources.map((s) => (
-              <li key={s.label}>
-                <SourceMark mark={s.mark} />
-                {s.label}
-              </li>
-            ))}
-          </ul>
-        )}
-        {screen.lead.length > 0 && <p className="card-main__lead">{screen.lead.join(' ')}</p>}
-
-        <section className="for-you-card" aria-labelledby="for-you-title">
-          <p className="caps" id="for-you-title">
-            Что это значит для вас
-          </p>
-          <p className="for-you-card__phrase">{screen.forYou.phrase}</p>
-          {screen.forYou.numbers.length > 0 && (
-            <dl className="for-you-card__numbers">
-              {screen.forYou.numbers.map((n) => (
-                <div key={n.label}>
-                  <dt>{n.label}</dt>
-                  <dd>{n.value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-          {screen.forYou.quote?.verbatim && (
-            <figure className="bank-quote">
-              <blockquote className="bank-quote__text">{screen.forYou.quote.text}</blockquote>
-              <figcaption className="bank-quote__caption">{screen.forYou.quote.caption}</figcaption>
-            </figure>
-          )}
-          {screen.forYou.quote && !screen.forYou.quote.verbatim && (
-            <div className="bank-quote">
-              <p className="bank-quote__text">Позиция банка: {screen.forYou.quote.text}</p>
-              <p className="bank-quote__caption">{screen.forYou.quote.caption}</p>
-            </div>
-          )}
-          {!screen.forYou.quote && (
-            <p className="bank-quote__none">Позиции Альфа-Банка по теме нет.</p>
-          )}
-        </section>
-
-        <div aria-live="polite">
-          {notice && (
-            <p className="card-main__notice">
-              <Icon name="info" size={16} />
-              {notice}
-            </p>
-          )}
-          {target && <p className="visually-hidden">{target.prompt}</p>}
-        </div>
-        {target && (
-          <TargetAction
-            key={productForm ? 'product' : 'target'}
-            prompt={target.prompt}
-            button={target.button}
-            topic={target.topic}
-            context={context}
-            openForm={productForm || openTarget}
-          />
-        )}
-        <span ref={endRef} aria-hidden="true" />
       </article>
 
-      <aside className="card-rail" aria-label="Подробнее о разборе">
-        <p className="caps">Подробнее о разборе</p>
-        {screen.rows.map((row) => (
-          <Row key={row.id} row={row}>
-            {row.id === 'chain' && <StatementList items={insight.why_it_matters} index={index} />}
-            {row.id === 'risks' && (
-              <StatementList items={screen.riskItems} index={index} />
-            )}
-            {row.id === 'hypotheses' && <StatementList items={screen.hypotheses} index={index} />}
-            {row.id === 'estimates' &&
-              (screen.estimates.length ? (
-                <StatementList items={screen.estimates} index={index} />
-              ) : (
-                <p className="muted">Расчёта в рублях в этом разборе нет.</p>
-              ))}
-            {row.id === 'sources' && (
-              <ul className="xrow__sources">
-                {insight.sources.map((s) => (
-                  <li key={s.id}>
-                    <SourceView source={s} />
-                  </li>
+      <aside className="verdict appear" aria-label="Что это значит для компании" style={{ animationDelay: '80ms' }}>
+        <section className="card verdict__card">
+          <p className={`verdict__level verdict__level--${level}`}>
+            <LevelIcon level={level} />
+            {LEVEL_LABEL[level]} для компании
+          </p>
+          {headline && (
+            <h2 className="verdict__headline">
+              <span className="verdict__ai" title="Вывод модели">
+                <Icon name="model" size={16} />
+                <span className="visually-hidden">Вывод модели: </span>
+              </span>
+              {headline}
+            </h2>
+          )}
+          {why && (
+            <>
+              <p className="caps">Почему</p>
+              <p className="verdict__text">{why}</p>
+            </>
+          )}
+          {todo.length > 0 && (
+            <>
+              <p className="caps">Что делать</p>
+              <ol className="verdict__todo">
+                {todo.map((t) => (
+                  <li key={t}>{t}</li>
                 ))}
-              </ul>
-            )}
-            {row.id === 'trace' && insight.trace_id && (
-              <Link to={tracePath(insight.trace_id)} className="link-action">
-                Открыть шаги агента →
+              </ol>
+            </>
+          )}
+          {bank ? (
+            <div className="verdict__bank">
+              <p>{bank.statement}</p>
+              <span>{bank.caption}</span>
+            </div>
+          ) : (
+            <p className="verdict__nobank">
+              <Icon name="bank" size={16} />
+              Позиции Альфа-Банка по этой теме нет
+            </p>
+          )}
+          <button
+            ref={triggerRef}
+            type="button"
+            className="btn btn--primary btn--block"
+            onClick={() => open('manager')}
+            aria-expanded={request !== null}
+            aria-controls={request ? 'request-form' : undefined}
+          >
+            Обсудить с менеджером
+          </button>
+          {request && (
+            <div id="request-form">
+              <RequestForm
+                key={`${request}-${round}`}
+                kind={request}
+                topic={request === 'application' ? (insight.actions.find((a) => a.kind === 'product')?.text ?? topic) : topic}
+                context={context}
+                onClose={() => {
+                  setRequest(null);
+                  triggerRef.current?.focus();
+                }}
+                focus={focusForm}
+              />
+            </div>
+          )}
+          <div className="verdict__links">
+            {insight.trace_id && (
+              <Link to={tracePath(insight.trace_id)} className="chip-link chip-link--plain">
+                <Icon name="model" size={16} />
+                Как получен вывод
               </Link>
             )}
-            {row.id === 'ask' && <AskBox insight={insight} personaId={personaId} index={index} />}
-          </Row>
-        ))}
-        <FeedbackBox insightId={insight.id} personaId={personaId} />
-        <Disclaimer text={screen.disclaimer} />
+            <MoreMenu items={screen.menu} onPick={onMenu} />
+          </div>
+          <p className="side-note-live" aria-live="polite">
+            {note}
+          </p>
+          <FeedbackBox insightId={insight.id} personaId={personaId} />
+          <Disclaimer text={screen.disclaimer} />
+        </section>
+
+        <ExpandButton open={details} onClick={() => setDetails((v) => !v)} more="Подробнее о разборе" less="Скрыть подробности" />
+        {details && (
+          <div className="verdict__rows appear">
+            {screen.rows
+              .filter((r) => r.id !== 'ask' && r.id !== 'trace')
+              .map((row) => (
+                <Row key={row.id} row={row}>
+                  {row.id === 'chain' && <StatementList items={insight.why_it_matters} index={index} />}
+                  {row.id === 'risks' && <StatementList items={screen.riskItems} index={index} />}
+                  {row.id === 'hypotheses' && <StatementList items={screen.hypotheses} index={index} />}
+                  {row.id === 'estimates' &&
+                    (screen.estimates.length ? (
+                      <StatementList items={screen.estimates} index={index} />
+                    ) : (
+                      <p className="muted">Расчёта в рублях в этом разборе нет.</p>
+                    ))}
+                  {row.id === 'sources' && (
+                    <ul className="xrow__sources">
+                      {insight.sources.map((s) => (
+                        <li key={s.id}>
+                          <SourceView source={s} />
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </Row>
+              ))}
+          </div>
+        )}
       </aside>
     </div>
   );
 }
 
-/** Карточка события (макет «Итог · 02/03»): первый экран без прокрутки, подробности — в правой колонке. */
+/** Карточка события — макеты «A+ · Новость целиком» и «A+ · Ход разбора». */
 export function CardPage() {
   const { eventId = '' } = useParams();
   const { persona, company } = useCurrentUser();
   const { load, retry } = useInsight(eventId, persona.id);
+  const briefing = useBriefing();
+  const item = briefing.status === 'ok' ? (briefing.data.items.find((i) => i.event_id === eventId) ?? null) : null;
 
   return (
-    <div className="page">
-      {load.status === 'loading' && <Building stage="Запрашиваем разбор" done={[]} eta={null} />}
-      {load.status === 'building' && (
-        <Building
-          stage={load.job.status === 'queued' ? `В очереди${load.job.queue_position ? `: ${load.job.queue_position}-й` : ''}` : load.job.stage}
-          done={load.job.stages_done}
-          eta={load.job.eta_s}
-        />
+    <div className="page article-wrap">
+      <BackToNews />
+      {(load.status === 'loading' || load.status === 'building') && (
+        <div className="article-page">
+          <article className="card article">
+            {item ? (
+              <NewsHead
+                title={item.event.title}
+                publisher={item.source.publisher ?? null}
+                date={item.source.published_at ?? item.event.date ?? null}
+                factor={item.factors[0]?.code ?? 'industry'}
+                image={item.image_url ?? null}
+              />
+            ) : (
+              <Skeleton width="80%" height={28} />
+            )}
+            <div className="article__wait" aria-hidden="true">
+              <Skeleton width="100%" />
+              <Skeleton width="96%" />
+              <Skeleton width="80%" />
+              <Skeleton width="60%" />
+            </div>
+            <p className="fulltext__note">Вывод появится, когда разбор закончится.</p>
+          </article>
+          <Thinking job={load.status === 'building' ? load.job : null} />
+        </div>
       )}
       {load.status === 'error' &&
         (load.canRetry ? (
           <ErrorState title="Не удалось собрать разбор" error={new Error(load.message)} onRetry={retry} />
         ) : (
           <EmptyState title="Разбор сейчас не собрать">
-            {load.message}. <Link to="/radar">Вернуться к ленте</Link>
+            {load.message}. <Link to="/radar">Вернуться к новостям</Link>
           </EmptyState>
         ))}
       {load.status === 'none' && (
         <EmptyState title="Это событие не касается выбранной компании">
           Для роли «{roleLabel[persona.role].toLowerCase()}» в компании «{company.display_name}» связи с событием не
-          нашлось. <Link to="/radar">Вернуться к ленте</Link>
+          нашлось. <Link to="/radar">Вернуться к новостям</Link>
         </EmptyState>
       )}
-      {load.status === 'ready' && <Card insight={load.insight} company={company} personaId={persona.id} eventId={eventId} />}
-      <PrototypeNote />
+      {load.status === 'ready' && <Card insight={load.insight} company={company} personaId={persona.id} eventId={eventId} item={item} />}
     </div>
   );
 }

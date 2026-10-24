@@ -6,6 +6,7 @@ import { factorIcon } from '../components/factorIcon';
 import { Icon, type IconName } from '../components/Icon';
 import { Skeleton } from '../components/States';
 import { TOP_EVENTS, useBriefing } from '../state/briefing';
+import { dayItems } from '../state/news';
 import { useHidden } from '../state/hidden';
 import { formatDate, SERVICE_NAME } from '../state/labels';
 import { eventPath } from '../state/routes';
@@ -32,7 +33,8 @@ function ServicePlate() {
   const feed = useBriefing();
   const { hidden } = useHidden();
   const items = feed.status === 'ok' ? feed.data.items.filter((i) => !hidden.includes(i.event_id)) : [];
-  const top = items.slice(0, TOP_EVENTS);
+  // Те же главные события, что в «Главном за день» сервиса.
+  const top = dayItems(items);
 
   return (
     <section className="card plate" aria-labelledby="plate-title">

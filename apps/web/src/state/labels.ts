@@ -1,7 +1,7 @@
 import type { Action, ChannelKind, Confidence, Feature, MissingFeature, Origin, Role, Source, Statement, Strength } from '../api/types';
 
 /** Рабочее название сервиса — меняется здесь. */
-export const SERVICE_NAME = 'Радар связей';
+export const SERVICE_NAME = 'Новости';
 
 export const roleLabel: Record<Role, string> = {
   owner: 'Собственник',

@@ -5,6 +5,7 @@ import type { CompanyProfile, ExposureMap, FeedItem, SensitivityFactor, Strength
 import { factorIcon } from '../components/factorIcon';
 import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
+import { BackButton } from '../components/BackButton';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { StatementList, type RefIndex } from '../components/Statement';
 import { useBriefing } from '../state/briefing';
@@ -148,6 +149,7 @@ export function ExposureMapPage() {
     <div className="page page--narrow">
       <header className="page-head">
         <ServiceTabs />
+        <BackButton />
         <h1 className="page-head__title">К чему уязвима компания</h1>
         <p className="page-head__lead">
           Факторы, от которых зависит «{company.display_name}», с силой влияния, каналом и доказательствами из данных

@@ -1,5 +1,4 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { DataSource } from './DataSource';
 import { Disclaimer } from './Disclaimer';
 import { ErrorBoundary } from './ErrorBoundary';
 import { SERVICE_NAME } from '../state/labels';
@@ -47,7 +46,7 @@ function Decorative({ icon, label }: { icon: IconName; label: string }) {
 }
 
 // Лента и карточка показывают дисклеймер сами, в своей раскладке (макет «Итог»).
-const SERVICE_PAGES = new Set(['map', 'weekly', 'analyze', 'trace']);
+const SERVICE_PAGES = new Set(['map', 'weekly', 'analyze', 'trace', 'search']);
 function ownDisclaimer(pathname: string) {
   const [, radar, page] = pathname.split('/');
   return radar === 'radar' && (page === undefined || page === '' || !SERVICE_PAGES.has(page));
@@ -83,14 +82,10 @@ export function Shell() {
               {SERVICE_NAME}
             </NavLink>
           </nav>
-          <DataSource />
         </aside>
         <div className="main">
           <header className="topbar">
-            <span className="topbar__search" aria-hidden="true">
-              <Icon name="search" />
-              Поиск
-            </span>
+            <span className="topbar__spacer" />
             <span className="topbar__icons" aria-hidden="true">
               <Icon name="calendar" />
               <Icon name="mail" />
@@ -100,7 +95,9 @@ export function Shell() {
           </header>
           <main className="content">
             <ErrorBoundary key={pathname}>
-              <Outlet />
+              <div className="page-enter" key={pathname}>
+                <Outlet />
+              </div>
             </ErrorBoundary>
             {pathname.startsWith('/radar') && !ownDisclaimer(pathname) && <Disclaimer />}
           </main>

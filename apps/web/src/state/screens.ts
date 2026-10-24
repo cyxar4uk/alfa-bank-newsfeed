@@ -56,7 +56,7 @@ export function shortDate(iso: string | null | undefined): string {
 
 const MONTHS = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-function longDate(iso: string): string {
+export function longDate(iso: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   return m ? `${Number(m[3])} ${MONTHS[Number(m[2]) - 1]}` : iso;
 }
@@ -184,7 +184,7 @@ export function groupKeyOf(item: FeedItem): string {
   return item.factors[0]?.code ?? INDUSTRY;
 }
 
-function groupLabel(item: FeedItem): string {
+export function groupLabel(item: FeedItem): string {
   const f = item.factors[0];
   return f ? factorShort(f.code, f.label) : factorShort(INDUSTRY);
 }
@@ -519,9 +519,9 @@ export interface CardState {
   exposure: CompanyExposure | null;
 }
 
-const isHypothesis = (s: Statement) => s.origin === 'hypothesis' || (s.origin === 'ai' && s.confidence === 'low');
+export const isHypothesis = (s: Statement) => s.origin === 'hypothesis' || (s.origin === 'ai' && s.confidence === 'low');
 
-function bankCaption(source: Source | undefined): string {
+export function bankCaption(source: Source | undefined): string {
   if (!source) return 'Аналитики Альфа-Банка';
   const parts = ['Аналитики Альфа-Банка', `«${source.title}»`];
   if (source.published_at) parts.push(shortDate(source.published_at) + '.' + source.published_at.slice(0, 4));
@@ -530,7 +530,7 @@ function bankCaption(source: Source | undefined): string {
 }
 
 /** Источник-аналитика банка по ссылке. Цитатой считается только fragment страницы, на которую ссылаемся. */
-function bankSourceOf(insight: Insight, ref: string): { source: Source; exact: boolean } | undefined {
+export function bankSourceOf(insight: Insight, ref: string): { source: Source; exact: boolean } | undefined {
   const bank = insight.sources.filter((s) => s.kind === 'alfa_analytics');
   const exact = bank.find((s) => s.id === ref);
   if (exact) return { source: exact, exact: true };
