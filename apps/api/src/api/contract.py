@@ -486,7 +486,9 @@ class Insight(BaseModel):
 class ScoreTerm(BaseModel):
     """Слагаемое оценки события: сумма слагаемых равна `relevance.score`."""
 
-    kind: Literal["factor", "chain", "bank", "repeat"]
+    kind: Literal["factor", "chain", "bank", "repeat", "llm"] = Field(
+        description="llm — оценка верха ленты моделью: разница со смесью формальной оценки и оценки модели"
+    )
     code: str = Field(examples=["rate", "chain:buyers:56", "bank_view"])
     label: str = Field(description="что дало вклад, человеческим текстом")
     value: float = Field(description="вклад в итоговую оценку")

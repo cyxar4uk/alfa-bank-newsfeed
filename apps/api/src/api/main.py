@@ -7,10 +7,12 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
+from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
 from api.config import get_settings
 from api.contract import (
+    ROLE_LABELS,
     CompanyProfile,
     CompanySummary,
     ExposureMap,
@@ -212,12 +214,17 @@ def news_provider(request: Request) -> NewsProvider:
 @app.get("/api/feed", response_model=Feed, tags=["лента"])
 @app.get("/api/briefing", response_model=Feed, tags=["лента"], summary="Брифинг — то же, что лента")
 def get_feed(
+    request: Request,
     repo: Repo,
     news: Annotated[NewsProvider, Depends(news_provider)],
     persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    llm: Annotated[bool, Query(description="дооценить верх ленты моделью (слагаемое llm)")] = True,
 ) -> Feed:
-    """Лента пользователя: события, которые задевают его компанию, с оценкой и её разложением."""
+    """Лента пользователя: события, которые задевают его компанию, с оценкой и её разложением.
+
+    Верх ленты дополнительно оценивает дешёвая модель — слагаемое `llm` в разложении; без моделей или бюджета
+    лента остаётся формальной."""
     settings = get_settings()
     feed = persona_feed(
         repo, news, persona, limit=limit, candidates=settings.feed_candidates, days=settings.feed_days
@@ -226,6 +233,13 @@ def get_feed(
         raise HTTPException(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
+    agent = getattr(request.app.state, "agent", None)
+    if llm and settings.feed_llm_top and agent is not None and agent.llm is not None:
+        exposure = company_exposure(repo, feed.company_id)
+        if exposure is not None:
+            feed = rerank(
+                feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""), top_n=settings.feed_llm_top
+            )
     return feed
 
 
