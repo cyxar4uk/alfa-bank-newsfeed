@@ -61,7 +61,9 @@ class _Event:
 
 
 def content_hash(item: Source) -> str:
-    data = item.model_dump(mode="json", include={"title", "publisher", "url", "published_at", "fragment"})
+    data = item.model_dump(
+        mode="json", include={"title", "publisher", "url", "published_at", "fragment", "reliability"}
+    )
     data["tags"] = item.tags.model_dump(mode="json")
     data["expectations"] = [e.model_dump(mode="json") for e in item.expectations]
     return hashlib.sha1(json.dumps(data, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
@@ -92,6 +94,7 @@ def _row(item: Source, origin: str) -> dict:
         "id": item.id,
         "title": item.title,
         "publisher": item.publisher,
+        "reliability": item.reliability,
         "url": item.url,
         "published_at": item.published_at,
         "fragment": item.fragment,
@@ -107,13 +110,14 @@ def _row(item: Source, origin: str) -> dict:
 
 _INSERT = """
 INSERT INTO news (id, title, publisher, url, published_at, fragment, tags, factors, okved, expectations,
-                  also_reported_by, origin, content_hash, body)
+                  also_reported_by, origin, content_hash, body, reliability)
 VALUES (%(id)s, %(title)s, %(publisher)s, %(url)s, %(published_at)s, %(fragment)s, %(tags)s, %(factors)s, %(okved)s,
-        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s)
+        %(expectations)s, %(also_reported_by)s, %(origin)s, %(content_hash)s, %(body)s, %(reliability)s)
 """
 
 _UPDATE = """
-UPDATE news SET title = %(title)s, publisher = %(publisher)s, url = %(url)s, published_at = %(published_at)s,
+UPDATE news SET title = %(title)s, publisher = %(publisher)s, reliability = %(reliability)s, url = %(url)s,
+    published_at = %(published_at)s,
     fragment = %(fragment)s, tags = %(tags)s, factors = %(factors)s, okved = %(okved)s,
     expectations = %(expectations)s, also_reported_by = %(also_reported_by)s, content_hash = %(content_hash)s,
     origin = CASE WHEN %(origin)s = 'feed' THEN 'feed' ELSE origin END, updated_at = now()

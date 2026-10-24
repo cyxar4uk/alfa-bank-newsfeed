@@ -40,6 +40,13 @@ default = 0.9
 "РИА Новости" = 0.9
 "Forbes" = 0.85
 
+# издателя нет в [sources] — множитель по надёжности ленты (reliability в apps/ingest/src/ingest/news/sources.toml)
+[source_tiers]
+official = 1.0
+agency = 0.95
+business_media = 0.9
+other = 0.8
+
 [roles.owner]
 label = "Собственник"
 focus = "стоимость бизнеса, группа, стратегия отрасли"

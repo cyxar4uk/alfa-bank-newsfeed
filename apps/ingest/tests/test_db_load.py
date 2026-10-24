@@ -286,3 +286,11 @@ def test_serve_retries_initial_load(conn, tmp_path, monkeypatch, capsys):
     cli.run_serve(tmp_path, URL, every=0, iterations=3)
     assert len(calls) == 2  # упала — повторили на следующем круге, удалась — больше не грузим
     assert "БД ещё не поднялась" in capsys.readouterr().out
+
+
+def test_reliability_is_stored(conn):
+    item = news("r", "Правительство утвердило план по снижению ключевой ставки").model_copy(
+        update={"reliability": "official"}
+    )
+    load_news(conn, [item])
+    assert conn.execute("SELECT reliability FROM news WHERE id = 'src:news:r'").fetchone()[0] == "official"

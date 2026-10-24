@@ -42,6 +42,8 @@ CREATE TABLE IF NOT EXISTS news (
         || setweight(to_tsvector('{TS_CONFIG}', translate(fragment, 'Ёё', 'Ее')), 'B')
     ) STORED
 );
+-- надёжность источника (official, agency, business_media, other) — добавлена после первой версии схемы
+ALTER TABLE news ADD COLUMN IF NOT EXISTS reliability text;
 CREATE INDEX IF NOT EXISTS news_tsv_idx ON news USING gin (tsv);
 CREATE INDEX IF NOT EXISTS news_factors_idx ON news USING gin (factors);
 CREATE INDEX IF NOT EXISTS news_okved_idx ON news USING gin (okved);
