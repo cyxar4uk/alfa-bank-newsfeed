@@ -157,7 +157,8 @@ def _fx(title: str, channel: str) -> str | None:
 def consequence(item: FeedItem, key: str, exposure: ExposureMap | None) -> str | None:
     """Последствие для компании или None, если направление честно не определить."""
     title = _title(item)
-    group = bool(item.group_impact and item.group_impact.affected_count)
+    cover = item.coverage or item.group_impact  # тот же охват, что в числе вывода (api.coverage)
+    group = bool(cover and cover.affected_count)
     if key == "rate":
         return _rate(title, group)
     if key == "deposit_yield":

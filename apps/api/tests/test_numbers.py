@@ -22,3 +22,8 @@ def test_model_text_fixed():
     assert russian_numbers("127,1 млрд ₽") == "127,1 млрд ₽"
     # даты и номера не трогаем
     assert russian_numbers("заседание 23.10.2026, версия 1.2") == "заседание 23.10.2026, версия 1.2"
+
+
+def test_rounding_moves_to_next_unit():
+    assert fmt_rub(999.96e6) == "1 млрд ₽"
+    assert fmt_rub(999_950) == "1 млн ₽"

@@ -18,7 +18,7 @@ from api.contract import (
 )
 from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
-from api.group import group_context, group_impact
+from api.group import group_context
 from api.images import proxied
 from api.news import NewsProvider
 from api.personas import parse_persona_id
@@ -197,10 +197,6 @@ def company_group_impact(
         company.id,
         [*((f, 1.0) for f in factors), *event_factors],
         [*((o, 1.0) for o in okved), *event_sectors],
+        keep_empty=True,  # группа есть, событие её не касается — блок с нулём, а не «группы нет»
     )
-    if impact is None:
-        # группа есть, событие её не касается — блок с нулём, а не «группы нет»
-        group = repo.group_records(company.group_id, exclude=company.id)
-        ctx = group_context(company, group, repo.flows(company.id))
-        return True, group_impact(ctx, [], [], {}) if ctx else None
     return True, impact

@@ -23,8 +23,10 @@ def fmt_number(value: float, digits: int = 1) -> str:
 
 def fmt_rub(amount: float) -> str:
     """«149 млрд ₽», «934 млн ₽», «7,5 тыс. ₽», «120 ₽»."""
-    for scale, unit in _UNITS:
+    for i, (scale, unit) in enumerate(_UNITS):
         if abs(amount) >= scale:
+            if i and round(abs(amount) / scale, 1) >= 1000:  # «1000 млн» → «1 млрд»
+                scale, unit = _UNITS[i - 1]
             return f"{fmt_number(amount / scale)} {unit} ₽"
     return f"{fmt_number(amount, 0)} ₽"
 

@@ -559,7 +559,7 @@ def test_catalog_from_parser_catalog(monkeypatch):
 
 def test_feed_and_coverage_give_one_number():
     """Число задетых компаний группы в ленте — то же, что общая функция охвата отдаёт агенту."""
-    from api.coverage import event_coverage
+    from api.coverage import coverage_phrase, event_coverage
     from api.service import persona_feed
 
     repo = FakeRepo()
@@ -574,7 +574,27 @@ def test_feed_and_coverage_give_one_number():
                 expected.affected_count,
                 expected.affected_revenue,
             )
-            assert str(expected.affected_count) in item.takeaway.text
+            assert coverage_phrase(expected) in item.takeaway.text  # та же фраза, что получит агент
             # блок группы — только собственнику и гендиректору, наружу coverage не отдаётся
             assert (item.group_impact is not None) == persona.endswith("owner")
             assert "coverage" not in item.model_dump()
+
+
+def test_coverage_takes_weak_links_only_through_group():
+    """Строгий порог пуст: слабые связи берутся, только если событие доходит до компании через группу."""
+    from api.coverage import event_coverage
+
+    repo = FakeRepo()
+    # перевозки (49) — отрасль U_2 из группы U_1: канал «группа» есть, слабая связь 0,1 засчитывается
+    weak = event_coverage(repo, "U_1", [], [("49", 0.1)])
+    assert weak is not None and weak.affected[0].id == "U_2"
+    # энергетика (35) — в группе U_1 её нет: охвата нет
+    assert event_coverage(repo, "U_1", [], [("35", 0.1)]) is None
+    # эндпоинт: группа есть, событие её не касается — блок с нулём, а не null
+    empty = event_coverage(repo, "U_1", [], [("35", 0.1)], keep_empty=True)
+    assert empty is not None and empty.affected_count == 0
+
+
+def test_group_impact_endpoint_zero_block(client):
+    body = client.get("/api/companies/U_1/group-impact", params={"okved": "35"}).json()
+    assert body["affected_count"] == 0 and body["text"] == "событие не касается других компаний группы"

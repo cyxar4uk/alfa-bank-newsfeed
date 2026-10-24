@@ -44,16 +44,22 @@ def coverage_in(
     group: list[CompanyRecord],
     factors: Pairs,
     sectors: Pairs,
+    keep_empty: bool = False,
 ) -> GroupImpact | None:
-    """Охват по уже собранным данным группы (лента считает их один раз на все события)."""
+    """Охват по уже собранным данным группы (лента считает их один раз на все события).
+
+    `keep_empty` — вернуть и пустой охват («событие не касается других компаний группы»), а не None.
+    """
     aliases = default_ranking().aliases
     impact = group_impact(ctx, factors, sectors, aliases)
     if not impact.affected_count and _through_group(company, flows, group, sectors):
         impact = group_impact(ctx, factors, sectors, aliases, 0.0)
-    return impact if impact.affected_count else None
+    return impact if impact.affected_count or keep_empty else None
 
 
-def event_coverage(repo: CompanyRepo, company_id: str, factors: Pairs, sectors: Pairs) -> GroupImpact | None:
+def event_coverage(
+    repo: CompanyRepo, company_id: str, factors: Pairs, sectors: Pairs, keep_empty: bool = False
+) -> GroupImpact | None:
     """Охват события с факторами `factors` и отраслями `sectors` (код, сила 0–1) в группе компании.
 
     Нет компании, группы или задетых компаний — None.
@@ -66,4 +72,4 @@ def event_coverage(repo: CompanyRepo, company_id: str, factors: Pairs, sectors: 
     ctx = group_context(company, group, flows)
     if ctx is None:
         return None
-    return coverage_in(ctx, company, flows, group, factors, sectors)
+    return coverage_in(ctx, company, flows, group, factors, sectors, keep_empty)
