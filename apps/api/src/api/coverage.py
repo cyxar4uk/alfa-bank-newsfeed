@@ -11,11 +11,18 @@
 from api.chain import build_chain
 from api.contract import GroupImpact
 from api.group import GroupContext, group_context, group_impact
+from api.numbers import fmt_rub
+from api.profile import companies
 from api.ranking import default_ranking
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
 
 Pairs = list[tuple[str, float]]
+
+
+def coverage_phrase(impact: GroupImpact) -> str:
+    """«127 компаний группы с выручкой 127,1 млрд ₽» — так число стоит и в выводе ленты, и у агента."""
+    return f"{companies(impact.affected_count)} группы с выручкой {fmt_rub(impact.affected_revenue)}"
 
 
 def _through_group(

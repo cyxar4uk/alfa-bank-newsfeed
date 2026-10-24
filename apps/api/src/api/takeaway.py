@@ -9,7 +9,7 @@ import re
 
 from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
-from api.profile import companies, format_rub
+from api.coverage import coverage_phrase
 from api.short import clean_channel
 
 TEXT_MAX = 160
@@ -142,7 +142,7 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     gi = item.coverage or item.group_impact  # охват в группе — одно число с агентом (api.coverage)
     if gi and gi.affected_count:
         n = gi.affected_count
-        found.append(f"{companies(n)} группы с выручкой {format_rub(gi.affected_revenue)}{_depend(n, key)}")
+        found.append(coverage_phrase(gi) + _depend(n, key))
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
     factor = next((f for f in exposure.factors if f.code == key), None) if exposure else None
