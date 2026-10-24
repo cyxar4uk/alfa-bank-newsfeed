@@ -630,6 +630,7 @@ class SourceEntry(BaseModel):
     how_to_connect: list[str] = Field(default_factory=list, description="шаги подключения")
     docs_url: str | None = None
     icon_url: str | None = None
+    note: str | None = Field(default=None, description="ограничения: что не подтвердилось, условия")
 
 
 class SourceConnection(BaseModel):

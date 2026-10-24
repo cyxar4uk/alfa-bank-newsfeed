@@ -1,9 +1,9 @@
 """Каталог источников новостей для экрана «Источники»: что предлагаем подключить и что уже подключено.
 
-Список — из лент парсера (`ingest/news/sources.toml`): издатель, надёжность, домены. Поля, которых в ленте
-нет, заполняются по умолчанию: открытая лента (kind = free) подключена всем — парсер её уже читает; платный
-сервис (kind = paid_api) подключается пользователем. Ключи API в прототипе не принимаем — только инструкция,
-куда ключ кладётся на сервере.
+Список — каталог парсера (`ingest.news.catalog.load_catalog`, `catalog.toml`): российские и зарубежные,
+открытые и платные по API, с инструкцией подключения и переменной ключа. Без каталога (старая версия парсера)
+— из его лент (`sources.toml`) с умолчаниями. Подключён — если парсер уже читает источник или пользователь
+отметил его сам. Ключи API в прототипе не принимаем — только инструкция, куда ключ кладётся на сервере.
 """
 
 import tomllib
@@ -38,8 +38,39 @@ def _country(feed: dict) -> str:
     return "intl" if hosts and all(h.endswith(INTL_SUFFIXES) for h in hosts) else "ru"
 
 
+@lru_cache(maxsize=1)
+def _parser_catalog() -> list[dict] | None:
+    try:
+        from ingest.news.catalog import load_catalog
+    except ImportError:
+        return None
+    entries = []
+    for s in load_catalog():
+        entries.append(
+            {
+                "id": s.id,
+                "name": s.name,
+                "country": s.country,
+                "kind": s.kind,
+                "reliability": getattr(s, "reliability", None),
+                "topics": list(getattr(s, "topics", None) or []),
+                "how_to_connect": list(getattr(s, "how_to_connect", None) or []),
+                "docs_url": getattr(s, "docs_url", None),
+                "icon_url": getattr(s, "icon_url", None),
+                "note": getattr(s, "note", None),
+                "key_env": getattr(s, "key_env", None),
+                "feeds": list(getattr(s, "feeds", None) or []),
+                "connected": bool(getattr(s, "connected", False)),
+            }
+        )
+    return entries
+
+
 def catalog_entries() -> list[dict]:
-    """Источники каталога — по одному на издателя: у Банка России две ленты, в каталоге он один."""
+    """Источники каталога: из каталога парсера, а без него — по одному на издателя из его лент."""
+    parsed = _parser_catalog()
+    if parsed is not None:
+        return parsed
     entries: dict[str, dict] = {}
     for feed in _feeds():
         if feed.get("enabled") is False:
@@ -62,16 +93,24 @@ def catalog_entries() -> list[dict]:
             ),
             "docs_url": feed.get("docs_url"),
             "icon_url": feed.get("icon_url"),
+            "note": None,
+            "key_env": env if kind == "paid_api" else None,
+            "feeds": [feed["id"]],
+            "connected": kind == "free",  # открытую ленту парсер уже читает
         }
     return list(entries.values())
 
 
 def entry_id(source_id: str) -> str:
-    """Id записи каталога по id любой ленты издателя («cbr-events» → «cbr-press»)."""
-    publisher = next((f.get("publisher") for f in _feeds() if f["id"] == source_id), None)
-    if publisher is None:
+    """Id записи каталога по id любой её ленты («cbr-events» → запись Банка России)."""
+    entries = catalog_entries()
+    if any(e["id"] == source_id for e in entries):
         return source_id
-    return next((e["id"] for e in catalog_entries() if e["name"] == publisher), source_id)
+    by_feed = next((e["id"] for e in entries if source_id in e["feeds"]), None)
+    if by_feed:
+        return by_feed
+    publisher = next((f.get("publisher") for f in _feeds() if f["id"] == source_id), None)
+    return next((e["id"] for e in entries if publisher and e["name"] == publisher), source_id)
 
 
 class Connections(Protocol):
@@ -113,11 +152,38 @@ class PgConnections:
             )
 
 
+PUBLIC = (
+    "id",
+    "name",
+    "country",
+    "kind",
+    "reliability",
+    "topics",
+    "how_to_connect",
+    "docs_url",
+    "icon_url",
+    "note",
+)
+
+
 def catalog(connections: Connections, persona_id: str) -> list[SourceEntry]:
     mine = connections.connected(persona_id)
+    entries = sorted(
+        catalog_entries(),
+        key=lambda e: (not e["connected"], e["country"] != "ru", e["kind"] != "free", e["name"]),
+    )
     return [
-        SourceEntry(**e, connected=e["kind"] == "free" or e["id"] in mine)
-        for e in sorted(
-            catalog_entries(), key=lambda e: (e["country"] != "ru", e["kind"] != "free", e["name"])
-        )
+        SourceEntry(**{k: e[k] for k in PUBLIC}, connected=e["connected"] or e["id"] in mine) for e in entries
     ]
+
+
+def connect_message(entry: dict) -> str:
+    """Что дальше после отметки «подключён»: открытый — уже в ленте; платный — куда положить ключ."""
+    if entry["kind"] == "free":
+        if entry["connected"]:
+            return "Источник подключён: его новости уже приходят в вашу ленту."
+        return "Источник отмечен подключённым; парсер начнёт читать его ленту после обновления стенда."
+    where = f" — переменная {entry['key_env']} в файле .env на сервере" if entry.get("key_env") else ""
+    last = entry["how_to_connect"][-1] if entry["how_to_connect"] else ""
+    text = f"Источник отмечен подключённым. Чтобы новости пошли в ленту, нужен ключ API{where}."
+    return f"{text} {last}".strip()

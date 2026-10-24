@@ -509,3 +509,48 @@ def test_snapshot_search(tmp_path):
     assert [e.id for e in news.search("ставка", 10)] == ["src:news:a", "src:news:b"]
     assert [e.id for e in news.search("ключевая ставка", 10)] == ["src:news:a"]
     assert news.search("", 10) == []
+
+
+def test_catalog_from_parser_catalog(monkeypatch):
+    import api.sources as sources
+
+    rows = [
+        {
+            "id": "reuters",
+            "name": "Reuters",
+            "country": "intl",
+            "kind": "paid_api",
+            "reliability": "agency",
+            "topics": ["рынки"],
+            "how_to_connect": ["Получите ключ.", "Перезапустите парсер."],
+            "docs_url": None,
+            "icon_url": None,
+            "note": "только по подписке",
+            "key_env": "REUTERS_API_KEY",
+            "feeds": [],
+            "connected": False,
+        },
+        {
+            "id": "cbr",
+            "name": "Банк России",
+            "country": "ru",
+            "kind": "free",
+            "reliability": "official",
+            "topics": [],
+            "how_to_connect": [],
+            "docs_url": None,
+            "icon_url": None,
+            "note": None,
+            "key_env": None,
+            "feeds": ["cbr-press", "cbr-events"],
+            "connected": True,
+        },
+    ]
+    monkeypatch.setattr(sources, "_parser_catalog", lambda: rows)
+    connections = sources.MemoryConnections()
+    entries = sources.catalog(connections, "p-u1-cfo")
+    assert [e.id for e in entries] == ["cbr", "reuters"]  # подключённые — первыми
+    assert entries[1].note == "только по подписке" and entries[1].connected is False
+    assert sources.entry_id("cbr-events") == "cbr"
+    message = sources.connect_message(rows[0])
+    assert "REUTERS_API_KEY" in message and message.endswith("Перезапустите парсер.")

@@ -35,7 +35,15 @@ from api.repo import CompanyRepo, PgCompanyRepo
 from api.search.repo import SearchRepo
 from api.search.routes import router as search_router
 from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
-from api.sources import Connections, MemoryConnections, PgConnections, catalog, catalog_entries, entry_id
+from api.sources import (
+    Connections,
+    MemoryConnections,
+    PgConnections,
+    catalog,
+    catalog_entries,
+    connect_message,
+    entry_id,
+)
 from api.takeaway import takeaway
 
 logger = logging.getLogger("api")
@@ -140,14 +148,8 @@ def connect_source(
         raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
     connections.connect(persona, source_id)
     entry = next(e for e in catalog(connections, persona) if e.id == source_id)
-    if entry.kind == "free":
-        message = "Источник подключён: его новости уже приходят в вашу ленту."
-    else:
-        message = (
-            "Источник отмечен подключённым. Чтобы новости пошли в ленту, передайте ключ API администратору"
-            " — шаги ниже."
-        )
-    return SourceConnection(source=entry, message=message)
+    raw = next(e for e in catalog_entries() if e["id"] == source_id)
+    return SourceConnection(source=entry, message=connect_message(raw))
 
 
 app.include_router(sources_router)
