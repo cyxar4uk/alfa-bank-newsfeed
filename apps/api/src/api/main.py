@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
 from api.config import get_settings
@@ -23,6 +24,8 @@ from api.okved import sector_for
 from api.personas import DEMO_COMPANIES, make_personas
 from api.profile import LARGE_REVENUE, display_name
 from api.repo import CompanyRepo, PgCompanyRepo
+from api.search.repo import SearchRepo
+from api.search.routes import router as search_router
 from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
 
 
@@ -31,10 +34,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = get_settings()
     with connect(settings.database_url) as conn:
         ensure_schema(conn)
+        ensure_search_schema(conn)  # таблицы новостей и аналитики банка (api.search); пересоздаёт загрузчик
         conn.commit()
     # короткое ожидание соединения: /api/health должен быстро ответить 503, а не висеть
     pool = ConnectionPool(settings.database_url, min_size=1, max_size=10, timeout=5, open=True)
     app.state.repo = PgCompanyRepo(pool)
+    app.state.search = SearchRepo(pool)
     try:
         yield
     finally:
@@ -50,6 +55,7 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+app.include_router(search_router)
 
 
 def get_repo(request: Request) -> CompanyRepo:
