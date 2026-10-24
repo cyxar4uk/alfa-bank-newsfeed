@@ -30,7 +30,7 @@ from api.agent.ports import (
 )
 from api.contract import CompanyProfile, Persona, Relevance, Source, SourceTags
 from api.okved import okved_prefix, sector_for
-from api.personas import make_personas
+from api.personas import personas_for
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, display_name, format_share
 from api.repo import CompanyRepo
 
@@ -85,8 +85,7 @@ class ProfileCompanyData:
         self._profiles: dict[str, CompanyProfile] = {}
 
     def persona(self, persona_id: str) -> Persona | None:
-        personas = make_personas(self.repo.list_companies(large=True, limit=500, offset=0))
-        return next((p for p in personas if p.id == persona_id), None)
+        return next((p for p in personas_for(self.repo) if p.id == persona_id), None)
 
     def profile(self, company_id: str) -> CompanyProfile | None:
         if company_id in self._profiles:
