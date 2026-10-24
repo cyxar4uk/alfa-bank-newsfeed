@@ -10,11 +10,17 @@ dependencies = [
     "pydantic-settings>=2.6",
     "psycopg[binary]>=3.2",
     "psycopg-pool>=3.2",
+    # загрузка страницы своей новости
+    "httpx>=0.28",
+    # нормализация и разметка новостей парсера — для разбора своей новости; схема таблиц материалов
+    "ingest",
 ]
+
+[tool.uv.sources]
+ingest = { path = "../ingest", editable = true }
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28",
     "pytest>=8.3",
     "ruff>=0.8",
 ]

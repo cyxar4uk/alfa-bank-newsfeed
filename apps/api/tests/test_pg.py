@@ -35,7 +35,7 @@ def repo(data_dir):
 
 def test_profile_from_db(repo):
     company = repo.get_company("U_1")
-    assert company.duplicates == 2
+    assert repo.get_company("U_5") is None  # id в двух строках — артефакт, убран целиком
     size, members = repo.group(company.group_id, exclude="U_1", limit=20)
     assert (size, members) == (2, ["U_2"])
 
@@ -56,7 +56,24 @@ def test_industry_position(repo):
 
 
 def test_large_and_files(repo):
-    assert [c.id for c in repo.list_companies(large=True, limit=10, offset=0)] == ["U_1", "U_4"]
+    # крупный бизнес — по выручке группы: U_2 (0,5 млрд) в группе с U_1 на 20,5 млрд
+    assert [c.id for c in repo.list_companies(large=True, limit=10, offset=0)] == ["U_1", "U_2", "U_4"]
+    assert [c.id for c in repo.list_companies(large=True, limit=10, offset=0, per_group=True)] == [
+        "U_1",
+        "U_4",
+    ]
+    # только действующие клиенты: U_2 — потенциальный
+    assert [c.id for c in repo.list_companies(large=True, limit=10, offset=0, clients_only=True)] == [
+        "U_1",
+        "U_4",
+    ]
+    stats = repo.group_stats(["group_1_sb", "group_3_sb"])
+    assert (stats["group_1_sb"].revenue, stats["group_1_sb"].size, stats["group_1_sb"].clients) == (
+        20.5e9,
+        2,
+        1,
+    )
+    assert stats["group_3_sb"].revenue is None  # выручка единственной компании — мусор
     assert {f.file for f in repo.imported_files()} == {
         "df_Uid_data_hack.csv",
         "df_Uid_payment_hack.csv",
@@ -195,3 +212,17 @@ def test_tolerant_path_handles_carriage_returns(tmp_path):
     stats, rows = _load(path)
     assert rows == [("U_2", "U_1", 1.0), ("U_3", "U_1", 2.0), ("U_4", "U_1", 3.0), ("U_6", "U_1", 4.0)]
     assert (stats.rows_read, stats.rows_skipped) == (5, 1)
+
+
+def test_missing_files_do_not_wipe_data_on_schema_change(data_dir, tmp_path, monkeypatch):
+    import psycopg
+
+    from api import db, importer
+
+    with psycopg.connect(URL, autocommit=True) as conn:
+        import_all(conn, data_dir)
+        monkeypatch.setattr(db, "SCHEMA_VERSION", 998)
+        monkeypatch.setattr(importer, "SCHEMA_VERSION", 998)
+        # файлов нет, а версия схемы другая — таблицы не пересоздаются, данные остаются
+        assert import_all(conn, tmp_path) == {}
+        assert conn.execute("SELECT count(*) FROM companies").fetchone()[0] == 4

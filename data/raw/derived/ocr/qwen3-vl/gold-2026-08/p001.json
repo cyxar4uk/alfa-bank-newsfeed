@@ -1,0 +1,18 @@
+{
+ "file": "Gold_digest_August26.pdf",
+ "page": 1,
+ "engine": "qwen3-vl",
+ "blocks": [
+  {
+   "text": "ОБЗОР РЫНКА ЗОЛОТА АВГУСТ 2026",
+   "confidence": 100.0,
+   "bbox": [
+    0,
+    0,
+    1415,
+    2000
+   ]
+  }
+ ],
+ "pdf_sha": "4159576a6223985d"
+}

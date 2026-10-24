@@ -1,4 +1,5 @@
-"""Командная строка: `ingest all` — новости и аналитика за один запуск.
+"""Командная строка: `ingest all` — новости и аналитика за один запуск; `ingest load` — загрузить готовое в БД;
+`ingest serve` — загрузить и дальше обновлять новости по расписанию (сервис в compose).
 
 Раскладка каталога данных (--data):
   raw/alfa_analytics/*.pdf          вход: аналитика банка (материалы кейса, не в git)
@@ -13,7 +14,9 @@
 
 import argparse
 import json
+import os
 import sys
+import time
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -116,11 +119,98 @@ def run_analytics(data: Path, engine_name: str, force: bool, vlm: bool) -> dict:
     }
 
 
+DEFAULT_DATABASE_URL = "postgresql://newsfeed:newsfeed@127.0.0.1:5433/newsfeed"
+
+
+def connect_db(url: str, attempts: int = 30, delay: float = 2.0):
+    """Подключиться к БД, дождавшись её (в compose она может подняться позже)."""
+    import psycopg
+
+    for attempt in range(1, attempts + 1):
+        try:
+            return psycopg.connect(url, autocommit=True)
+        except psycopg.OperationalError:
+            if attempt == attempts:
+                raise
+            time.sleep(delay)
+    raise RuntimeError("unreachable")
+
+
+def run_load(data: Path, url: str) -> dict:
+    from ingest.db.load import load_all
+
+    with connect_db(url) as conn:
+        result = load_all(conn, data)
+    _print_load(result)
+    return result
+
+
+def _print_load(result: dict) -> None:
+    for name in ("snapshot", "news"):
+        if name in result:
+            s = result[name]
+            print(
+                f"  {name:<9} прочитано {s['read']:>4} · новых {s['inserted']:>4} · обновлено {s['updated']:>4}"
+                f" · без изменений {s['unchanged']:>4} · дописано к событиям {s['merged']:>3}"
+            )
+    if result.get("retagged"):
+        print(f"  разметка: словари изменились — переразмечено новостей {result['retagged']}")
+    a = result.get("analytics", {})
+    if a.get("skipped"):
+        print(f"  аналитика: пропущена — {a.get('reason')}")
+    elif a:
+        print(f"  аналитика: материалов {a['materials']}, страниц {a['pages']}, фрагментов {a['fragments']}")
+
+
+def run_serve(data: Path, url: str, every: float, iterations: int | None = None) -> None:
+    """Загрузить снимок и готовые файлы, затем собирать новости из лент каждые `every` минут — сразу в БД.
+
+    Файлы в `data` не пишутся (в compose том только на чтение): распознавание аналитики — отдельной командой
+    `ingest analytics`, сервис берёт готовые `raw/derived/alfa_*.jsonl`. Нет сети — ленты не отвечают, в базе остаётся
+    загруженное. Сбой БД — повтор на следующем круге. SIGTERM — штатная остановка (иначе процесс с PID 1 его не
+    слышит и `docker compose stop` ждёт 10 секунд).
+    """
+    import signal
+
+    import psycopg
+
+    from ingest.db.load import load_news
+
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    loaded = False
+    n = 0
+    while True:
+        n += 1
+        if not loaded:  # снимок и аналитика — до первой удачной загрузки, повторяем каждый круг
+            print("Загрузка в БД:")
+            try:
+                run_load(data, url)
+                loaded = True
+            except (psycopg.Error, OSError) as exc:
+                print(f"  сбой: {exc} — повтор через {every:g} мин")
+        print(f"Новости ({datetime.now(MSK):%d.%m %H:%M}):")
+        try:
+            news, reports = collect_news(load_feeds(None))
+            for r in reports:
+                status = f"{r.items} записей" if r.ok else f"ошибка: {r.error}"
+                print(f"  {r.publisher:<14} {r.feed_id:<22} {status}")
+            if news:
+                with connect_db(url, attempts=3) as conn:
+                    _print_load({"news": load_news(conn, news).__dict__})
+            else:
+                print("  ленты не ответили — в базе остаётся загруженное")
+        except (psycopg.Error, OSError) as exc:
+            print(f"  сбой: {exc} — повтор через {every:g} мин")
+        if iterations is not None and n >= iterations:
+            return
+        time.sleep(every * 60)
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="ingest", description="Сбор новостей и аналитики Альфа-Банка")
-    parser.add_argument("command", choices=["all", "news", "analytics"])
+    parser.add_argument("command", choices=["all", "news", "analytics", "load", "serve"])
     parser.add_argument("--data", type=Path, default=Path("data"), help="каталог данных (по умолчанию ./data)")
     parser.add_argument("--engine", default="tesseract", help="основное распознавание: tesseract | qwen3-vl-mock")
     parser.add_argument(
@@ -130,7 +220,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--feeds", default=None, help="свой файл лент вместо встроенного sources.toml")
     parser.add_argument("--snapshot", action="store_true", help="перезаписать data/demo/news_snapshot.jsonl")
     parser.add_argument("--force", action="store_true", help="распознать заново, не глядя в кэш")
+    parser.add_argument(
+        "--every", type=float, default=float(os.environ.get("INGEST_EVERY_MIN", "30")), help="serve: период сбора, мин"
+    )
     args = parser.parse_args(argv)
+    url = os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)
+    if args.command == "load":
+        print("Загрузка в БД:")
+        run_load(args.data, url)
+        return 0
+    if args.command == "serve":
+        if args.every < 1:
+            parser.error("--every: не меньше 1 минуты — ленты не нужно опрашивать чаще")
+        run_serve(args.data, url, args.every)
+        return 0
 
     out = args.data / "raw" / "derived" / "report.json"
     report: dict = json.loads(out.read_text("utf-8")) if out.exists() else {}

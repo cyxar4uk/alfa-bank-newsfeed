@@ -7,10 +7,16 @@
 Набор детерминирован; компании, которой нет в загруженных данных, просто нет в списке.
 """
 
+import re
+from typing import TYPE_CHECKING
+
 from api.contract import ROLE_LABELS, Persona
 from api.okved import sector_for
 from api.profile import company_number
 from api.records import CompanyRecord
+
+if TYPE_CHECKING:
+    from api.repo import CompanyRepo
 
 MAX_COMPANIES = 8
 
@@ -24,6 +30,8 @@ DEMO_PERSONAS: list[tuple[str, str, str]] = [
     ("U_34911", "treasury", "Зернотрейдер, Ростов-на-Дону"),
     ("U_258116", "ceo", "Поставщик общепита, Москва"),
 ]
+
+DEMO_COMPANIES = list(dict.fromkeys(company_id for company_id, *_ in DEMO_PERSONAS))
 
 PREFERRED_SECTORS = [
     "оптовая торговля",
@@ -47,6 +55,8 @@ ROLE_SHORT = {
     "treasury": "Казначей",
     "other": "Сотрудник",
 }
+_PERSONA_ID = re.compile(r"^p-u(\d+)-(owner|ceo|cfo|acc|tre|other)$")
+
 _ROLE_ID = {
     "owner": "owner",
     "ceo": "ceo",
@@ -59,6 +69,15 @@ _ROLE_ID = {
 
 def persona_id(company_id: str, role: str) -> str:
     return f"p-u{company_number(company_id)}-{_ROLE_ID[role]}"
+
+
+def parse_persona_id(value: str) -> tuple[str, str] | None:
+    """`p-u8318-cfo` → (`U_8318`, `cfo`); не тот формат — None."""
+    match = _PERSONA_ID.match(value or "")
+    if not match:
+        return None
+    roles = {short: role for role, short in _ROLE_ID.items()}
+    return f"U_{match.group(1)}", roles[match.group(2)]
 
 
 def company_label(company: CompanyRecord) -> str:
@@ -96,6 +115,8 @@ def pick_companies(
 
 
 def make_personas(companies: list[CompanyRecord]) -> list[Persona]:
+    # сервис — для действующих клиентов: потенциальные и бывшие могут быть только контрагентами
+    companies = [c for c in companies if c.client_type == "CLIENT"]
     by_id = {c.id: c for c in companies}
     personas = [
         _persona(by_id[company_id], role, label)
@@ -109,3 +130,14 @@ def make_personas(companies: list[CompanyRecord]) -> list[Persona]:
     for i, company in enumerate(fill):
         personas.append(_persona(company, FILL_ROLES[i % len(FILL_ROLES)], company_label(company)))
     return personas
+
+
+def personas_for(repo: "CompanyRepo") -> list[Persona]:
+    """Все тестовые пользователи — один источник для API и агента.
+
+    Персоны — у действующих клиентов крупного бизнеса: демо-клиенты и крупнейшие компании групп.
+    """
+    leaders = repo.list_companies(large=True, limit=1000, offset=0, clients_only=True, per_group=True)
+    known = {c.id for c in leaders}
+    demo = [repo.get_company(cid) for cid in DEMO_COMPANIES if cid not in known]
+    return make_personas([*leaders, *(c for c in demo if c)])
