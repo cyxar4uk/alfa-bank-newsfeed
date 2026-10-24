@@ -83,9 +83,22 @@ def get_insight(
     persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
     refresh: Annotated[bool, Query(description="пересобрать, не брать из кэша")] = False,
     wait: Annotated[bool, WAIT] = True,
+    cached: Annotated[
+        bool,
+        Query(description="только готовый из кэша: не собран — 204 и X-Insight: not-built, без сборки"),
+    ] = False,
 ):
     """Инсайт по паре «событие × пользователь». Готов — 200 из кэша; нет — сборка: с `wait=false` в фоне и
-    сразу 202 со статусом (повторный запрос во время сборки новую не запускает)."""
+    сразу 202 со статусом (повторный запрос во время сборки новую не запускает). С `cached=true` сборка не
+    запускается и модели не вызываются: экран показывает только уже собранные карточки."""
+    if cached:
+        try:
+            ready = agent.ready(event_id, persona)
+        except Exception as exc:
+            raise _fail(exc) from exc
+        if ready is None:
+            return Response(status_code=status.HTTP_204_NO_CONTENT, headers={"X-Insight": "not-built"})
+        return ready
     try:
         return _answer(agent.insight(event_id, persona, refresh=refresh, wait=wait))
     except NotRelevant:
