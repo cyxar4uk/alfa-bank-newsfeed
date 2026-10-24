@@ -318,9 +318,9 @@ function indicators(groups: FeedGroup[], exposure: CompanyExposure | null): Indi
     });
 }
 
-/** Ведущее число значения с единицей: «44 % всех платежей…» → «44 %», «11 из 28» → «11 из 28»; коды ОКВЭД — не числа. */
+/** Ведущее число значения с единицей: «44 % всех платежей…» → «44 %», «11 из 28», диапазон «16-100» целиком; коды ОКВЭД — не числа. */
 export function leadingNumber(value: string): string | null {
-  const m = /^\d[\d\s]*(?:,\d+)?(?![.\d])(?:\s?(?:%|млрд ₽|млн ₽|тыс\. ₽|₽|из \d+|[а-яё]+))?/.exec(value.trim());
+  const m = /^\d[\d\s]*(?:,\d+)?(?:\s?[–-]\s?\d[\d\s]*(?:,\d+)?)?(?![.\d])(?:\s?(?:%|млрд ₽|млн ₽|тыс\. ₽|₽|из \d+|[а-яё]+))?/.exec(value.trim());
   return m ? m[0].trim() : null;
 }
 
@@ -560,9 +560,12 @@ export function cardScreen({ insight, item, exposure }: CardState): CardScreen {
   const numbers = exposure
     ? exposure.factors
         .filter((f) => codes.includes(f.code))
-        .flatMap((f) => f.evidence.map((e) => ({ value: leadingNumber(e.value), label: e.label })))
+        .flatMap((f) => f.evidence.map((e) => ({ value: leadingNumber(e.value), label: humanize(e.label) })))
         .filter((x): x is { value: string; label: string } => x.value !== null)
-        .slice(0, 2)
+        // подпись с кодом ОКВЭД не показываем; одинаковые подписи — одна цифра
+        .filter((x) => !/\d{2}\.\d/.test(x.label) && !/ОКВЭД/i.test(x.label))
+        .filter((x, i, all) => all.findIndex((y) => y.label === x.label) === i)
+        .slice(0, 3)
     : [];
 
   const bank = insight.bank_view[0];

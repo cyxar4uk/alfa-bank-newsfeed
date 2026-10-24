@@ -130,8 +130,9 @@ function Card({
     // только при входе
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const headRef = useRef<HTMLDivElement>(null);
-  useEffect(() => headRef.current?.querySelector<HTMLElement>('.article__title')?.focus(), []);
+  // Фокус — на вывод, без прокрутки: на узком экране вывод стоит над новостью и должен остаться на виду.
+  const verdictRef = useRef<HTMLElement>(null);
+  useEffect(() => verdictRef.current?.focus({ preventScroll: true }), []);
 
   const level = levelWith(item, insight);
   // Заголовок вывода — только вывод модели; нет его — показываем уровень и «почему», без подмены.
@@ -143,6 +144,8 @@ function Card({
     .slice(0, 3)
     .map(plain);
   const bank = bankOf(insight);
+  // Цифры из данных компании (подписи уже без кодов ОКВЭД и без дублей — cardScreen).
+  const numbers = screen.forYou.numbers.map((n) => ({ value: n.value, label: plain(n.label) }));
   const topic = screen.target?.topic ?? 'последствия для компании';
   const context = [insight.event.title, headline, bank?.statement].filter(Boolean).join(' · ');
   const quotes = (insight.quotes ?? []).map((q) => q.text);
@@ -170,21 +173,7 @@ function Card({
 
   return (
     <div className="article-page">
-      <article className="card article appear" ref={headRef}>
-        <NewsHead
-          title={insight.event.title}
-          publisher={leadNews?.publisher ?? item?.source.publisher ?? null}
-          date={leadNews?.published_at ?? item?.source.published_at ?? insight.event.date ?? null}
-          factor={item?.factors[0]?.code ?? 'industry'}
-          image={item?.image_url ?? null}
-        />
-        <FullText eventId={eventId} quotes={quotes} lead={leadNews} />
-        <div className="discuss">
-          <AskBox insight={insight} personaId={personaId} index={index} />
-        </div>
-      </article>
-
-      <aside className="verdict appear" aria-label="Что это значит для компании" style={{ animationDelay: '80ms' }}>
+      <aside className="verdict appear" aria-label="Что это значит для компании" ref={verdictRef} tabIndex={-1}>
         <section className="card verdict__card">
           <p className={`verdict__level verdict__level--${level}`}>
             <LevelIcon level={level} />
@@ -199,21 +188,15 @@ function Card({
               {headline}
             </h2>
           )}
-          {why && (
-            <>
-              <p className="caps">Почему</p>
-              <p className="verdict__text">{why}</p>
-            </>
-          )}
-          {todo.length > 0 && (
-            <>
-              <p className="caps">Что делать</p>
-              <ol className="verdict__todo">
-                {todo.map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ol>
-            </>
+          {numbers.length > 0 && (
+            <dl className="verdict__numbers">
+              {numbers.map((n) => (
+                <div key={n.label}>
+                  <dt>{n.label}</dt>
+                  <dd>{n.value}</dd>
+                </div>
+              ))}
+            </dl>
           )}
           {bank ? (
             <div className="verdict__bank">
@@ -250,6 +233,22 @@ function Card({
                 focus={focusForm}
               />
             </div>
+          )}
+          {why && (
+            <>
+              <p className="caps">Почему</p>
+              <p className="verdict__text">{why}</p>
+            </>
+          )}
+          {todo.length > 0 && (
+            <>
+              <p className="caps">Что делать</p>
+              <ol className="verdict__todo">
+                {todo.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ol>
+            </>
           )}
           <div className="verdict__links">
             {insight.trace_id && (
@@ -297,6 +296,20 @@ function Card({
           </div>
         )}
       </aside>
+      <article className="card article appear" style={{ animationDelay: '80ms' }}>
+        <NewsHead
+          title={insight.event.title}
+          publisher={leadNews?.publisher ?? item?.source.publisher ?? null}
+          date={leadNews?.published_at ?? item?.source.published_at ?? insight.event.date ?? null}
+          factor={item?.factors[0]?.code ?? 'industry'}
+          image={item?.image_url ?? null}
+        />
+        <FullText eventId={eventId} quotes={quotes} lead={leadNews} />
+        <div className="discuss">
+          <AskBox insight={insight} personaId={personaId} index={index} />
+        </div>
+      </article>
+
     </div>
   );
 }

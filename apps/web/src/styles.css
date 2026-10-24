@@ -5678,6 +5678,99 @@ a:hover .thumb img,
   }
 }
 
+/* ─── Новости: правки после стенда 25.10 ─────────────────────────────────────────── */
+
+.thumb {
+  position: relative;
+}
+
+.thumb__img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--t-mid) var(--ease);
+}
+
+.thumb__img--on {
+  opacity: 1;
+}
+
+.thumb .thumb__img {
+  transition:
+    opacity var(--t-mid) var(--ease),
+    transform var(--t-slow) var(--ease);
+}
+
+.thumb--photo {
+  background: var(--tile);
+}
+
+.thumb--photo > svg {
+  visibility: hidden;
+}
+
+.verdict__numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+}
+
+.verdict__numbers div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 2px;
+}
+
+.verdict__numbers dd {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 30px;
+}
+
+.verdict__numbers dt {
+  max-width: 22ch;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.plate__item-why {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.plate__item-why svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.more__button {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+/* вывод идёт в разметке первым (порядок чтения); на широком экране он справа, на узком — над новостью */
+@media (min-width: 1101px) {
+  .article-page > .verdict {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .article-page > .article {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+
+.verdict:focus {
+  outline: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

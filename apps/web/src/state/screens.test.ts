@@ -179,6 +179,8 @@ test('монограммы источников вместо логотипов'
   assert.equal(leadingNumber('да'), null);
   assert.equal(leadingNumber('11 компаний, 7,5 млрд ₽ — 38 % выручки'), '11 компаний');
   assert.equal(leadingNumber('Более 251'), null);
+  assert.equal(leadingNumber('16-100'), '16-100');
+  assert.equal(leadingNumber('5–8 %'), '5–8 %');
 });
 
 const st = (origin: Statement['origin'], text: string, extra: Partial<Statement> = {}): Statement => ({ origin, text, refs: [], ...extra });

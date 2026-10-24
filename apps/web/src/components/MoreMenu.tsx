@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import type { CardMenuItem } from '../state/screens';
+import { Icon } from './Icon';
 
-/** Меню «Ещё ⋯»: все нецелевые действия карточки, чтобы на экране была одна главная кнопка. */
+/** Меню «Ещё действия»: все нецелевые действия карточки, чтобы на экране была одна главная кнопка. */
 export function MoreMenu({ items, onPick }: { items: CardMenuItem[]; onPick: (id: CardMenuItem['id']) => void }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -39,7 +40,8 @@ export function MoreMenu({ items, onPick }: { items: CardMenuItem[]; onPick: (id
         aria-controls={open ? menuId : undefined}
         onClick={() => setOpen((v) => !v)}
       >
-        Ещё ⋯
+        Ещё действия
+        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={16} />
       </button>
       {open && (
         <ul className="more__menu" id={menuId}>
