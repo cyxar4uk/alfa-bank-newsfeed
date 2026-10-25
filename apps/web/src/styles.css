@@ -6357,6 +6357,207 @@ a:hover .thumb img,
   transform: rotate(180deg);
 }
 
+/* ─── Карточка: «Что делать» заметнее кнопки, действия на виду, вопрос под выводом ─── */
+.verdict__todo-box {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: var(--r-control);
+  background: var(--tile);
+}
+
+.verdict__todo-title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.verdict__todo-box .verdict__todo {
+  gap: 6px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.verdict__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.verdict__actions .btn {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.verdict__manager {
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  height: auto;
+  padding-top: 10px;
+  padding-bottom: 10px;
+  text-align: center;
+}
+
+.verdict__manager-hint {
+  color: var(--ink-2);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+
+.verdict .ask {
+  gap: 10px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+}
+
+.ask__title {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.verdict .ask__form {
+  flex-direction: column;
+}
+
+.ask__field {
+  min-height: 64px;
+  resize: vertical;
+  font: inherit;
+  line-height: 20px;
+}
+
+.verdict .ask__form .btn {
+  align-self: flex-end;
+}
+
+/* ─── «Источники»: своя новость наверху, отключение, подтверждения ─── */
+.own-news-card {
+  display: grid;
+  gap: 10px;
+}
+
+.own-news-card__title {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.own-news-card__title svg {
+  color: var(--origin-ai);
+}
+
+.own-news-card__lead {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.source-card__state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.source-card__gives {
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.source-card__note {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.howto__benefit {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.source-card__off {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.source-card__message {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.source-card__message:empty {
+  display: none;
+}
+
+.thinking__progress {
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+/* «Мои числа» в вопросе к разбору */
+.mynums > summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--link);
+  font-size: 14px;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+
+.mynums > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mynums[open] .mynums__chevron {
+  transform: rotate(180deg);
+}
+
+.mynums__form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.mynums__field {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mynums__field .field {
+  min-height: 40px;
+  padding: 8px 12px;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.mynums__hint {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.mynums__form .btn {
+  justify-self: start;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

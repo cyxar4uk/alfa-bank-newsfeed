@@ -1,7 +1,9 @@
 // «Главное за неделю» (макет B1) и «К чему уязвима компания» (макеты B2, B3): данные API → модель экрана.
 // Чистые функции, как news.ts: ничего не досчитываем сверх того, что есть в ответе.
 import type { BankView, Briefing, Dynamics, RiskFactor, RiskMap, RiskStrength, Story } from '../api/types.ts';
-import { plain, type Level } from './news.ts';
+import { plain, splitTodo, type Level } from './news.ts';
+
+export { splitTodo };
 import { plural, shortDate } from './screens.ts';
 
 export const DYNAMICS_LABEL: Record<Dynamics, string> = { appeared: 'Появился', grew: 'Усилился', faded: 'Утих', steady: 'Держится' };
@@ -104,13 +106,6 @@ export interface WeekScreen {
   rows: WeekRow[];
   bank: BankLine | null;
   action: { eventId: string; label: string } | null;
-}
-
-/** Вывод API пишет действие в конце: «… Что делать: сверьте сроки». В макете это отдельная строка. */
-export function splitTodo(text: string | null): { why: string | null; todo: string | null } {
-  if (!text) return { why: null, todo: null };
-  const m = /^(.*?)[\s.]*Что делать:\s*(.+)$/s.exec(text);
-  return m && m[1].trim() ? { why: `${m[1].trim()}.`, todo: m[2].trim() } : { why: text, todo: null };
 }
 
 function countLineOf(story: Story, week: string[]): string {

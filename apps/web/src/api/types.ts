@@ -175,6 +175,8 @@ export interface JobStatus {
   trace_id: string | null;
   /** живой ход разбора человеческим языком (07_feedback §3); нет — показываем stages_done */
   steps?: AgentStep[] | null;
+  /** сколько шагов в плане разбора — для «шаг 7 из 12»; нет — пишем только номер шага */
+  steps_total?: number | null;
 }
 
 export interface AgentStep {
@@ -215,8 +217,35 @@ export interface CatalogSource {
   how_to_connect?: string[];
   docs_url?: string | null;
   icon_url?: string | null;
-  /** пояснение для пользователя, например что подключение — только отметка */
+  /** ограничение для руководителя («сейчас недоступно в России») */
   note?: string | null;
+  /** что это за источник — для руководителя */
+  about?: string | null;
+  /** что даст подключение — одной фразой */
+  benefit?: string | null;
+  /** бесплатно или по подписке, человеческим языком */
+  access?: string | null;
+  /** особенно полезен отрасли пользователя — для фильтра «Для вашей отрасли» */
+  for_your_industry?: boolean | null;
+  /** service — открытую ленту читает сервис; user — пользователь отметил сам */
+  connected_by?: 'service' | 'user' | null;
+  /** показывать ли «Отключить» */
+  can_disconnect?: boolean | null;
+}
+
+/** Ответ на «Подключить» и «Отключить»: источник после изменения и что произошло. */
+export interface SourceConnection {
+  source: CatalogSource;
+  message: string;
+}
+
+/** «Мои числа» пользователя: PUT/GET /api/personas/{persona}/inputs — агент берёт их в расчёт рублей. */
+export interface PersonaInputs {
+  debt_rub: number | null;
+  rate_type: 'floating' | 'fixed' | null;
+  fx_purchases_month_rub: number | null;
+  fuel_purchase_month_t: number | null;
+  updated_at?: string | null;
 }
 
 export type InsightResult =

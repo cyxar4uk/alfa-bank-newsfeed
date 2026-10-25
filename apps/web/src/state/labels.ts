@@ -19,7 +19,7 @@ export const originLabel: Record<Origin, string> = {
   ai: 'Вывод модели',
   estimate: 'Оценка',
   offer: 'Предложение банка',
-  hypothesis: 'Гипотеза',
+  hypothesis: 'Возможно',
 };
 
 export const originHint: Record<Origin, string> = {

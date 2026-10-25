@@ -14,7 +14,9 @@ import type {
   InsightResult,
   JobStatus,
   Persona,
+  PersonaInputs,
   Role,
+  SourceConnection,
   RiskFactor,
   RiskMap,
   RiskStrength,
@@ -66,8 +68,14 @@ export interface LiveApi extends Api {
   search(query: string, personaId: string, signal?: AbortSignal): Promise<Briefing | null>;
   /** каталог источников; null — каталога в API пока нет */
   catalog(personaId: string, signal?: AbortSignal): Promise<CatalogSource[] | null>;
-  /** отметить источник подключённым */
-  connectSource(id: string, personaId: string): Promise<void>;
+  /** отметить источник подключённым; ответ — что произошло (null — сервер не объяснил) */
+  connectSource(id: string, personaId: string): Promise<SourceConnection | null>;
+  /** сохранённые «мои числа»; null — метода в API пока нет или ничего не сохранено */
+  inputs(personaId: string, signal?: AbortSignal): Promise<PersonaInputs | null>;
+  /** сохранить «мои числа»; false — метода в API пока нет */
+  saveInputs(personaId: string, body: PersonaInputs): Promise<boolean>;
+  /** отключить источник; null — у API такого метода пока нет, отключение только на экране */
+  disconnectSource(id: string, personaId: string): Promise<SourceConnection | null>;
   /** «К чему уязвима компания» глазами роли; null — метода в API пока нет */
   riskMap(companyId: string, personaId: string, role: Role, signal?: AbortSignal): Promise<RiskMap | null>;
 }
@@ -329,7 +337,31 @@ function createHttpApi(baseUrl: string): LiveApi {
       return body === null ? null : normalizeRiskMap(companyId, role, body);
     },
     connectSource: async (id, personaId) => {
-      await request<unknown>(`/api/sources/${q(id)}/connect?persona=${q(personaId)}`, post({}));
+      const { body } = await request<SourceConnection>(`/api/sources/${q(id)}/connect?persona=${q(personaId)}`, post({}));
+      return body?.message ? body : null;
+    },
+    inputs: (personaId, signal) => missingAsNull(request<PersonaInputs>(`/api/personas/${q(personaId)}/inputs`, { signal })),
+    saveInputs: async (personaId, body) => {
+      try {
+        await request<unknown>(`/api/personas/${q(personaId)}/inputs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        return true;
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return false;
+        throw e;
+      }
+    },
+    disconnectSource: async (id, personaId) => {
+      try {
+        const { body } = await request<SourceConnection>(`/api/sources/${q(id)}/disconnect?persona=${q(personaId)}`, post({}));
+        return body?.message ? body : { source: { id, name: id, country: 'ru', kind: 'free', connected: false }, message: '' };
+      } catch (e) {
+        if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return null;
+        throw e;
+      }
     },
     insightStatus: (eventId, personaId, signal) =>
       required(`/api/insights/${q(eventId)}/status?persona=${q(personaId)}`, signal),

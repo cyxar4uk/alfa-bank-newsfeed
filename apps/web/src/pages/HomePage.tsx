@@ -6,7 +6,7 @@ import { factorIcon } from '../components/factorIcon';
 import { Icon, type IconName } from '../components/Icon';
 import { Skeleton } from '../components/States';
 import { TOP_EVENTS, useBriefing } from '../state/briefing';
-import { dayItems, plain } from '../state/news';
+import { dayItems, feedCount, plain } from '../state/news';
 import { LevelIcon } from '../components/NewsParts';
 import { useHidden } from '../state/hidden';
 import { formatDate, SERVICE_NAME } from '../state/labels';
@@ -50,7 +50,7 @@ function ServicePlate() {
           </span>
         </h2>
         <Link to="/radar" className="link-action">
-          {items.length > 0 ? `Весь брифинг · ${items.length}` : 'Весь брифинг'}
+          {items.length > 0 ? `Все новости · ${feedCount(items)}` : 'Все новости'}
         </Link>
       </div>
 

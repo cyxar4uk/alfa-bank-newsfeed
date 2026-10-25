@@ -49,12 +49,32 @@ export function scrubIds(text: string): string {
   );
 }
 
+const ABBR: [RegExp, string][] = [
+  // не трогаем слово перед дефисом: «ВЭД-контракты»
+  [/(?<![А-ЯЁа-яё])ВЭД(?![А-ЯЁа-яё-])/, 'ВЭД (внешнеэкономическая деятельность)'],
+  [/(?<![А-ЯЁа-яё])ФОТ(?![А-ЯЁа-яё-])/, 'ФОТ (фонд оплаты труда)'],
+];
+
+/** Сокращения, которых руководитель может не знать: расшифровка при первом упоминании, «п.п.» — словами. */
+export function expandAbbr(text: string): string {
+  if (!/\s/.test(text) || !/ВЭД|ФОТ|п\.\s?п\./.test(text)) return text;
+  let out = text.replace(/(\d+(?:[,.]\d+)?)\s*п\.\s?п\./g, (m: string, n: string, offset: number, all: string) => {
+    const fraction = /[,.]/.test(n);
+    const words = fraction ? 'процентного пункта' : plural(Number(n), ['процентный пункт', 'процентных пункта', 'процентных пунктов']);
+    // точка «п.п.» была и концом предложения — возвращаем её
+    const rest = all.slice(offset + m.length);
+    return `${n} ${words}${/^\s*$/.test(rest) || /^\s+[А-ЯЁA-Z]/.test(rest) ? '.' : ''}`;
+  });
+  for (const [re, full] of ABBR) if (!out.includes(full)) out = out.replace(re, full);
+  return out;
+}
+
 /** Где текст — дословная цитата или текст новости: его не меняем, даже если в нём есть «№». */
-const VERBATIM = new Set(['quote', 'quotes', 'fragment', 'full_text']);
+const VERBATIM = new Set(['quote', 'quotes', 'fragment', 'full_text', 'title']);
 
 /** Пройти по ответу API и убрать служебные id из всех строк с текстом. */
 export function scrubDeep<T>(value: T): T {
-  if (typeof value === 'string') return scrubIds(value) as T;
+  if (typeof value === 'string') return expandAbbr(scrubIds(value)) as T;
   if (Array.isArray(value)) return value.map(scrubDeep) as T;
   if (value && typeof value === 'object') {
     return Object.fromEntries(

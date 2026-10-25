@@ -31,9 +31,9 @@ function ReadMark({ read }: { read: boolean }) {
       Прочитано
     </span>
   ) : (
-    <span className="new-dot" title="Новое">
-      <span className="visually-hidden">Новое: </span>
-    </span>
+    <>
+      <span className="new-dot" title="Новое" role="img" aria-label="Новое" />{' '}
+    </>
   );
 }
 
@@ -109,7 +109,7 @@ function Week({ row, index, read }: { row: WeekRow; index: number; read: boolean
         )}
         <p className="week-row__trend">
           <DynamicsTag dynamics={row.dynamics} />
-          {row.days.length > 0 && <Spark days={row.days} />}
+          {row.days.length > 0 && <Spark days={row.days} weekdays />}
           <span>{row.countLine}</span>
         </p>
         {row.why && <p className="day-row__why">{row.why}</p>}
@@ -122,7 +122,15 @@ function Week({ row, index, read }: { row: WeekRow; index: number; read: boolean
 
 /** «Главное за неделю»: свой запрос брифинга за неделю, со своими загрузкой, ошибкой и пустым видом. */
 function WeekList({ week, screen, read }: { week: ReturnType<typeof useWeekBriefing>; screen: WeekScreen | null; read: Set<string> }) {
-  if (week.status === 'loading') return <DaySkeleton />;
+  if (week.status === 'loading')
+    return (
+      <>
+        <p className="news-card__meta" role="status">
+          Собираю главное за неделю — это может занять до полуминуты
+        </p>
+        <DaySkeleton />
+      </>
+    );
   if (week.status === 'error')
     return <ErrorState title="Не удалось собрать главное за неделю" error={week.error} onRetry={week.retry} />;
   if (!screen?.available)
@@ -293,7 +301,7 @@ export function NewsPage() {
               <div className="news-card__aside">
                 <span className="news-card__meta">{period === 'day' ? screen.updated : (weekScr?.meta ?? '')}</span>
                 <Link to="/radar/map" className="link-action">
-                  Почему это важно для вас
+                  К чему уязвима компания
                   <Icon name="arrowRight" size={16} />
                 </Link>
               </div>
@@ -352,6 +360,9 @@ export function NewsPage() {
               </div>
             </div>
             <div className="card news-card">
+              {screen.events.length === 0 && (
+                <p className="day-row__why">Все события дня — в «Главном» выше. Выберите тему, чтобы увидеть её события.</p>
+              )}
               <ul className="event-list">
                 {screen.events.map((row, i) => (
                   <Event key={row.eventId} row={row} index={i} read={read.has(row.eventId)} />

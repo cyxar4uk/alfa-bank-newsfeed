@@ -11,7 +11,7 @@ import { ChipSwitch, NowTag, Spark, StrengthMark } from '../components/WeekParts
 import { useBriefing } from '../state/briefing';
 import { strengthLabel } from '../state/labels';
 import { eventPath } from '../state/routes';
-import { useCurrentUser } from '../state/session';
+import { useCurrentUser, useSession } from '../state/session';
 import { useAsync } from '../state/useAsync';
 import { plural } from '../state/screens';
 import { isHolding, riskScreen, type RiskRow, type RiskScreen } from '../state/week';
@@ -209,8 +209,8 @@ function RiskFactorRow({ row, index }: { row: RiskRow; index: number }) {
           <p className="risk-row__strength">
             <StrengthMark strength={row.strength} />
             {row.estimate && (
-              <span className="risk-row__estimate" title="Сила оценена по отрасли, а не посчитана по данным компании">
-                ≈ Оценка
+              <span className="risk-row__estimate" title="Сила оценена по отрасли, а не посчитана по вашим данным">
+                ≈ Оценка по отрасли, не по вашим данным
               </span>
             )}
           </p>
@@ -308,13 +308,12 @@ function RiskSkeleton() {
 /** «К чему уязвима компания» (макеты B2, B3): факторы глазами выбранной роли, новости за неделю, позиция банка. */
 export function ExposureMapPage() {
   const { persona, company } = useCurrentUser();
-  // «Смотреть как» — роли той же компании; сессию не меняет, только порядок и тексты карты.
-  const roles = useAsync((signal) => api.personas(signal), 'personas');
-  const colleagues: Persona[] =
-    roles.status === 'ok' ? roles.data.filter((p) => p.company_id === company.id) : [persona];
-  const [viewAs, setViewAs] = useState<{ owner: string; id: string } | null>(null);
-  const viewId = viewAs?.owner === persona.id && colleagues.some((p) => p.id === viewAs.id) ? viewAs.id : persona.id;
-  const viewRole = colleagues.find((p) => p.id === viewId)?.role ?? persona.role;
+  // «Смотреть как» — тот же переключатель роли, что в шапке: роли этой компании, доступные учётке. Выбор меняет
+  // пользователя целиком — шапка, лента и карта остаются согласованными.
+  const { personas, selectPersona } = useSession();
+  const colleagues: Persona[] = personas.filter((p) => p.company_id === company.id);
+  const viewId = persona.id;
+  const viewRole = persona.role;
   const map = useAsync((signal) => api.riskMap(company.id, viewId, viewRole, signal), `${company.id}|${viewId}`);
   const screen = map.status === 'ok' && map.data ? riskScreen(map.data, company.display_name) : null;
   const holding = isHolding(company.display_name);
@@ -336,7 +335,7 @@ export function ExposureMapPage() {
                 label="Смотреть как"
                 value={viewId}
                 options={colleagues.map((p) => ({ value: p.id, label: ROLE_SHORT[p.role] }))}
-                onChange={(id) => setViewAs({ owner: persona.id, id })}
+                onChange={selectPersona}
               />
             </div>
           )}

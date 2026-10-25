@@ -23,7 +23,7 @@ function Found({ step }: { step: AgentStep }) {
  * Ход разбора как размышления: готовые шаги сжаты в одну строку «✓ …» и раскрываются по клику, развёрнут только
  * текущий шаг — с тем, что агент сейчас делает и что нашёл.
  */
-export function Thinking({ steps, eta }: { steps: AgentStep[]; eta: number | null }) {
+export function Thinking({ steps, progress }: { steps: AgentStep[]; progress: string }) {
   const current = steps.find((s) => s.state !== 'done');
   return (
     <section className="card thinking" aria-labelledby="thinking-title">
@@ -31,6 +31,7 @@ export function Thinking({ steps, eta }: { steps: AgentStep[]; eta: number | nul
         <Icon name="model" size={18} className="thinking__spark" />
         Разбираю, что это значит для компании
       </p>
+      <p className="thinking__progress">{progress}</p>
       <p className="visually-hidden" aria-live="polite">
         {current?.title ?? ''}
       </p>
@@ -65,8 +66,7 @@ export function Thinking({ steps, eta }: { steps: AgentStep[]; eta: number | nul
         )}
       </ol>
       <p className="thinking__eta">
-        {eta != null && eta > 0 ? `Осталось примерно ${Math.ceil(eta)} с. ` : ''}Когда разбор будет готов, шаги свернутся в «Как получен
-        вывод».
+        Обычно разбор занимает до минуты. Когда он будет готов, шаги свернутся в «Как получен вывод».
       </p>
     </section>
   );
