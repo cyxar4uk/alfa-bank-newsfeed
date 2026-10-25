@@ -218,11 +218,16 @@ def week_events(news: NewsProvider, now: dt.datetime) -> list[NewsEvent]:
 
 
 def finish_week(
-    feed: Feed, events: list[NewsEvent], news: NewsProvider, now: dt.datetime, limit: int
+    feed: Feed,
+    events: list[NewsEvent],
+    news: NewsProvider,
+    now: dt.datetime,
+    limit: int,
+    exposure: ExposureMap | None = None,
 ) -> Feed:
     """Неделя поверх ленты за 7 дней: сюжеты, позиция банка по главному сюжету и главное действие."""
     days = week_days(now)
-    stories = build_stories(feed.items, events, days, default_ranking().aliases)
+    stories = build_stories(feed.items, events, days, default_ranking().aliases, exposure)
     bank = None
     lead = lead_story(stories)  # одна главная тема: и позиция банка, и действие — о ней
     if lead:

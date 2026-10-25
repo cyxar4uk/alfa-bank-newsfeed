@@ -379,7 +379,7 @@ def get_feed(
     # уровень, однажды показанный, — тот же в дне, неделе и карточке (api.levels); сюжеты недели берут его же
     feed = LEVELS.pin(feed, exposure)
     if events is not None:
-        feed = finish_week(feed, events, news, now, limit)
+        feed = finish_week(feed, events, news, now, limit, exposure)
     return feed
 
 
