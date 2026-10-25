@@ -320,7 +320,10 @@ class InfluenceChain(BaseModel):
 
 class CompanyProfile(BaseModel):
     id: str = Field(examples=["U_1595"])
-    display_name: str = Field(examples=["Компания №1595 · торговля розничная лекарственными средствами"])
+    display_name: str = Field(
+        examples=["Торговля розничная лекарственными средствами"],
+        description="вид деятельности — имён в данных нет, номер компании только в id",
+    )
     features: list[Feature]
     group: CompanyGroup | None = None
     counterparties: list[Counterparty] = Field(

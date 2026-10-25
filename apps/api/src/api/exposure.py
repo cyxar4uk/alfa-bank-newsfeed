@@ -26,7 +26,15 @@ from api.contract import (
     FactorExposure,
     LevelDefinition,
 )
-from api.profile import Flows, aggregate_flows, countries, format_rub, format_share, payment_structure
+from api.profile import (
+    Flows,
+    aggregate_flows,
+    countries,
+    display_name,
+    format_rub,
+    format_share,
+    payment_structure,
+)
 from api.records import COLUMN_OF, CompanyRecord, Flow
 
 CATALOG_PATH = Path(__file__).with_name("factors.toml")
@@ -501,7 +509,7 @@ def _group_okved(ctx: Context, s: SignalConfig) -> Hit | None:
             label=f"Компании группы с ОКВЭД {', '.join(s.codes)}",
             value=f"{len(matched)} компаний, {format_rub(amount)} — {format_share(share)} выручки группы "
             "без самой компании; крупнейшие: "
-            + ", ".join(f"{m.id} ({m.okved_code}, {format_rub(m.revenue)})" for m in top),
+            + ", ".join(f"{display_name(m, m.id).lower()} — {format_rub(m.revenue)}" for m in top),
         ),
     ]
     text = _fmt(s.text, share=format_share(share), count=len(matched), amount=format_rub(amount))
@@ -547,7 +555,7 @@ def _group_suppliers_fts(ctx: Context, s: SignalConfig) -> Hit | None:
             label="Платежи компаниям своей группы с ВЭД",
             value=f"{format_share(share)} всех платежей компании; "
             + ", ".join(
-                f"{p.counterparty.id} — {format_rub(p.out_amount)}"
+                f"{display_name(p.counterparty, p.counterparty.id).lower()} — {format_rub(p.out_amount)}"
                 f" ({p.counterparty.fts_countries or 'страны не указаны'})"
                 for p in top
             ),
@@ -705,8 +713,8 @@ def _warnings(ctx: Context, factors: list[FactorExposure]) -> list[str]:
             "цепочки через контрагентов не строим"
         )
     for name, attr, what, who in (
-        ("customers", "in_amount", "поступлений", "плательщик"),
-        ("suppliers", "out_amount", "платежей поставщикам", "получатель"),
+        ("customers", "in_amount", "поступлений", "покупатель"),
+        ("suppliers", "out_amount", "платежей поставщикам", "поставщик"),
     ):
         if not ctx.side_has_data(name)[0]:
             continue
@@ -716,10 +724,10 @@ def _warnings(ctx: Context, factors: list[FactorExposure]) -> list[str]:
         top = max(ctx.flows.external(), key=lambda p: getattr(p, attr), default=None)
         if top and side.amount and getattr(top, attr) / side.amount >= catalog.payments.concentration:
             where = "есть в данных банка" if top.counterparty else "вне данных банка"
-            cp_id = next(k for k, v in ctx.flows.pairs.items() if v is top)
+            # роль и доля вместо номера: «ваш крупнейший покупатель — 46 % внешних поступлений»
             warnings.append(
-                f"{format_share(getattr(top, attr) / side.amount)} внешних {what} — один {who} "
-                f"({cp_id}, {where}): зависимость от одного контрагента"
+                f"ваш крупнейший {who} — {format_share(getattr(top, attr) / side.amount)} внешних {what} "
+                f"({where}): зависимость от одного контрагента"
             )
     return warnings
 
