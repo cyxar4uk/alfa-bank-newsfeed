@@ -93,6 +93,30 @@ _NUMBERS = re.compile(r"\d+(?:[.,]\d+)?")
 _CODE_VALUE = re.compile(r"^(?:\d{2}\.\d|U_|\d{2}(?:\.\d+)*(?:,\s*\d{2}(?:\.\d+)*)*$)")
 
 
+# метка фактора, которая по смыслу не о нём: новость об ипотеке — не «стоимость заёмных денег» компании,
+# новость о бензине — не «санкции и ВЭД». По заголовку: (о чём он на самом деле, слова самого фактора) —
+# первое есть, второго нет — метка не по смыслу
+OFF_TOPIC = {
+    "rate": (
+        re.compile(r"ипотек"),
+        re.compile(r"ключев\w* ставк|ставк\w* цб|кредит\w* (?:бизнес|компани|предприят|юрлиц)|корпоративн"),
+    ),
+    "ved_logistics": (
+        re.compile(r"бензин|дизел|топлив|(?<!\w)азс|нефтепродукт"),
+        re.compile(r"санкц|экспорт|импорт|пошлин|таможн|границ|логист|платеж|(?<!\w)вэд|за рубеж"),
+    ),
+}
+
+
+def about(item: FeedItem, code: str) -> bool:
+    """Новость по смыслу о факторе `code`: метка разметки не спорит с заголовком (см. OFF_TOPIC)."""
+    rule = OFF_TOPIC.get(code)
+    if rule is None:
+        return True
+    title = item.event.title.casefold()
+    return not (rule[0].search(title) and not rule[1].search(title))
+
+
 def main_reason(item: FeedItem) -> tuple[str, float | None]:
     """Главная причина события и зависимость компании от неё.
 
@@ -102,11 +126,12 @@ def main_reason(item: FeedItem) -> tuple[str, float | None]:
     Тема сюжета недели (`api.week.story_key`) — та же: вывод и сюжет не расходятся.
     """
     llm = next((t for t in item.relevance.breakdown if t.kind == "llm"), None)
-    factors = {t.code: t for t in item.relevance.breakdown if t.kind == "factor"}
+    # метки не по смыслу (ипотека у «ставки») — не причина: берём следующую, а если других нет — канал
+    factors = {t.code: t for t in item.relevance.breakdown if t.kind == "factor" and about(item, t.code)}
     if llm is not None and (code := llm.code.removeprefix("llm:")) in factors:
         return code, factors[code].exposure
     for term in item.relevance.breakdown:
-        if term.kind == "factor":
+        if term.kind == "factor" and factors:
             top = max(factors.values(), key=lambda t: (t.event_strength or 0, t.value))
             return top.code, top.exposure
         if term.kind == "chain":

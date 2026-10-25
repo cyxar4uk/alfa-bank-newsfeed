@@ -12,7 +12,7 @@ from collections.abc import Iterable
 
 from api.contract import FeedItem, MainAction, Peak, Story
 from api.ranking import MSK, NewsEvent
-from api.takeaway import gist, main_reason
+from api.takeaway import about, gist, main_reason
 
 DAYS = 7
 STORIES_MIN, STORIES_MAX = 3, 5
@@ -49,7 +49,11 @@ def story_key(item: FeedItem) -> str:
     key, _ = main_reason(item)
     if key in BACKGROUND:
         # местное событие с метками и региона, и, например, ставки — в сюжет ставки, а не в фон
-        others = [t for t in item.relevance.breakdown if t.kind == "factor" and t.code not in BACKGROUND]
+        others = [
+            t
+            for t in item.relevance.breakdown
+            if t.kind == "factor" and t.code not in BACKGROUND and about(item, t.code)
+        ]
         if others:
             return max(others, key=lambda t: (t.event_strength or 0, t.value)).code
     if key.startswith("chain:"):

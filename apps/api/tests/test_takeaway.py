@@ -223,3 +223,14 @@ def test_consequence_does_not_flip_meaning():
         cons("Минпромторг предложил ввести утильсбор", "tax_regulation")
         == "Налоги и пошлины растут — нагрузка выше"
     )
+
+
+def test_tag_against_title_is_not_the_reason():
+    from api.takeaway import about, main_reason
+
+    mortgage = item(0.5, title="Льготную ипотеку продлят до 2027 года")
+    assert not about(mortgage, "rate") and main_reason(mortgage)[0] == ""
+    assert about(item(0.5, title="ЦБ сохранил ключевую ставку, ипотека подорожает"), "rate")
+    fuel = item(0.5, code="ved_logistics", title="Бензин на бирже подорожал")
+    assert not about(fuel, "ved_logistics")
+    assert about(item(0.5, code="ved_logistics", title="Запрет экспорта бензина продлён"), "ved_logistics")

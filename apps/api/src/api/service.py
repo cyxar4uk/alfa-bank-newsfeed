@@ -22,6 +22,7 @@ from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
 from api.group import group_context
 from api.images import proxied
+from api.levels import LEVELS
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
@@ -255,6 +256,8 @@ def company_risk_map(
         return None
     events = week_events(news, now)
     feed = persona_feed(repo, news, persona, limit=WEEK_EVENTS, now=now, events=events)
+    if feed is not None:  # «сейчас» у фактора — с тем же уровнем, что пользователь видел в ленте
+        feed = LEVELS.pin(feed, exposure, remember=False)
     items = feed.items if feed else []
     days = week_days(now)
     aliases = default_ranking().aliases
