@@ -13,7 +13,7 @@ from typing import Protocol
 
 from psycopg_pool import ConnectionPool
 
-from api.contract import ExposureMap, SourceEntry
+from api.contract import SourceEntry
 
 FREE_STEPS = ["Открытая лента: новости уже приходят в вашу ленту, подключать ничего не нужно."]
 PAID_STEPS = [
@@ -116,28 +116,18 @@ def entry_id(source_id: str) -> str:
 class Connections(Protocol):
     def connected(self, persona_id: str) -> set[str]: ...
 
-    def disconnected(self, persona_id: str) -> set[str]: ...
-
     def connect(self, persona_id: str, source_id: str) -> None: ...
-
-    def disconnect(self, persona_id: str, source_id: str) -> None: ...
 
 
 class MemoryConnections:
     def __init__(self) -> None:
-        self._by_persona: dict[str, dict[str, bool]] = {}
+        self._by_persona: dict[str, set[str]] = {}
 
     def connected(self, persona_id: str) -> set[str]:
-        return {s for s, on in self._by_persona.get(persona_id, {}).items() if on}
-
-    def disconnected(self, persona_id: str) -> set[str]:
-        return {s for s, on in self._by_persona.get(persona_id, {}).items() if not on}
+        return set(self._by_persona.get(persona_id, set()))
 
     def connect(self, persona_id: str, source_id: str) -> None:
-        self._by_persona.setdefault(persona_id, {})[source_id] = True
-
-    def disconnect(self, persona_id: str, source_id: str) -> None:
-        self._by_persona.setdefault(persona_id, {})[source_id] = False
+        self._by_persona.setdefault(persona_id, set()).add(source_id)
 
 
 class PgConnections:
@@ -146,34 +136,20 @@ class PgConnections:
     def __init__(self, pool: ConnectionPool) -> None:
         self.pool = pool
 
-    def _marked(self, persona_id: str, on: bool) -> set[str]:
+    def connected(self, persona_id: str) -> set[str]:
         with self.pool.connection() as conn:
             rows = conn.execute(
-                "SELECT source_id FROM source_connections WHERE persona_id = %s AND connected = %s",
-                (persona_id, on),
+                "SELECT source_id FROM source_connections WHERE persona_id = %s", (persona_id,)
             ).fetchall()
         return {r[0] for r in rows}
 
-    def connected(self, persona_id: str) -> set[str]:
-        return self._marked(persona_id, True)
-
-    def disconnected(self, persona_id: str) -> set[str]:
-        return self._marked(persona_id, False)
-
-    def _mark(self, persona_id: str, source_id: str, on: bool) -> None:
+    def connect(self, persona_id: str, source_id: str) -> None:
         with self.pool.connection() as conn:
             conn.execute(
-                "INSERT INTO source_connections (persona_id, source_id, connected) VALUES (%s, %s, %s)"
-                " ON CONFLICT (persona_id, source_id) DO UPDATE SET connected = EXCLUDED.connected,"
-                " connected_at = now()",
-                (persona_id, source_id, on),
+                "INSERT INTO source_connections (persona_id, source_id) VALUES (%s, %s)"
+                " ON CONFLICT DO NOTHING",
+                (persona_id, source_id),
             )
-
-    def connect(self, persona_id: str, source_id: str) -> None:
-        self._mark(persona_id, source_id, True)
-
-    def disconnect(self, persona_id: str, source_id: str) -> None:
-        self._mark(persona_id, source_id, False)
 
 
 PUBLIC = (
@@ -186,53 +162,19 @@ PUBLIC = (
     "how_to_connect",
     "docs_url",
     "icon_url",
-)  # `note` каталога парсера — заметки разработчиков («API нет, только RSS»): пользователю не отдаём
-
-# источник → факторы карты, о которых он пишет больше всего: подключение полезно, если они у компании сильные
-SOURCE_FACTORS = {
-    "cbr": ("rate", "fx", "deposit_yield"),
-    "nalog": ("tax_regulation",),
-    "government": ("gov", "tax_regulation"),
-    "rg": ("tax_regulation", "gov"),
-    "moex": ("fx", "deposit_yield", "commodity_oil"),
-    "cbonds": ("rate", "deposit_yield"),
-    "prime": ("fx", "deposit_yield"),
-    "reuters": ("commodity_oil", "commodity_agro", "commodity_metals", "fx", "ved_logistics"),
-    "bloomberg": ("commodity_oil", "commodity_agro", "commodity_metals", "fx"),
-    "ft": ("ved_logistics", "fx"),
-}
-STRONG = {"high", "medium"}
+    "note",
+)
 
 
-def _gives(e: dict, factors: list[str]) -> str:
-    """Что даст подключение — одной фразой, без техники."""
-    what = ", ".join(e["topics"][:3]) or "деловые новости"
-    if factors:
-        names = ", ".join(f[:1].lower() + f[1:] for f in factors)  # «ВЭД» в середине названия остаётся
-        return f"Новости: {what} — о том, к чему чувствительна ваша компания ({names})."
-    return f"Новости: {what}."
-
-
-def catalog(
-    connections: Connections, persona_id: str, exposure: ExposureMap | None = None
-) -> list[SourceEntry]:
-    mine, off = connections.connected(persona_id), connections.disconnected(persona_id)
-    strong = {f.code: f.label for f in exposure.factors if f.level in STRONG} if exposure else {}
-    out = []
-    for e in catalog_entries():
-        factors = [strong[c] for c in SOURCE_FACTORS.get(e["id"], ()) if c in strong]
-        out.append(
-            SourceEntry(
-                **{k: e[k] for k in PUBLIC},
-                connected=(e["connected"] or e["id"] in mine) and e["id"] not in off,
-                relevant=bool(factors),
-                gives=_gives(e, factors),
-            )
-        )
-    # подключённые, потом полезные компании, свои, открытые
-    return sorted(
-        out, key=lambda s: (not s.connected, not s.relevant, s.country != "ru", s.kind != "free", s.name)
+def catalog(connections: Connections, persona_id: str) -> list[SourceEntry]:
+    mine = connections.connected(persona_id)
+    entries = sorted(
+        catalog_entries(),
+        key=lambda e: (not e["connected"], e["country"] != "ru", e["kind"] != "free", e["name"]),
     )
+    return [
+        SourceEntry(**{k: e[k] for k in PUBLIC}, connected=e["connected"] or e["id"] in mine) for e in entries
+    ]
 
 
 def connect_message(entry: dict) -> str:

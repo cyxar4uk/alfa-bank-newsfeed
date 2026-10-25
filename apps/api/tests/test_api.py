@@ -551,7 +551,7 @@ def test_catalog_from_parser_catalog(monkeypatch):
     connections = sources.MemoryConnections()
     entries = sources.catalog(connections, "p-u1-cfo")
     assert [e.id for e in entries] == ["cbr", "reuters"]  # подключённые — первыми
-    assert entries[1].note is None and entries[1].connected is False  # заметки разработчиков — не для экрана
+    assert entries[1].note == "только по подписке" and entries[1].connected is False
     assert sources.entry_id("cbr-events") == "cbr"
     message = sources.connect_message(rows[0])
     assert "REUTERS_API_KEY" in message and message.endswith("Перезапустите парсер.")
@@ -622,21 +622,6 @@ def test_search_news_search_is_not_shadowed():
     news = FallbackNews(SearchNews(Repo()), None)
     assert [e.id for e in news.search("пошлина на пшеницу", 10)] == ["src:news:p"]
     assert news.search("", 10) == []
-
-
-def test_source_disconnect_relevance_and_no_developer_notes(client):
-    import api.main as main
-    from api.sources import MemoryConnections
-
-    connections = MemoryConnections()
-    app.dependency_overrides[main.get_connections] = lambda: connections
-    catalog = client.get("/api/sources/catalog", params={"persona": "p-u1-cfo"}).json()
-    assert all(s["note"] is None and s["gives"].startswith("Новости:") for s in catalog)
-    cbr = next(s for s in catalog if s["id"] == "cbr")
-    off = client.post("/api/sources/cbr/disconnect", params={"persona": "p-u1-cfo"}).json()
-    assert off["source"]["connected"] is False and cbr["connected"] is True
-    again = client.post("/api/sources/cbr/connect", params={"persona": "p-u1-cfo"}).json()
-    assert again["source"]["connected"] is True
 
 
 def test_user_inputs_roundtrip(client):

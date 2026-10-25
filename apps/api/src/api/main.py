@@ -192,10 +192,8 @@ def sources_catalog(
     ],
 ) -> list[SourceEntry]:
     """Пул источников: российские и зарубежные, открытые и платные по API, подключён ли у пользователя и как
-    подключить, полезен ли компании (`relevant`) и что даст подключение (`gives`). Открытые ленты подключены
-    всем — парсер их уже читает; отключённые пользователем — `connected: false`."""
-    persona = _persona_or_404(repo, persona)
-    return catalog(connections, persona, company_exposure(repo, parse_persona_id(persona)[0]))
+    подключить. Открытые ленты подключены всем — парсер их уже читает."""
+    return catalog(connections, _persona_or_404(repo, persona))
 
 
 @sources_router.post("/{source_id}/connect", response_model=SourceConnection)
@@ -212,28 +210,9 @@ def connect_source(
     if not any(e["id"] == source_id for e in catalog_entries()):
         raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
     connections.connect(persona, source_id)
-    exposure = company_exposure(repo, parse_persona_id(persona)[0])
-    entry = next(e for e in catalog(connections, persona, exposure) if e.id == source_id)
+    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
     raw = next(e for e in catalog_entries() if e["id"] == source_id)
     return SourceConnection(source=entry, message=connect_message(raw))
-
-
-@sources_router.post("/{source_id}/disconnect", response_model=SourceConnection)
-def disconnect_source(
-    repo: Repo,
-    source_id: str,
-    connections: Annotated[Connections, Depends(get_connections)],
-    persona: Annotated[str, Query(description="id тестового пользователя")],
-) -> SourceConnection:
-    """Отключить источник у пользователя (отметка; открытые ленты парсер продолжает читать для всех)."""
-    persona = _persona_or_404(repo, persona)
-    source_id = entry_id(source_id)
-    if not any(e["id"] == source_id for e in catalog_entries()):
-        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
-    connections.disconnect(persona, source_id)
-    exposure = company_exposure(repo, parse_persona_id(persona)[0])
-    entry = next(e for e in catalog(connections, persona, exposure) if e.id == source_id)
-    return SourceConnection(source=entry, message="Источник отключён. Подключить снова можно в любой момент.")
 
 
 @app.get("/api/personas/{persona}/inputs", response_model=UserInputs | None, tags=["пользователи"])
