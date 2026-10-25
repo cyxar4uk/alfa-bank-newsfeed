@@ -25,6 +25,7 @@ import type {
   Trace,
   WeeklySummary,
 } from './types';
+import { scrubDeep } from '../state/trace';
 
 export interface Api {
   personas(signal?: AbortSignal): Promise<Persona[]>;
@@ -253,7 +254,8 @@ function createHttpApi(baseUrl: string): LiveApi {
         throw new ApiError(res.status, 'Сервер вернул пустой ответ');
       }
       try {
-        return { status: res.status, body: JSON.parse(text) as T };
+        // Служебные id компаний («U_4909», «Компания №92457») пользователю не показываем — убираем из текстов разом.
+        return { status: res.status, body: scrubDeep(JSON.parse(text)) as T };
       } catch {
         throw new ApiError(res.status, 'Сервер вернул ответ не в формате JSON');
       }

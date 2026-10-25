@@ -49,7 +49,6 @@ function SourceCard({
         </div>
       </div>
       {source.topics && source.topics.length > 0 && <p className="source-card__topics">{source.topics.join(', ')}</p>}
-      {source.note && <p className="source-card__topics">{source.note}</p>}
       {connected ? (
         <span className="status-ok">
           <Icon name="check" size={16} />
@@ -97,14 +96,12 @@ function HowTo({ source, onDone }: { source: CatalogSource; onDone: () => Promis
         Как подключить {source.name} по API
       </h2>
       <ol className="howto__steps">
-        {(source.how_to_connect?.length
-          ? source.how_to_connect
-          : [
-              'Оформите подписку на новостной API у издателя.',
-              'В личном кабинете издателя создайте ключ доступа к API.',
-              'Передайте ключ администратору вашей компании — он добавит его в настройки сервиса.',
-            ]
-        ).map((s) => (
+        {/* how_to_connect и note из каталога — заметки для команды (файлы настроек, проверка документации), не для клиента. */}
+        {[
+          'Оформите подписку на новостной API у издателя.',
+          'В личном кабинете издателя создайте ключ доступа к API.',
+          'Передайте ключ администратору вашей компании — он добавит его в настройки сервиса.',
+        ].map((s) => (
           <li key={s}>{s}</li>
         ))}
       </ol>

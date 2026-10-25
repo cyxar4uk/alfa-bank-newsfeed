@@ -29,9 +29,9 @@ const views: Record<string, BankView> = {
       { name: 'Кредитная линия, доступный остаток', number: '45207 810 ··· 8318', balance: 750_000_000, currency: 'RUB' },
     ],
     payments: [
-      { date: '2026-10-23', counterparty: 'U_92457', purpose: 'Поставка автозапчастей по договору группы', amount: -184_220_000, currency: 'RUB', status: 'На подписи' },
-      { date: '2026-10-22', counterparty: 'U_52177', purpose: 'Поставка комплектующих, спецификация 41', amount: -26_900_450, currency: 'RUB', status: 'Исполнен' },
-      { date: '2026-10-22', counterparty: 'U_34961', purpose: 'Оплата по договору поставки', amount: 312_450_000, currency: 'RUB', status: 'Исполнен' },
+      { date: '2026-10-23', counterparty: 'Поставщик автозапчастей', purpose: 'Поставка автозапчастей по договору группы', amount: -184_220_000, currency: 'RUB', status: 'На подписи' },
+      { date: '2026-10-22', counterparty: 'Поставщик комплектующих', purpose: 'Поставка комплектующих, спецификация 41', amount: -26_900_450, currency: 'RUB', status: 'Исполнен' },
+      { date: '2026-10-22', counterparty: 'Покупатель', purpose: 'Оплата по договору поставки', amount: 312_450_000, currency: 'RUB', status: 'Исполнен' },
       { date: '2026-10-21', counterparty: 'Банк', purpose: 'Проценты по кредитной линии за октябрь', amount: -9_870_400, currency: 'RUB', status: 'Исполнен' },
     ],
   },
@@ -65,8 +65,8 @@ const views: Record<string, BankView> = {
     ],
     payments: [
       { date: '2026-10-23', counterparty: 'Ресторан', purpose: 'Оплата поставки продуктов, накладные 9921–9934', amount: 1_284_000, currency: 'RUB', status: 'Исполнен' },
-      { date: '2026-10-23', counterparty: 'U_201066', purpose: 'Терминальная обработка контейнеров', amount: -8_960_000, currency: 'RUB', status: 'На подписи' },
-      { date: '2026-10-22', counterparty: 'U_224248', purpose: 'Аренда складского комплекса, октябрь', amount: -44_100_000, currency: 'RUB', status: 'Исполнен' },
+      { date: '2026-10-23', counterparty: 'Контейнерный терминал', purpose: 'Терминальная обработка контейнеров', amount: -8_960_000, currency: 'RUB', status: 'На подписи' },
+      { date: '2026-10-22', counterparty: 'Арендодатель склада', purpose: 'Аренда складского комплекса, октябрь', amount: -44_100_000, currency: 'RUB', status: 'Исполнен' },
       { date: '2026-10-22', counterparty: 'Поставщик, Китай', purpose: 'Предоплата за партию товара', amount: -1_900_000, currency: 'CNY', status: 'В обработке' },
     ],
   },
