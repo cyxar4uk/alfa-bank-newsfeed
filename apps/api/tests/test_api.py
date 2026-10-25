@@ -624,6 +624,22 @@ def test_search_news_search_is_not_shadowed():
     assert news.search("", 10) == []
 
 
+def test_user_inputs_roundtrip(client):
+    assert client.get("/api/personas/p-u1-cfo/inputs").json() is None
+    body = {
+        "debt_rub": 2e9,
+        "rate_type": "floating",
+        "fx_purchases_month_rub": 5e7,
+        "fuel_purchase_month_t": None,
+    }
+    saved = client.put("/api/personas/p-u1-cfo/inputs", json=body).json()
+    assert saved["debt_rub"] == 2e9 and saved["rate_type"] == "floating" and saved["updated_at"]
+    assert client.get("/api/personas/p-u1-cfo/inputs").json()["fx_purchases_month_rub"] == 5e7
+    assert client.put("/api/personas/p-u1-cfo/inputs", json={"debt_rub": -1}).status_code == 422
+    assert client.put("/api/personas/p-u1-cfo/inputs", json={"рост": 1}).status_code == 422
+    assert client.put("/api/personas/p-u404-cfo/inputs", json={}).status_code == 404
+
+
 def test_source_disconnect_and_texts_for_executive(client):
     import api.main as main
     from api.sources import MemoryConnections

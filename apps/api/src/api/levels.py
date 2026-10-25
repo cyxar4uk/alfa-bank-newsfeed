@@ -60,7 +60,8 @@ class EventLevels:
                 # «к сведению» и «важно / следить» разделяет свёртывание по оценке (ниже 0,3 — в свёрнутой
                 # части): если новая оценка перешла эту границу (модель сочла «не задевает» или «сильно»),
                 # прежний уровень спорил бы со свёртыванием — верна новая оценка, её и запоминаем
-                crossed = known is not None and (known == "info") != (level == "info")
+                # поиск и карта рисков оценивают без модели — они только следуют уже показанному уровню
+                crossed = remember and known is not None and (known == "info") != (level == "info")
                 if known is None or crossed:
                     if remember:
                         self._store(key, level)

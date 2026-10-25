@@ -10,7 +10,7 @@
 import datetime as dt
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Origin = Literal["fact", "bank", "ai", "hypothesis", "data", "estimate", "offer"]
 # происхождение, которое обязано ссылаться на источник или признак
@@ -708,6 +708,25 @@ class SourceEntry(BaseModel):
     )
 
 
+class UserInputsIn(BaseModel):
+    """«Мои числа» — то, чего нет в данных банка; любое поле можно не заполнять."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
+    rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
+    fx_purchases_month_rub: float | None = Field(
+        default=None, ge=0, description="валютные закупки в месяц, ₽"
+    )
+    fuel_purchase_month_t: float | None = Field(default=None, ge=0, description="закупка топлива в месяц, т")
+
+
+class UserInputs(UserInputsIn):
+    model_config = ConfigDict(extra="ignore")  # старая запись с удалённым полем не роняет чтение
+
+    updated_at: dt.datetime
+
+
 class SourceConnection(BaseModel):
     source: SourceEntry
     message: str = Field(description="что произошло и что сделать дальше")
@@ -768,6 +787,7 @@ class Feed(BaseModel):
     items: list[FeedItem]
     candidates: int = Field(description="сколько событий рассмотрено")
     news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+
     summary: list[Statement] = Field(
         default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
     )

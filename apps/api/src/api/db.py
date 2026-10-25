@@ -70,6 +70,12 @@ CREATE TABLE IF NOT EXISTS source_connections (
     connected_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (persona_id, source_id)
 );
+-- «мои числа» пользователя для расчёта в рублях (api.inputs): долг, тип ставки, валютные закупки, топливо
+CREATE TABLE IF NOT EXISTS user_inputs (
+    persona_id  text PRIMARY KEY,
+    data        jsonb NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
 -- on — пользователь подключил источник; off — отключил открытую ленту, которую сервис читает для всех
 ALTER TABLE source_connections ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'on';
 
