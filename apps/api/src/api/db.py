@@ -76,6 +76,8 @@ CREATE TABLE IF NOT EXISTS user_inputs (
     data        jsonb NOT NULL,
     updated_at  timestamptz NOT NULL DEFAULT now()
 );
+-- on — пользователь подключил источник; off — отключил открытую ленту, которую сервис читает для всех
+ALTER TABLE source_connections ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'on';
 
 CREATE TABLE IF NOT EXISTS imported_files (
     file        text PRIMARY KEY,

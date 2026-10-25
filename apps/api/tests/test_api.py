@@ -638,3 +638,76 @@ def test_user_inputs_roundtrip(client):
     assert client.put("/api/personas/p-u1-cfo/inputs", json={"debt_rub": -1}).status_code == 422
     assert client.put("/api/personas/p-u1-cfo/inputs", json={"рост": 1}).status_code == 422
     assert client.put("/api/personas/p-u404-cfo/inputs", json={}).status_code == 404
+
+
+def test_source_disconnect_and_texts_for_executive(client):
+    import api.main as main
+    from api.sources import MemoryConnections
+
+    connections = MemoryConnections()
+    app.dependency_overrides[main.get_connections] = lambda: connections
+    cbr = next(
+        s
+        for s in client.get("/api/sources/catalog", params={"persona": "p-u1-cfo"}).json()
+        if s["id"] == "cbr"
+    )
+    assert cbr["about"] and cbr["benefit"] and cbr["access"]
+    assert (cbr["connected_by"], cbr["can_disconnect"]) == ("service", True)
+    off = client.post("/api/sources/cbr/disconnect", params={"persona": "p-u1-cfo"}).json()
+    assert off["source"]["connected"] is False and off["source"]["can_disconnect"] is False
+    assert "больше не попадут" in off["message"]
+    # у другого пользователя источник по-прежнему подключён
+    other = client.get("/api/sources/catalog", params={"persona": "p-u2-cfo"}).json()
+    assert next(s for s in other if s["id"] == "cbr")["connected"] is True
+    back = client.post("/api/sources/cbr/connect", params={"persona": "p-u1-cfo"}).json()
+    assert back["source"]["connected_by"] == "service"
+    assert client.post("/api/sources/нет/disconnect", params={"persona": "p-u1-cfo"}).status_code == 404
+
+
+def test_disconnected_publisher_leaves_the_news():
+    import datetime as dt
+
+    from api.ranking import NewsEvent
+    from api.sources import WithoutPublishers, publishers_of
+
+    class News:
+        name = "test"
+
+        def events(self, since, limit):
+            now = dt.datetime(2026, 10, 25, tzinfo=dt.UTC)
+            return [
+                NewsEvent("a", "ЦБ", now, publisher="Банк России"),
+                NewsEvent("b", "Нефть", now, "Интерфакс"),
+            ]
+
+        def search(self, query, limit):
+            return self.events(None, limit)
+
+        def has_bank_view(self, factors):
+            return True
+
+    assert publishers_of({"cbr"}) == {"Банк России"}
+    news = WithoutPublishers(News(), publishers_of({"cbr"}))
+    assert [e.id for e in news.events(None, 10)] == ["b"] and [e.id for e in news.search("", 10)] == ["b"]
+    assert news.has_bank_view([]) is True and news.name == "test"
+
+
+def test_for_your_industry_by_company_and_key_counterparties():
+    from types import SimpleNamespace
+
+    from api.records import Flow
+    from api.sources import company_industries, for_industry
+
+    def company(okved):
+        return SimpleNamespace(okved_code=okved)
+
+    wholesaler = company("46.90")
+    flows = [
+        Flow("U_2", "in", 900.0, 10, company("56.10")),  # рестораны — основные покупатели
+        Flow("U_3", "in", 50.0, 1, company("45.31")),  # мелкий покупатель — не в счёт
+        Flow("U_4", "out", 100.0, 3, company("10.89")),
+    ]
+    codes = company_industries(wholesaler, flows)
+    assert codes == {"46.90", "56.10", "10.89"}
+    assert for_industry({"industries": ["56"]}, codes) and not for_industry({"industries": ["46.21"]}, codes)
+    assert not for_industry({"industries": []}, codes)

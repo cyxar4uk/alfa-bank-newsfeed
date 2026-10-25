@@ -684,11 +684,28 @@ class SourceEntry(BaseModel):
     kind: Literal["free", "paid_api"]
     reliability: Literal["official", "agency", "business_media", "other"] | None = None
     topics: list[str] = Field(default_factory=list)
+    about: str | None = Field(default=None, description="что это за источник — для руководителя")
+    benefit: str | None = Field(default=None, description="что даст подключение — одной фразой")
+    access: str | None = Field(default=None, description="бесплатно или по подписке, человеческим языком")
+    for_your_industry: bool = Field(
+        default=False,
+        description="особенно полезен отрасли пользователя: его компании или её ключевых контрагентов",
+    )
     connected: bool
-    how_to_connect: list[str] = Field(default_factory=list, description="шаги подключения")
+    connected_by: Literal["service", "user"] | None = Field(
+        default=None, description="service — открытую ленту читает сервис; user — пользователь отметил сам"
+    )
+    can_disconnect: bool = Field(
+        default=False, description="можно ли отключить (показать кнопку «Отключить»)"
+    )
+    how_to_connect: list[str] = Field(
+        default_factory=list, description="шаги подключения — для тех, кто подключает"
+    )
     docs_url: str | None = None
     icon_url: str | None = None
-    note: str | None = Field(default=None, description="ограничения: что не подтвердилось, условия")
+    note: str | None = Field(
+        default=None, description="ограничение для руководителя («сейчас недоступно в России»)"
+    )
 
 
 class UserInputsIn(BaseModel):

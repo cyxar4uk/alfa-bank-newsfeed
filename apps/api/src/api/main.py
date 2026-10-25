@@ -62,10 +62,14 @@ from api.sources import (
     Connections,
     MemoryConnections,
     PgConnections,
+    WithoutPublishers,
     catalog,
     catalog_entries,
+    company_industries,
     connect_message,
+    disconnect_message,
     entry_id,
+    publishers_of,
 )
 from api.takeaway import takeaways
 from api.takeaway_llm import demote_unrelated, write_top
@@ -183,6 +187,21 @@ def _persona_or_404(repo: CompanyRepo, persona: str) -> str:
     return persona
 
 
+def _okveds(repo: CompanyRepo, persona: str) -> set[str]:
+    """Отрасли пользователя для пометки «для вашей отрасли»: его компания и её ключевые контрагенты."""
+    parsed = parse_persona_id(persona)
+    company = repo.get_company(parsed[0]) if parsed else None
+    return company_industries(company, repo.flows(company.id)) if company is not None else set()
+
+
+def _source_or_404(source_id: str) -> dict:
+    source_id = entry_id(source_id)  # любая лента издателя — его запись в каталоге
+    raw = next((e for e in catalog_entries() if e["id"] == source_id), None)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
+    return raw
+
+
 @sources_router.get("/catalog", response_model=list[SourceEntry])
 def sources_catalog(
     repo: Repo,
@@ -193,7 +212,8 @@ def sources_catalog(
 ) -> list[SourceEntry]:
     """Пул источников: российские и зарубежные, открытые и платные по API, подключён ли у пользователя и как
     подключить. Открытые ленты подключены всем — парсер их уже читает."""
-    return catalog(connections, _persona_or_404(repo, persona))
+    persona = _persona_or_404(repo, persona)
+    return catalog(connections, persona, _okveds(repo, persona))
 
 
 @sources_router.post("/{source_id}/connect", response_model=SourceConnection)
@@ -206,12 +226,9 @@ def connect_source(
     """Отметить источник подключённым. Ключи API в прототипе не принимаются: в ответе — куда ключ кладётся
     на сервере."""
     persona = _persona_or_404(repo, persona)
-    source_id = entry_id(source_id)  # любая лента издателя — его запись в каталоге
-    if not any(e["id"] == source_id for e in catalog_entries()):
-        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
-    connections.connect(persona, source_id)
-    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
-    raw = next(e for e in catalog_entries() if e["id"] == source_id)
+    raw = _source_or_404(source_id)
+    connections.connect(persona, raw["id"])
+    entry = next(e for e in catalog(connections, persona, _okveds(repo, persona)) if e.id == raw["id"])
     return SourceConnection(source=entry, message=connect_message(raw))
 
 
@@ -225,6 +242,22 @@ def get_inputs(repo: Repo, persona: str) -> UserInputs | None:
 def put_inputs(repo: Repo, persona: str, body: UserInputsIn) -> UserInputs:
     """Сохранить «мои числа»: разбор события посчитает последствия в рублях компании. Незаполненное — null."""
     return inputs.STORE.put(_persona_or_404(repo, persona), body)
+
+
+@sources_router.post("/{source_id}/disconnect", response_model=SourceConnection)
+def disconnect_source(
+    repo: Repo,
+    source_id: str,
+    connections: Annotated[Connections, Depends(get_connections)],
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+) -> SourceConnection:
+    """Отключить источник у пользователя: новости открытой ленты уходят из его ленты, брифинга и поиска
+    (у остальных пользователей остаются); отметка «подключён» у платного снимается. Вернуть — `connect`."""
+    persona = _persona_or_404(repo, persona)
+    raw = _source_or_404(source_id)
+    connections.disconnect(persona, raw["id"])
+    entry = next(e for e in catalog(connections, persona, _okveds(repo, persona)) if e.id == raw["id"])
+    return SourceConnection(source=entry, message=disconnect_message(raw))
 
 
 app.include_router(sources_router)
@@ -369,8 +402,17 @@ def get_group_impact(
 
 
 def news_provider(request: Request) -> NewsProvider:
-    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo."""
-    return news_for(request.app.state)
+    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo.
+
+    Источники, которые пользователь (`persona` в запросе) отключил в каталоге, из его новостей убраны."""
+    provider = news_for(request.app.state)
+    persona = request.query_params.get("persona")
+    try:
+        off = get_connections(request).disconnected(persona) if persona else set()
+    except Exception:  # лента важнее фильтра: без базы отметок показываем все источники
+        logger.warning("не удалось прочитать отключённые источники", exc_info=True)
+        off = set()
+    return WithoutPublishers(provider, publishers_of(off)) if off else provider
 
 
 def news_for(state) -> NewsProvider:
