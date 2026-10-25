@@ -27,6 +27,7 @@ from api.contract import (
     Health,
     InfluenceChain,
     Persona,
+    Related,
     RiskMap,
     SourceConnection,
     SourceEntry,
@@ -53,6 +54,7 @@ from api.service import (
     company_exposure,
     company_group_impact,
     company_profile,
+    company_related,
     company_risk_map,
     finish_week,
     persona_feed,
@@ -557,6 +559,26 @@ def search_feed(
         )
     _mark_ready(getattr(request.app.state, "agent", None), feed)
     return LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
+
+
+# раньше /api/events/{event_id:path}: путь id с двоеточиями и слэшами иначе поглотил бы «/related»
+@app.get("/api/events/{event_id:path}/related", response_model=Related, tags=["лента"])
+def get_related(
+    event_id: str,
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    persona: Annotated[str, Query(description="id тестового пользователя: выводы и уровни — для него")],
+) -> Related:
+    """«По этой теме»: 3–6 событий ленты пользователя за две недели — того же сюжета, фактора или близкие по
+    заголовку, без перепечаток, свежие выше. С выводом и уровнем, как в ленте."""
+    items = FEEDS.get_or_compute(
+        ("related", event_id, persona, news.name), lambda: company_related(repo, news, persona, event_id)
+    )
+    if items is None:
+        if news.event(event_id) is None:
+            raise HTTPException(status_code=404, detail=f"событие {event_id} не найдено")
+        raise HTTPException(status_code=404, detail=f"пользователь {persona} не найден")
+    return Related(event_id=event_id, items=items)  # картинки уже через прокси (api.ranking)
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])

@@ -682,6 +682,16 @@ class FeedItem(BaseModel):
     )
 
 
+class Related(BaseModel):
+    """«По этой теме» под новостью: 3–6 событий того же сюжета, фактора или близких по заголовку."""
+
+    event_id: str
+    items: list["FeedItem"] = Field(
+        default_factory=list,
+        description="как элементы ленты: заголовок, издание, дата, image_url, вывод; свежие выше",
+    )
+
+
 class EventDetail(BaseModel):
     """Новость целиком: полный текст, если парсер получил его законно (полный RSS, открытая страница)."""
 
