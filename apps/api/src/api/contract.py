@@ -10,7 +10,7 @@
 import datetime as dt
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 Origin = Literal["fact", "bank", "ai", "hypothesis", "data", "estimate", "offer"]
 # происхождение, которое обязано ссылаться на источник или признак
@@ -688,7 +688,28 @@ class SourceEntry(BaseModel):
     how_to_connect: list[str] = Field(default_factory=list, description="шаги подключения")
     docs_url: str | None = None
     icon_url: str | None = None
-    note: str | None = Field(default=None, description="ограничения: что не подтвердилось, условия")
+    note: str | None = Field(
+        default=None, description="не заполняется: заметки разработчиков пользователю не нужны"
+    )
+    relevant: bool = Field(default=False, description="пишет о факторах, к которым компания чувствительна")
+    gives: str = Field(default="", description="что даст подключение — одной фразой")
+
+
+class UserInputsIn(BaseModel):
+    """«Мои числа» — то, чего нет в данных банка; любое поле можно не заполнять."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
+    rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
+    fx_purchases_month_rub: float | None = Field(
+        default=None, ge=0, description="валютные закупки в месяц, ₽"
+    )
+    fuel_purchase_month_t: float | None = Field(default=None, ge=0, description="закупка топлива в месяц, т")
+
+
+class UserInputs(UserInputsIn):
+    updated_at: dt.datetime
 
 
 class SourceConnection(BaseModel):

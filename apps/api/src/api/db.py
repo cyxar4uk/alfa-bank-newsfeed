@@ -70,6 +70,15 @@ CREATE TABLE IF NOT EXISTS source_connections (
     connected_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (persona_id, source_id)
 );
+-- false — пользователь отключил источник (открытые ленты подключены всем, отключение — тоже отметка)
+ALTER TABLE source_connections ADD COLUMN IF NOT EXISTS connected boolean NOT NULL DEFAULT true;
+
+-- «мои числа» пользователя для расчёта в рублях (api.inputs): долг, тип ставки, валютные закупки, топливо
+CREATE TABLE IF NOT EXISTS user_inputs (
+    persona_id  text PRIMARY KEY,
+    data        jsonb NOT NULL,
+    updated_at  timestamptz NOT NULL DEFAULT now()
+);
 
 CREATE TABLE IF NOT EXISTS imported_files (
     file        text PRIMARY KEY,

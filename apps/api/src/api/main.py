@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
+from api import inputs
 from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
@@ -29,11 +30,14 @@ from api.contract import (
     RiskMap,
     SourceConnection,
     SourceEntry,
+    UserInputs,
+    UserInputsIn,
 )
 from api.db import connect, ensure_schema
 from api.images import ImageError, proxied
 from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
+from api.inputs import PgInputs
 from api.levels import LEVELS
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
@@ -81,6 +85,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.repo = PgCompanyRepo(pool)
     app.state.search = SearchRepo(pool)
     app.state.connections = PgConnections(pool)
+    inputs.STORE = PgInputs(pool)
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
@@ -187,8 +192,10 @@ def sources_catalog(
     ],
 ) -> list[SourceEntry]:
     """Пул источников: российские и зарубежные, открытые и платные по API, подключён ли у пользователя и как
-    подключить. Открытые ленты подключены всем — парсер их уже читает."""
-    return catalog(connections, _persona_or_404(repo, persona))
+    подключить, полезен ли компании (`relevant`) и что даст подключение (`gives`). Открытые ленты подключены
+    всем — парсер их уже читает; отключённые пользователем — `connected: false`."""
+    persona = _persona_or_404(repo, persona)
+    return catalog(connections, persona, company_exposure(repo, parse_persona_id(persona)[0]))
 
 
 @sources_router.post("/{source_id}/connect", response_model=SourceConnection)
@@ -208,6 +215,35 @@ def connect_source(
     entry = next(e for e in catalog(connections, persona) if e.id == source_id)
     raw = next(e for e in catalog_entries() if e["id"] == source_id)
     return SourceConnection(source=entry, message=connect_message(raw))
+
+
+@sources_router.post("/{source_id}/disconnect", response_model=SourceConnection)
+def disconnect_source(
+    repo: Repo,
+    source_id: str,
+    connections: Annotated[Connections, Depends(get_connections)],
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+) -> SourceConnection:
+    """Отключить источник у пользователя (отметка; открытые ленты парсер продолжает читать для всех)."""
+    persona = _persona_or_404(repo, persona)
+    source_id = entry_id(source_id)
+    if not any(e["id"] == source_id for e in catalog_entries()):
+        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
+    connections.disconnect(persona, source_id)
+    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
+    return SourceConnection(source=entry, message="Источник отключён. Подключить снова можно в любой момент.")
+
+
+@app.get("/api/personas/{persona}/inputs", response_model=UserInputs | None, tags=["пользователи"])
+def get_inputs(repo: Repo, persona: str) -> UserInputs | None:
+    """«Мои числа» пользователя — долг, тип ставки, валютные закупки, закупка топлива; не вводил — null."""
+    return inputs.STORE.get(_persona_or_404(repo, persona))
+
+
+@app.put("/api/personas/{persona}/inputs", response_model=UserInputs, tags=["пользователи"])
+def put_inputs(repo: Repo, persona: str, body: UserInputsIn) -> UserInputs:
+    """Сохранить «мои числа»: разбор события посчитает последствия в рублях компании. Незаполненное — null."""
+    return inputs.STORE.put(_persona_or_404(repo, persona), body)
 
 
 app.include_router(sources_router)
