@@ -1,9 +1,22 @@
 """Каталог источников: формат, связь с лентами, подключённость."""
 
+import re
+
 import pytest
 
 from ingest.news.catalog import load_catalog
 from ingest.news.fetch import Feed, load_feeds
+
+# заметки разработчиков руководителю не показываем: техника — только в шагах подключения
+JARGON = re.compile(
+    r"\b(API|RSS|SOAP|JSON|REST|ключ\w* (API|доступ\w*)|сет\w* разработки|метод\w*|документаци\w*)\b", re.I
+)
+
+
+def test_texts_for_executive_have_no_developer_notes():
+    for s in load_catalog():
+        for text in (s.about, s.benefit, s.access, s.note or ""):
+            assert not JARGON.search(text), (s.id, text)
 
 
 def test_catalog_is_valid_and_matches_feeds():
@@ -30,6 +43,7 @@ def test_paid_sources_say_where_the_key_goes():
 def test_unknown_feed_and_duplicates_are_rejected(tmp_path):
     feeds = [Feed("a", "A", "https://a.ru/rss")]
     entry = 'id = "x"\nname = "X"\ncountry = "ru"\nkind = "free"\nreliability = "other"\nhow_to_connect = ["шаг"]\n'
+    entry += 'about = "Что это"\nbenefit = "Что даст"\naccess = "Бесплатно"\n'
     path = tmp_path / "c.toml"
     path.write_text(f'[[source]]\n{entry}feeds = ["b"]\n', "utf-8")
     with pytest.raises(ValueError, match="нет лент"):

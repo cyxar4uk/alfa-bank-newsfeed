@@ -82,7 +82,8 @@ def news_id(url: str) -> str:
 
 
 def normalize(item: "RawItem") -> Source | None:
-    title = clean_text(item.title)
+    # «Импортный алкоголь подорожает | New Retail» — название издания в заголовке дублирует подпись карточки
+    title = clean_text(item.title).removesuffix(f" | {item.publisher}").strip()
     url = canonical_url(item.link) if item.link else ""
     if not title or not url:
         return None

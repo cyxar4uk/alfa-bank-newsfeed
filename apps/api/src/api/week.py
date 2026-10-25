@@ -10,9 +10,10 @@
 import datetime as dt
 from collections.abc import Iterable
 
-from api.contract import FeedItem, MainAction, Peak, Story
+from api.consequence import consequence
+from api.contract import ExposureMap, FeedItem, MainAction, Peak, Story
 from api.ranking import MSK, NewsEvent
-from api.takeaway import gist, main_reason
+from api.takeaway import about, gist, main_reason
 
 DAYS = 7
 STORIES_MIN, STORIES_MAX = 3, 5
@@ -49,7 +50,11 @@ def story_key(item: FeedItem) -> str:
     key, _ = main_reason(item)
     if key in BACKGROUND:
         # местное событие с метками и региона, и, например, ставки — в сюжет ставки, а не в фон
-        others = [t for t in item.relevance.breakdown if t.kind == "factor" and t.code not in BACKGROUND]
+        others = [
+            t
+            for t in item.relevance.breakdown
+            if t.kind == "factor" and t.code not in BACKGROUND and about(item, t.code)
+        ]
         if others:
             return max(others, key=lambda t: (t.event_strength or 0, t.value)).code
     if key.startswith("chain:"):
@@ -96,15 +101,49 @@ def _date(item: FeedItem) -> dt.date | None:
     return published.astimezone(MSK).date() if published else item.event.date
 
 
+def _on_topic(item: FeedItem, key: str) -> bool:
+    """В сюжет — только новости, где тема главная по разметке (метка от 0,5) или её назвала модель:
+    побочное упоминание («Мигранты» с меткой спроса рядом со Skoda) сюжет не размывает."""
+    if key == "other":  # метки не по смыслу — не сюжет
+        return False
+    if key.startswith("industry:"):
+        return True
+    terms = item.relevance.breakdown
+    if any(t.kind == "llm" and t.code == f"llm:{key}" for t in terms):
+        return True
+    # сила метки не указана (старый снимок ленты) — не отсекаем
+    return any(
+        t.kind == "factor" and t.code == key and (t.event_strength is None or t.event_strength >= TAG_MIN)
+        for t in terms
+    )
+
+
+def story_title(key: str, best: FeedItem, exposure: ExposureMap | None) -> str:
+    """Свой заголовок сюжета, а не шутливый заголовок СМИ: последствие для компании («Ставка продержится
+    дольше»); направление не определить — тема и суть главной новости («Курс валют: …»)."""
+    known = consequence(best, key, exposure)
+    if known:
+        head = known.split(" — ")[0]
+        return head[:1].upper() + head[1:]
+    labels = {f.code: f.label for f in exposure.factors} if exposure else {}
+    label = labels.get(key) or ("Ваша отрасль" if key.startswith("industry:") else None)
+    return f"{label}: {gist(best)}" if label else gist(best)
+
+
 def build_stories(
-    items: list[FeedItem], events: list[NewsEvent], days: list[dt.date], aliases: dict[str, str]
+    items: list[FeedItem],
+    events: list[NewsEvent],
+    days: list[dt.date],
+    aliases: dict[str, str],
+    exposure: ExposureMap | None = None,
 ) -> list[Story]:
     """Сюжеты недели по убыванию значимости: сначала важные и «следить», не больше пяти, не меньше трёх."""
     groups: dict[str, list[FeedItem]] = {}
     week = set(days)
     for item in sorted(items, key=lambda i: -i.relevance.score):
         if item.relevance.breakdown and _date(item) in week and (key := story_key(item)) not in BACKGROUND:
-            groups.setdefault(key, []).append(item)
+            if _on_topic(item, key):
+                groups.setdefault(key, []).append(item)
     stories = []
     for key, group in groups.items():
         best = group[0]
@@ -115,7 +154,7 @@ def build_stories(
         stories.append(
             Story(
                 code=key,
-                title=gist(best),
+                title=story_title(key, best, exposure),
                 level=best.takeaway.level if best.takeaway else "info",
                 dynamics=dynamics(counts),
                 daily_counts=counts,

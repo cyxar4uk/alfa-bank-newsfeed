@@ -22,6 +22,7 @@ from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
 from api.group import group_context
 from api.images import proxied
+from api.levels import LEVELS
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
@@ -217,11 +218,16 @@ def week_events(news: NewsProvider, now: dt.datetime) -> list[NewsEvent]:
 
 
 def finish_week(
-    feed: Feed, events: list[NewsEvent], news: NewsProvider, now: dt.datetime, limit: int
+    feed: Feed,
+    events: list[NewsEvent],
+    news: NewsProvider,
+    now: dt.datetime,
+    limit: int,
+    exposure: ExposureMap | None = None,
 ) -> Feed:
     """Неделя поверх ленты за 7 дней: сюжеты, позиция банка по главному сюжету и главное действие."""
     days = week_days(now)
-    stories = build_stories(feed.items, events, days, default_ranking().aliases)
+    stories = build_stories(feed.items, events, days, default_ranking().aliases, exposure)
     bank = None
     lead = lead_story(stories)  # одна главная тема: и позиция банка, и действие — о ней
     if lead:
@@ -255,7 +261,12 @@ def company_risk_map(
         return None
     events = week_events(news, now)
     feed = persona_feed(repo, news, persona, limit=WEEK_EVENTS, now=now, events=events)
+    if feed is not None:  # «сейчас» у фактора — с тем же уровнем, что пользователь видел в ленте
+        feed = LEVELS.pin(feed, exposure, remember=False)
     items = feed.items if feed else []
+    # лента уже открывалась — «сейчас» только из того, что пользователь в ней видел (у остальных уровня нет)
+    seen = [i for i in items if LEVELS.get(persona, i.event_id) is not None]
+    items = seen or items
     days = week_days(now)
     aliases = default_ranking().aliases
     bank_fragments = getattr(news, "bank_fragments", None)
