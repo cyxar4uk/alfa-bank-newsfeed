@@ -709,6 +709,8 @@ class UserInputsIn(BaseModel):
 
 
 class UserInputs(UserInputsIn):
+    model_config = ConfigDict(extra="ignore")  # старая запись с удалённым полем не роняет чтение
+
     updated_at: dt.datetime
 
 

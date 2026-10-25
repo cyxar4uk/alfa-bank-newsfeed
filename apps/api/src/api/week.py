@@ -104,7 +104,9 @@ def _date(item: FeedItem) -> dt.date | None:
 def _on_topic(item: FeedItem, key: str) -> bool:
     """В сюжет — только новости, где тема главная по разметке (метка от 0,5) или её назвала модель:
     побочное упоминание («Мигранты» с меткой спроса рядом со Skoda) сюжет не размывает."""
-    if key.startswith("industry:") or key == "other":
+    if key == "other":  # метки не по смыслу — не сюжет
+        return False
+    if key.startswith("industry:"):
         return True
     terms = item.relevance.breakdown
     if any(t.kind == "llm" and t.code == f"llm:{key}" for t in terms):

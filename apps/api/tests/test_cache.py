@@ -1,4 +1,5 @@
 import threading
+import time
 import types
 
 from api import main
@@ -16,16 +17,19 @@ def test_value_is_computed_once_until_refresh_or_expiry():
 
 
 def test_concurrent_requests_wait_for_one_computation():
-    cache, calls, gate = TtlCache(), [], threading.Event()
+    cache, calls, gate, entered = TtlCache(), [], threading.Event(), threading.Event()
 
     def slow():
-        gate.wait(1)
+        entered.set()
+        gate.wait(2)  # считаем, пока остальные запросы уже пришли и ждут
         calls.append(1)
         return "feed"
 
     threads = [threading.Thread(target=cache.get_or_compute, args=("k", slow)) for _ in range(4)]
     for t in threads:
         t.start()
+    entered.wait(2)
+    time.sleep(0.2)
     gate.set()
     for t in threads:
         t.join()

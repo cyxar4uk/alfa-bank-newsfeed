@@ -264,6 +264,9 @@ def company_risk_map(
     if feed is not None:  # «сейчас» у фактора — с тем же уровнем, что пользователь видел в ленте
         feed = LEVELS.pin(feed, exposure, remember=False)
     items = feed.items if feed else []
+    # лента уже открывалась — «сейчас» только из того, что пользователь в ней видел (у остальных уровня нет)
+    seen = [i for i in items if LEVELS.get(persona, i.event_id) is not None]
+    items = seen or items
     days = week_days(now)
     aliases = default_ranking().aliases
     bank_fragments = getattr(news, "bank_fragments", None)

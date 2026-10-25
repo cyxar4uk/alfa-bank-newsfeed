@@ -212,7 +212,8 @@ def connect_source(
     if not any(e["id"] == source_id for e in catalog_entries()):
         raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
     connections.connect(persona, source_id)
-    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
+    exposure = company_exposure(repo, parse_persona_id(persona)[0])
+    entry = next(e for e in catalog(connections, persona, exposure) if e.id == source_id)
     raw = next(e for e in catalog_entries() if e["id"] == source_id)
     return SourceConnection(source=entry, message=connect_message(raw))
 
@@ -230,7 +231,8 @@ def disconnect_source(
     if not any(e["id"] == source_id for e in catalog_entries()):
         raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
     connections.disconnect(persona, source_id)
-    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
+    exposure = company_exposure(repo, parse_persona_id(persona)[0])
+    entry = next(e for e in catalog(connections, persona, exposure) if e.id == source_id)
     return SourceConnection(source=entry, message="Источник отключён. Подключить снова можно в любой момент.")
 
 

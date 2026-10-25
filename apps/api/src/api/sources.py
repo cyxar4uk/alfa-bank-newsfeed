@@ -208,7 +208,8 @@ def _gives(e: dict, factors: list[str]) -> str:
     """Что даст подключение — одной фразой, без техники."""
     what = ", ".join(e["topics"][:3]) or "деловые новости"
     if factors:
-        return f"Новости: {what} — о том, к чему чувствительна ваша компания ({', '.join(factors).lower()})."
+        names = ", ".join(f[:1].lower() + f[1:] for f in factors)  # «ВЭД» в середине названия остаётся
+        return f"Новости: {what} — о том, к чему чувствительна ваша компания ({names})."
     return f"Новости: {what}."
 
 

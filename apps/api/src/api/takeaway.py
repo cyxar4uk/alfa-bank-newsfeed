@@ -99,11 +99,17 @@ _CODE_VALUE = re.compile(r"^(?:\d{2}\.\d|U_|\d{2}(?:\.\d+)*(?:,\s*\d{2}(?:\.\d+)
 OFF_TOPIC = {
     "rate": (
         re.compile(r"ипотек"),
-        re.compile(r"ключев\w* ставк|ставк\w* цб|кредит\w* (?:бизнес|компани|предприят|юрлиц)|корпоративн"),
+        re.compile(
+            r"ключев\w* ставк|ставк\w* цб|(?<!\w)цб(?!\w)|банк\w* росси|кредит|(?<!\w)мсп(?!\w)|корпоративн"
+            r"|(?:повышени|снижени|повыс|сниз)\w* ставк"
+        ),
     ),
     "ved_logistics": (
         re.compile(r"бензин|дизел|топлив|(?<!\w)азс|нефтепродукт"),
-        re.compile(r"санкц|экспорт|импорт|пошлин|таможн|границ|логист|платеж|(?<!\w)вэд|за рубеж"),
+        re.compile(
+            r"санкц|экспорт|импорт|пошлин|таможн|границ|логист|платеж|(?<!\w)вэд|за рубеж|вывоз|ввоз|перевоз"
+            r"|транспорт|поставк\w* (?:в|из) "
+        ),
     ),
 }
 
@@ -208,7 +214,20 @@ def _fits(*variants: str) -> str:
     return cut[: cut.rfind(" ")].rstrip(",;:— ") + "…"
 
 
+def off_topic(item: FeedItem) -> bool:
+    """Все метки факторов — не по смыслу (новость об ипотеке у «ставки»), а канала нет: не задевает."""
+    terms = item.relevance.breakdown
+    factors = [t for t in terms if t.kind == "factor"]
+    return (
+        bool(factors)
+        and not any(about(item, t.code) for t in factors)
+        and not any(t.kind == "chain" for t in terms)
+    )
+
+
 def level_of(item: FeedItem, exposure_strength: float | None) -> str:
+    if off_topic(item):
+        return "info"
     score = item.relevance.score
     level = "act" if score >= ACT else "watch" if score >= WATCH else "info"
     if (exposure_strength is not None and exposure_strength < WEAK_EXPOSURE) or "событие за рубежом" in (

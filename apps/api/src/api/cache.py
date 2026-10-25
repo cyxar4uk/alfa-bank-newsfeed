@@ -40,6 +40,9 @@ class TtlCache:
                     return value  # type: ignore[return-value]
             value = compute()
             with self._guard:
+                if value is None:  # не нашли (404) — не храним, и замок под чужой ключ не копим
+                    self._locks.pop(key, None)
+                    return value
                 if len(self._values) >= self.max_keys:
                     for old in list(self._values)[: self.max_keys // 10]:
                         self._values.pop(old, None)
