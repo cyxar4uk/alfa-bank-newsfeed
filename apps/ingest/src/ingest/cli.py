@@ -1,5 +1,6 @@
 """Командная строка: `ingest all` — новости и аналитика за один запуск; `ingest load` — загрузить готовое в БД;
-`ingest serve` — загрузить и дальше обновлять новости по расписанию (сервис в compose).
+`ingest serve` — загрузить и дальше обновлять новости по расписанию (сервис в compose); `ingest classify` — спросить
+модель о новостях, которые словари не отнесли ни к деловым, ни к прочим.
 
 Раскладка каталога данных (--data):
   raw/alfa_analytics/*.pdf          вход: аналитика банка (материалы кейса, не в git)
@@ -171,6 +172,32 @@ def _print_load(result: dict) -> None:
         print(f"  аналитика: материалов {a['materials']}, страниц {a['pages']}, фрагментов {a['fragments']}")
 
 
+def run_classify(conn, data: Path, limit: int = 200) -> dict | None:
+    """Сомнительные «деловая или нет» — модели, если есть ключ (LLM_API_KEY, LLM_BASE_URL); без ключа — пропуск.
+
+    Журнал вызовов — LLM_JOURNAL (в compose — общий том кэша), иначе raw/derived/llm_calls.jsonl; суточный бюджет
+    отсева — INGEST_LLM_DAILY_BUDGET_RUB."""
+    from ingest.llm import LlmClient
+    from ingest.tagging.business import DEFAULT_BUDGET_RUB, classify_doubtful
+
+    journal = Path(os.environ.get("LLM_JOURNAL") or data / "raw" / "derived" / "llm_calls.jsonl")
+    try:
+        llm = LlmClient.from_env(journal)
+    except LlmUnavailable:
+        return None
+    try:
+        budget = float(os.environ.get("INGEST_LLM_DAILY_BUDGET_RUB") or DEFAULT_BUDGET_RUB)
+    except ValueError:
+        budget = DEFAULT_BUDGET_RUB
+    stats = classify_doubtful(conn, llm, limit, budget, journal)
+    stopped = f" · остановлено: {stats.stopped}" if stats.stopped else ""
+    print(
+        f"  деловая или нет (модель): спрошено {stats.asked} · деловых {stats.business}"
+        f" · не деловых {stats.not_business} · запросов {stats.calls}{stopped}"
+    )
+    return asdict(stats)
+
+
 def run_serve(data: Path, url: str, every: float, iterations: int | None = None) -> None:
     """Загрузить снимок и готовые файлы, затем собирать новости из лент каждые `every` минут — сразу в БД.
 
@@ -212,6 +239,7 @@ def run_serve(data: Path, url: str, every: float, iterations: int | None = None)
                         raise
                     except Exception as exc:  # noqa: BLE001 — картинки не должны останавливать сбор новостей
                         print(f"  страницы материалов: сбой {exc!r} — повтор на следующем круге")
+                    run_classify(conn, data)
             else:
                 print("  ленты не ответили — в базе остаётся загруженное")
         except (psycopg.Error, OSError) as exc:
@@ -225,7 +253,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="ingest", description="Сбор новостей и аналитики Альфа-Банка")
-    parser.add_argument("command", choices=["all", "news", "analytics", "load", "serve"])
+    parser.add_argument("command", choices=["all", "news", "analytics", "load", "serve", "classify"])
     parser.add_argument("--data", type=Path, default=Path("data"), help="каталог данных (по умолчанию ./data)")
     parser.add_argument("--engine", default="tesseract", help="основное распознавание: tesseract | qwen3-vl-mock")
     parser.add_argument(
@@ -243,6 +271,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "load":
         print("Загрузка в БД:")
         run_load(args.data, url)
+        return 0
+    if args.command == "classify":
+        with connect_db(url) as conn:
+            if run_classify(conn, args.data) is None:
+                print("нет LLM_API_KEY и LLM_BASE_URL — сомнительные новости остаются в ленте")
         return 0
     if args.command == "serve":
         if args.every < 1:

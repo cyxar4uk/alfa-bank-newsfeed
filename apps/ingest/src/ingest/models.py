@@ -51,6 +51,9 @@ class Tags(BaseModel):
     regions: list[str] = Field(default_factory=list)
     countries: list[str] = Field(default_factory=list)
     tagged_by: list[str] = Field(default_factory=list)
+    # деловая ли новость: True / False по словарям, None — сомнительная (решает модель, ответ — в news_business)
+    business: bool | None = None
+    business_reason: str | None = None
 
 
 class Expectation(BaseModel):

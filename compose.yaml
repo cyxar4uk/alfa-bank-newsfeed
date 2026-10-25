@@ -40,16 +40,24 @@ services:
         condition: service_healthy
 
   # парсер: снимок новостей и готовая аналитика банка (data/raw/derived/alfa_*.jsonl, если есть) — в БД, затем
-  # свежие новости из лент каждые INGEST_EVERY_MIN минут сразу в БД; без сети остаётся загруженное. Модели не
-  # вызывает, файлы не пишет. Распознать PDF аналитики — отдельно: docker compose -f apps/ingest/compose.yaml run --rm ingest
+  # свежие новости из лент каждые INGEST_EVERY_MIN минут сразу в БД; без сети остаётся загруженное. Модель вызывает
+  # только для новостей, которые словари не отнесли ни к деловым, ни к прочим (ключ из .env, свой суточный бюджет,
+  # журнал — в томе кэша); без ключа этот шаг пропускается. Файлы данных не пишет. Распознать PDF аналитики —
+  # отдельно: docker compose -f apps/ingest/compose.yaml run --rm ingest
   ingest:
     build: ./apps/ingest
     command: ["serve", "--data", "/data"]
+    env_file:
+      - path: .env
+        required: false
     environment:
       <<: *api-env
       INGEST_EVERY_MIN: ${INGEST_EVERY_MIN:-30}
+      LLM_JOURNAL: /cache/ingest_llm_calls.jsonl
+      INGEST_LLM_DAILY_BUDGET_RUB: ${INGEST_LLM_DAILY_BUDGET_RUB:-10}
     volumes:
       - ./data:/data:ro
+      - llmcache:/cache
     restart: unless-stopped
     depends_on:
       db:

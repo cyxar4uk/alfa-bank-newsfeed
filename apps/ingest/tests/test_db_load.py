@@ -1,5 +1,6 @@
 """Загрузка в PostgreSQL. Запускается, если задан TEST_DATABASE_URL (таблицы материалов очищаются)."""
 
+import json
 import os
 from datetime import datetime, timedelta
 
@@ -69,7 +70,9 @@ def conn():
 
     with psycopg.connect(URL, autocommit=True) as c:
         ensure_schema(c)
-        c.execute("TRUNCATE news, news_image_stubs, alfa_materials, alfa_pages, alfa_fragments, search_loads")
+        c.execute(
+            "TRUNCATE news, news_image_stubs, news_business, alfa_materials, alfa_pages, alfa_fragments, search_loads"
+        )
         yield c
 
 
@@ -471,3 +474,65 @@ def test_unreachable_page_is_retried_and_shared_image_is_dropped(conn):
     assert conn.execute("SELECT count(*) FROM news WHERE image_url IS NOT NULL").fetchone()[0] == 0
     unchecked = conn.execute("SELECT id FROM news WHERE media_checked_at IS NULL").fetchall()
     assert unchecked == [("src:news:down",)]
+
+
+class FakeLlm:
+    def __init__(self, verdicts):
+        self.verdicts, self.prompts = verdicts, []
+
+    def chat(self, model, messages, purpose, max_tokens=0, json_mode=False):
+        from types import SimpleNamespace
+
+        self.prompts.append(messages[0]["content"])
+        items = [{"n": n, "business": v} for n, v in enumerate(self.verdicts, 1)]
+        return SimpleNamespace(text=json.dumps({"items": items}))
+
+
+def test_model_decides_doubtful_news_once(conn):
+    from datetime import UTC
+
+    from ingest.tagging.business import classify_doubtful
+
+    now = datetime.now(UTC)
+    doubtful = news("d", "Ушаков сообщил о подготовке встречи лидеров").model_copy(update={"published_at": now})
+    sure = news("s", "ЦБ сохранил ключевую ставку на уровне 14%").model_copy(update={"published_at": now})
+    load_news(conn, [doubtful, sure])
+    llm = FakeLlm([False])
+    stats = classify_doubtful(conn, llm)
+    assert (stats.asked, stats.not_business, stats.calls) == (1, 1, 1)
+    assert "Ушаков" in llm.prompts[0] and "ключевую ставку" not in llm.prompts[0]  # словари уже решили
+    assert conn.execute("SELECT id, business FROM news_business").fetchall() == [("src:news:d", False)]
+    assert classify_doubtful(conn, llm).calls == 0  # ответ — кэш: второй раз не спрашиваем
+
+
+def test_model_respects_daily_budget(conn, tmp_path):
+    from datetime import UTC
+
+    from ingest.tagging.business import classify_doubtful
+
+    load_news(conn, [news("d", "Ушаков сообщил о подготовке встречи лидеров").model_copy(
+        update={"published_at": datetime.now(UTC)})])  # fmt: skip
+    journal = tmp_path / "calls.jsonl"
+    journal.write_text(
+        json.dumps({"at": datetime.now(MSK).isoformat(), "cost": 3.0, "purpose": "news-business"}) + "\n", "utf-8"
+    )
+    stats = classify_doubtful(conn, FakeLlm([True]), budget_rub=2.0, journal=journal)
+    assert stats.calls == 0 and "бюджет" in stats.stopped
+
+
+def test_partial_answer_saves_what_was_answered(conn):
+    from datetime import UTC
+
+    from ingest.tagging.business import classify_doubtful
+
+    now = datetime.now(UTC)
+    load_news(
+        conn,
+        [
+            news("a", "Ушаков сообщил о подготовке встречи лидеров").model_copy(update={"published_at": now}),
+            news("b", "Собрание перенесли на воскресенье").model_copy(update={"published_at": now}),
+        ],
+    )
+    stats = classify_doubtful(conn, FakeLlm([True]))  # модель ответила только про первую в пачке
+    assert stats.asked == 1
+    assert conn.execute("SELECT count(*) FROM news_business").fetchone()[0] == 1
