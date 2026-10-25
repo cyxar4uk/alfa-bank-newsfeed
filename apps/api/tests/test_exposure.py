@@ -173,7 +173,7 @@ def test_group_signals():
     # кредиты у трёх компаний группы
     assert (
         f["rate"].channel.text == "капиталоёмкие компании группы (стройка, генерация) — 57 % выручки группы;"
-        " также кредиты у 3 компаний группы"
+        " также кредиты у 3 из 5 других компаний группы"
     )
     assert any(e.value == "3 из 5" for e in f["rate"].evidence)
 
@@ -315,7 +315,7 @@ def test_concentration_warning():
     flows = [flow("U_99", "in", 6e8), flow("U_10", "in", 4e8, cafe)]
     exposure = build_exposure(company, flows)
     assert (
-        "60 % внешних поступлений — один плательщик (U_99, вне данных банка):"
+        "ваш крупнейший покупатель — 60 % внешних поступлений (вне данных банка):"
         " зависимость от одного контрагента" in exposure.warnings
     )
 

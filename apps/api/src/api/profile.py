@@ -52,11 +52,12 @@ def company_number(company_id: str) -> str:
 
 
 def display_name(company: CompanyRecord | None, company_id: str) -> str:
-    name = f"Компания №{company_number(company_id)}"
-    activity = company.okved_name if company else None
+    """Как назвать компанию человеку. Имён в данных нет, а номер («Компания №92457», «U_34961») ничего
+    не говорит — поэтому вид деятельности. Сам id — в поле `id` (трасса)."""
+    activity = (company.okved_name or "").strip() if company else ""
     if activity:
-        name += f" · {activity[0].lower()}{activity[1:]}"
-    return name
+        return activity[0].upper() + activity[1:]
+    return "компания вне данных банка" if company is None else "компания без указанного вида деятельности"
 
 
 def format_rub(amount: float) -> str:
@@ -517,7 +518,8 @@ def _counterparties(
         "top_counterparties",
         "Крупные контрагенты",
         [
-            f"{c.id} · {_ROLE_NAMES[c.role]} · {c.sector or 'отрасль неизвестна'}"
+            # без id: человеку номер ничего не говорит, роль и доля — говорят; id — в counterparties
+            f"{_ROLE_NAMES[c.role]} · {c.sector or 'отрасль неизвестна'}"
             f" · {format_share(c.share)} оборота{' · в группе' if c.intra_group else ''}"
             for c in result
         ],

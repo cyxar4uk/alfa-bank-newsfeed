@@ -320,7 +320,10 @@ class InfluenceChain(BaseModel):
 
 class CompanyProfile(BaseModel):
     id: str = Field(examples=["U_1595"])
-    display_name: str = Field(examples=["Компания №1595 · торговля розничная лекарственными средствами"])
+    display_name: str = Field(
+        examples=["Торговля розничная лекарственными средствами"],
+        description="вид деятельности — имён в данных нет, номер компании только в id",
+    )
     features: list[Feature]
     group: CompanyGroup | None = None
     counterparties: list[Counterparty] = Field(
@@ -593,7 +596,13 @@ class GroupImpact(BaseModel):
 
     group_id: str
     companies_total: int = Field(description="компаний в группе, включая компанию пользователя")
-    affected_count: int = Field(description="сколько компаний группы затрагивает событие")
+    others_total: int = Field(
+        default=0, description="других компаний группы, без компании пользователя, — K в «затронуто N из K»"
+    )
+    affected_count: int = Field(description="сколько других компаний группы затрагивает событие — N")
+    affected_with_credit: int | None = Field(
+        default=None, description="из затронутых — с кредитом в Альфа-Банке, M; null — в данных не посчитано"
+    )
     major_count: int = Field(default=0, description="из них с выручкой от 1 млрд ₽")
     affected_revenue: float = Field(description="суммарная выручка задетых компаний, ₽")
     affected_revenue_bn: float

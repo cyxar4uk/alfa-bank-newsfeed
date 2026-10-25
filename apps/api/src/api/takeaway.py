@@ -9,7 +9,7 @@ import re
 
 from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
-from api.coverage import coverage_phrase
+from api.coverage import coverage_phrase, credit_phrase
 from api.short import clean_channel
 
 TEXT_MAX = 160
@@ -75,8 +75,13 @@ SHORT_ACTIONS = {
     "consumer": "сверьте прогноз продаж",
     "inflation": "проверьте цены и издержки",
     "tax_regulation": "проверьте сроки изменений",
+    "chain:group": "обсудите это с компаниями группы",
+    "chain:buyers": "проверьте спрос покупателей",
+    "chain:suppliers": "проверьте условия поставщиков",
+    "chain:direct": "оцените условия в отрасли",
 }
 NOTHING = "Действий не нужно."
+CREDIT_KEYS = {"rate", "deposit_yield"}  # причины, где к охвату добавляется число компаний с кредитом
 GIST_MAX = 55
 
 # оценка модели из слагаемого llm: «оценка модели: не задевает — …» (api.agent.rerank.IMPACT_LABEL)
@@ -122,34 +127,25 @@ def gist(item: FeedItem) -> str:
     return title if len(title) <= GIST_MAX else title[: GIST_MAX - 1].rsplit(" ", 1)[0] + "…"
 
 
-# от чего зависят компании группы, которых задевает событие, — по главной причине
-DEPENDS = {
-    "rate": "от кредитов",
-    "deposit_yield": "от доходности свободных денег",
-    "commodity_oil": "от цен на топливо",
-    "fx": "от курса",
-    "ved_logistics": "от внешней торговли",
-    "gov": "от госзаказа",
-    "consumer": "от спроса",
-    "inflation": "от издержек",
-    "tax_regulation": "от налогов и пошлин",
-}
 _GROUP_LINE = re.compile(r"^(\d+) компани\w*, ([\d,]+ (?:тыс\.|млн|млрд|трлн) ₽)")
 _SHARE_OF = re.compile(r"^(\d+) из (\d+)$")
-
-
-def _depend(n: int, key: str) -> str:
-    verb = "зависит" if n % 10 == 1 and n % 100 != 11 else "зависят"
-    return f" {verb} {DEPENDS[key]}" if key in DEPENDS else ""
 
 
 def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     """Числа из данных компании человеческими фразами: группа, строка «для вас», признаки компании."""
     found = []
     gi = item.coverage or item.group_impact  # охват в группе — одно число с агентом (api.coverage)
+    credit = (
+        gi is not None
+        and gi.affected_count > 0
+        and key in CREDIT_KEYS
+        and gi.affected_with_credit is not None
+    )
     if gi and gi.affected_count:
-        n = gi.affected_count
-        found.append(coverage_phrase(gi) + _depend(n, key))
+        phrase = coverage_phrase(gi)
+        if credit:  # для долга — и сколько из них с кредитом в банке
+            phrase += f", {credit_phrase(gi)}"
+        found.append(phrase)
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
     factor = next((f for f in exposure.factors if f.code == key), None) if exposure else None
@@ -163,7 +159,8 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
             # о том же «сколько компаний» спорило бы с охватом события
             continue
         if (m := _SHARE_OF.match(value)) and "кредит" in label:  # «11 из 28»
-            found.append(f"кредиты у {m.group(1)} из {m.group(2)} компаний группы")
+            if not credit:  # рядом с «из них с кредитом в банке — M» второе M про всю группу путало бы
+                found.append(f"кредиты у {m.group(1)} из {m.group(2)} других компаний группы")
         elif not label.startswith("компании группы"):
             found.append(f"{label}: {value}")
     return list(dict.fromkeys(found))
@@ -226,16 +223,18 @@ def takeaway(
     exposure: ExposureMap | None = None,
     avoid: set[str] | None = None,
     used_facts: set[str] | None = None,
+    level: str | None = None,
 ) -> Takeaway:
     """Вывод по правилам: что меняется для компании — число из её данных — что делать.
 
     `avoid` — уже выданные тексты ленты: тот же текст второй раз не повторяется; `used_facts` — уже названные
-    числа: следующее событие с той же причиной берёт другое число, если оно есть.
+    числа: следующее событие с той же причиной берёт другое число, если оно есть; `level` — уровень, уже
+    показанный пользователю по этому событию (api.levels): текст пишется под него, а не под новую оценку.
     """
     if not item.relevance.breakdown:  # найдено поиском, но компанию не задевает
         return Takeaway(level="info", text=f"Напрямую вас не касается. {NOTHING}")
     key, strength = main_reason(item)
-    level = level_of(item, strength)
+    level = level or level_of(item, strength)
     action = action_for(item, role, exposure)
     quick = short_action(item, role, exposure)
     what = gist(item)
@@ -303,8 +302,11 @@ def _brief(why: str) -> str:
     """Короткая форма причины с числом: «178 компаний группы с выручкой 149 млрд ₽ зависят от кредитов»."""
     if len(why) <= 70:
         return why
+    if ", из них с кредитом" in why:  # охват без второй части — «N из K других компаний группы с выручкой X»
+        return why.split(", из них с кредитом")[0]
     for sep in (" — ", ": ", ", "):
-        numbered = [part for part in why.split(sep) if _DIGIT.search(part)]
+        # часть с числом и словами, а не голое «0» после тире
+        numbered = [p for p in why.split(sep) if _DIGIT.search(p) and re.search(r"[а-яё]{3}", p)]
         if numbered and len(min(numbered, key=len)) < len(why):
             return min(numbered, key=len)
     return why

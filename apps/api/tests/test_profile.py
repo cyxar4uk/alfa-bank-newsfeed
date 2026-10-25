@@ -40,7 +40,7 @@ def test_full_profile():
     v = values(profile)
 
     assert profile.id == "U_1"
-    assert profile.display_name == "Компания №1 · торговля оптовая твердым, жидким и газообразным топливом"
+    assert profile.display_name == "Торговля оптовая твердым, жидким и газообразным топливом"
     assert v["feat:MAINOKVED_CODE"] == "46.71 Торговля оптовая твердым, жидким и газообразным топливом"
     assert v["feat:sector"] == "оптовая торговля"
     assert v["feat:REVENUE_COMPANY"] == 20e9
@@ -67,7 +67,7 @@ def test_empty_fields_go_to_missing():
     company = CompanyRecord(id="U_5", okved_code="мусор", fts_flag=True)
     profile = build_profile(company, flows=[])
 
-    assert profile.display_name == "Компания №5"
+    assert profile.display_name == "компания без указанного вида деятельности"
     assert {
         "feat:REVENUE_COMPANY",
         "feat:scale",
@@ -131,7 +131,7 @@ def test_counterparties_shares_roles_and_exclusions():
     assert unknown.role == "supplier"
     assert unknown.in_dataset is False
     assert unknown.sector is None
-    assert unknown.display_name == "Компания №77"
+    assert unknown.display_name == "компания вне данных банка"
     assert power.role == "customer"
     assert sum(c.share for c in cps) == pytest.approx(1, abs=1e-3)
 
@@ -139,7 +139,7 @@ def test_counterparties_shares_roles_and_exclusions():
     assert v["feat:payments_turnover"] == 4.75e9
     assert (
         v["feat:top_counterparties"][0]
-        == "U_2 · поставщик и покупатель · транспорт и логистика · 84 % оборота · в группе"
+        == "поставщик и покупатель · транспорт и логистика · 84 % оборота · в группе"
     )
     assert v["feat:intra_group_share"] == pytest.approx(4 / 4.75, abs=1e-4)
     # внутригрупповой оборот отделён: в стороны покупателей и поставщиков не входит
