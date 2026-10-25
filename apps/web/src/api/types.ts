@@ -395,6 +395,40 @@ export interface FeedItem {
   source_icon_url?: string | null;
 }
 
+/** Динамика сюжета за неделю: появился · усилился · утих. */
+export type Dynamics = 'appeared' | 'grew' | 'faded';
+
+/** Сюжет недели: события одной темы за 7 дней (GET /api/briefing?period=week). */
+export interface Story {
+  /** тема: код фактора или «industry:<ОКВЭД>» */
+  code: string;
+  /** суть главного события */
+  title: string;
+  level: Takeaway['level'];
+  dynamics: Dynamics;
+  /** новостей по теме по дням — дни в Briefing.week */
+  daily_counts: number[];
+  news_count: number;
+  peak?: { date: string; what: string; event_id: string } | null;
+  /** вывод главного события сюжета, с охватом группы */
+  takeaway?: Takeaway | null;
+  /** события сюжета — главное первым */
+  event_ids: string[];
+}
+
+/** Позиция Альфа-Банка по теме недели или фактору: фраза из материала, материал и дата. */
+export interface BankView {
+  text: string;
+  source_id?: string | null;
+  material?: string | null;
+  publisher?: string | null;
+  date?: string | null;
+  /** прогноз банка разошёлся с фактом из новостей недели */
+  outdated?: boolean | null;
+  /** «банк ждал Urals $63, в новостях — $72» */
+  outdated_note?: string | null;
+}
+
 /** Брифинг (раздел G): сводка и события по убыванию значимости. Плашка на главной — первые 3 отсюда. */
 export interface Briefing {
   persona_id: string;
@@ -405,6 +439,15 @@ export interface Briefing {
   items: FeedItem[];
   /** сколько материалов рассмотрено */
   candidates?: number;
+  /** day — лента; week — «Главное за неделю» */
+  period?: 'day' | 'week';
+  /** дни недели для daily_counts, от 6 дней назад до сегодня — только week */
+  week?: string[];
+  /** 3–5 сюжетов недели — только week */
+  stories?: Story[];
+  /** позиция банка по главной теме недели и главное действие — только week */
+  bank?: BankView | null;
+  action?: { code: string; topic: string; label: string; event_id?: string | null } | null;
 }
 
 export interface Feedback {
@@ -449,4 +492,36 @@ export interface WeeklySummary {
   sections: { factor: FactorRef; statements: Statement[] }[];
   bank_view: Statement[];
   actions: Action[];
+}
+
+// ─── «К чему уязвима компания» (макеты B2, B3): GET /api/companies/{id}/risk-map?persona= ──────
+
+/** Сила влияния фактора: сильно · заметно · слабо. */
+export type RiskStrength = 'strong' | 'notable' | 'weak';
+
+export interface RiskFactor {
+  code: string;
+  label: string;
+  strength: RiskStrength;
+  /** почему компания уязвима — фраза с числом из данных банка */
+  why: string;
+  /** оценка по отрасли, а не факт из данных компании */
+  is_estimate: boolean;
+  /** что происходит на этой неделе — последнее событие; direction — «Дорожает», «Держится», «Новое» */
+  now?: { event_id: string; title: string; direction: string; publisher?: string | null; date?: string | null } | null;
+  bank?: BankView | null;
+  /** новостей по дням — дни в RiskMap.week */
+  week_counts: number[];
+  news_count: number;
+}
+
+export interface RiskMap {
+  company_id: string;
+  role: Role;
+  /** дни для week_counts: от 6 дней назад до сегодня */
+  week: string[];
+  /** 5–7 факторов в порядке, важном для роли */
+  factors: RiskFactor[];
+  /** чего не оцениваем и почему — с числом покрытия данных */
+  limits: string[];
 }

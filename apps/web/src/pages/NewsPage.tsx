@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import type { Insight } from '../api/types';
@@ -6,8 +6,9 @@ import { Disclaimer } from '../components/Disclaimer';
 import { Icon } from '../components/Icon';
 import { ExpandButton, LevelBadge, LevelIcon, NewsThumb } from '../components/NewsParts';
 import { ServiceTabs } from '../components/ServiceTabs';
+import { ChipSwitch, DynamicsTag, Spark } from '../components/WeekParts';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
-import { useBriefing } from '../state/briefing';
+import { useBriefing, useWeekBriefing, type Period } from '../state/briefing';
 import { useHidden } from '../state/hidden';
 import { readEvents } from '../state/read';
 import { LEVEL_LABEL, newsScreen, type DayRow, type EventRow } from '../state/news';
@@ -15,6 +16,7 @@ import { eventPath } from '../state/routes';
 import { plural } from '../state/screens';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
+import { weekScreen, type WeekRow, type WeekScreen } from '../state/week';
 
 function localToday() {
   const d = new Date();
@@ -91,6 +93,70 @@ function Event({ row, index, read }: { row: EventRow; index: number; read: boole
   );
 }
 
+/** Сюжет недели (макет B1): уровень · заголовок · динамика, мини-график, сколько новостей и пик · почему. */
+function Week({ row, index, read }: { row: WeekRow; index: number; read: boolean }) {
+  return (
+    <li className={`day-row appear${read ? ' is-read' : ''}`} style={{ animationDelay: `${index * 70}ms` }}>
+      <LevelBadge level={row.level} />
+      <div className="day-row__body">
+        {row.eventId ? (
+          <Link to={eventPath(row.eventId)} className="day-row__headline">
+            {!read && <ReadMark read={false} />}
+            {row.headline}
+          </Link>
+        ) : (
+          <span className="day-row__headline">{row.headline}</span>
+        )}
+        <p className="week-row__trend">
+          <DynamicsTag dynamics={row.dynamics} />
+          {row.days.length > 0 && <Spark days={row.days} />}
+          <span>{row.countLine}</span>
+        </p>
+        {row.why && <p className="day-row__why">{row.why}</p>}
+        {read && <ReadMark read />}
+      </div>
+    </li>
+  );
+}
+
+/** «Главное за неделю»: свой запрос брифинга за неделю, со своими загрузкой, ошибкой и пустым видом. */
+function WeekList({ week, screen, read }: { week: ReturnType<typeof useWeekBriefing>; screen: WeekScreen | null; read: Set<string> }) {
+  if (week.status === 'loading') return <DaySkeleton />;
+  if (week.status === 'error')
+    return <ErrorState title="Не удалось собрать главное за неделю" error={week.error} onRetry={week.retry} />;
+  if (!screen?.available)
+    return <p className="day-row__why">Сводка за неделю пока не готова — посмотрите главное за день.</p>;
+  if (screen.rows.length === 0) return <p className="day-row__why">За неделю важных для компании сюжетов нет.</p>;
+  return (
+    <ol className="day-list">
+      {screen.rows.map((row, i) => (
+        <Week key={row.key} row={row} index={i} read={row.eventId !== null && read.has(row.eventId)} />
+      ))}
+    </ol>
+  );
+}
+
+function DaySkeleton() {
+  return (
+    <div aria-busy="true">
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="day-skeleton">
+          <Skeleton width={90} height={18} />
+          <div>
+            <Skeleton width="70%" height={18} />
+            <Skeleton width="90%" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'day', label: 'За день' },
+  { value: 'week', label: 'За неделю' },
+];
+
 /** Ожидание первой сборки ленты: что происходит, с переливающимися заготовками. */
 function Collecting() {
   return (
@@ -120,6 +186,17 @@ export function NewsPage() {
   // Тема живёт в адресе (?factor=): с карты «К чему уязвима компания» лента открывается уже с темой.
   const [params, setParams] = useSearchParams();
   const filter = params.get('factor');
+  const period: Period = params.get('period') === 'week' ? 'week' : 'day';
+  const setPeriod = (v: Period) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        if (v === 'week') next.set('period', 'week');
+        else next.delete('period');
+        return next;
+      },
+      { replace: true },
+    );
   const setFilter = (key: string | null) =>
     setParams(
       (prev) => {
@@ -166,6 +243,32 @@ export function NewsPage() {
     [briefing, exposure, hidden, filter, showAll, lead],
   );
 
+  const week = useWeekBriefing(period === 'week');
+  const weekScr = useMemo(() => (week.status === 'ok' && week.data ? weekScreen(week.data, hidden) : null), [week, hidden]);
+
+  // Плашка банка: за неделю — позиция и действие из сводки недели, за день — из разбора главного события.
+  const plate =
+    period === 'week'
+      ? {
+          bank: weekScr?.bank ? { statement: weekScr.bank.text, caption: weekScr.bank.caption, outdated: weekScr.bank.outdated } : null,
+          action: weekScr?.action ?? null,
+        }
+      : {
+          bank: screen?.bank ? { ...screen.bank, outdated: false } : null,
+          action: screen?.action ?? null,
+        };
+
+  // С карты «К чему уязвима компания» по фактору приходим сразу к отфильтрованным событиям.
+  const eventsRef = useRef<HTMLElement>(null);
+  const cameWithFilter = useRef(filter !== null);
+  const ready = screen !== null && !screen.empty;
+  useEffect(() => {
+    if (ready && cameWithFilter.current) {
+      cameWithFilter.current = false;
+      eventsRef.current?.scrollIntoView({ block: 'start' });
+    }
+  }, [ready]);
+
   return (
     <div className="page news-page">
       <ServiceTabs />
@@ -180,12 +283,23 @@ export function NewsPage() {
         <>
           <section className="card news-card day appear" aria-labelledby="day-title">
             <div className="news-card__head">
-              <h1 className="news-card__title" id="day-title">
-                Главное за день
-              </h1>
-              <span className="news-card__meta">{screen.updated}</span>
+              <div className="news-card__lead">
+                <h1 className="news-card__title" id="day-title">
+                  Главное
+                </h1>
+                <ChipSwitch label="Период" value={period} options={PERIODS} onChange={setPeriod} />
+              </div>
+              <div className="news-card__aside">
+                <span className="news-card__meta">{period === 'day' ? screen.updated : (weekScr?.meta ?? '')}</span>
+                <Link to="/radar/map" className="link-action">
+                  Почему это важно для вас
+                  <Icon name="arrowRight" size={16} />
+                </Link>
+              </div>
             </div>
-            {screen.day.length > 0 ? (
+            {period === 'week' ? (
+              <WeekList week={week} screen={weekScr} read={read} />
+            ) : screen.day.length > 0 ? (
               <ol className="day-list">
                 {screen.day.map((row, i) => (
                   <Day key={row.eventId} row={row} index={i} read={read.has(row.eventId)} />
@@ -194,27 +308,30 @@ export function NewsPage() {
             ) : (
               <p className="day-row__why">Важного для компании сегодня нет — ниже все события дня.</p>
             )}
-            {(screen.bank || screen.action) && (
+            {(plate.bank || plate.action) && (
               <div className="day-bank">
-                {screen.bank ? (
+                {plate.bank ? (
                   <>
                     <Icon name="bank" size={18} className="day-bank__icon" />
-                    <p className="day-bank__text">{screen.bank.statement}</p>
-                    <span className="day-bank__caption">{screen.bank.caption}</span>
+                    <p className="day-bank__text">
+                      {plate.bank.statement}
+                      {plate.bank.outdated && <span className="day-bank__outdated"> — прогноз устарел</span>}
+                    </p>
+                    <span className="day-bank__caption">{plate.bank.caption}</span>
                   </>
                 ) : (
                   <span className="day-bank__spacer" />
                 )}
-                {screen.action && (
-                  <Link to={eventPath(screen.action.eventId)} state={{ openTarget: true }} className="btn btn--primary">
-                    {screen.action.label}
+                {plate.action && (
+                  <Link to={eventPath(plate.action.eventId)} state={{ openTarget: true }} className="btn btn--primary">
+                    {plate.action.label}
                   </Link>
                 )}
               </div>
             )}
           </section>
 
-          <section className="events" aria-labelledby="events-title">
+          <section className="events" aria-labelledby="events-title" ref={eventsRef}>
             <div className="events__head">
               <h2 className="events__title" id="events-title">
                 События для компании

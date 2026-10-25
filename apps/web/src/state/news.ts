@@ -207,19 +207,30 @@ export function newsScreen(s: NewsState): NewsScreen {
       ? { eventId: lead.event_id, topic: topicOf(groupKeyOf(lead)), label: `Обсудить ${topicOf(groupKeyOf(lead))} с менеджером` }
       : null;
 
-  // Фильтр по теме, которой у этого пользователя нет (сменили пользователя, всё скрыто), не действует.
-  const filter = s.filter && groups.some((g) => groupKeyOf(g[0]) === s.filter) ? s.filter : null;
+  // Фильтр по фактору: событие подходит, если задевает фактор хоть как-то, а не только главным. Фактора, которого
+  // в ленте этого пользователя нет (сменили пользователя, всё скрыто), фильтр не действует.
+  // «Своя отрасль» — события без факторов: у них ключ группы industry.
+  const touches = (i: FeedItem, code: string) => groupKeyOf(i) === code || i.factors.some((f) => f.code === code);
+  const countOf = (code: string) => visible.filter((i) => touches(i, code)).length;
+  const filter = s.filter && visible.some((i) => touches(i, s.filter as string)) ? s.filter : null;
   const chips = [
     { key: null, label: 'Все', count: groups.length, selected: filter === null },
     ...groups.map((g) => ({
       key: groupKeyOf(g[0]),
       label: factorShort(groupKeyOf(g[0]), g[0].factors[0]?.label),
-      count: g.length,
+      count: countOf(groupKeyOf(g[0])),
       selected: filter === groupKeyOf(g[0]),
     })),
   ];
+  // Пришли с карты по фактору, который ни у одного события не главный, — у него тоже есть чип.
+  if (filter && !chips.some((c) => c.key === filter)) {
+    const label = visible.flatMap((i) => i.factors).find((f) => f.code === filter)?.label;
+    chips.push({ key: filter, label: factorShort(filter, label), count: countOf(filter), selected: true });
+  }
   // При выборе темы — все её события по отдельности; без фильтра — по одному на тему.
-  const filtered = filter ? groups.filter((g) => groupKeyOf(g[0]) === filter).flatMap((g) => g.map((i) => [i])) : groups;
+  const filtered = filter
+    ? groups.flatMap((g) => g.filter((i) => touches(i, filter)).map((i) => [i]))
+    : groups;
   const rows: EventRow[] = filtered.map((g) => {
     const top = g[0];
     const isLead = lead !== null && top.event_id === lead.event_id;
