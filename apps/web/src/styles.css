@@ -6558,6 +6558,153 @@ a:hover .thumb img,
   justify-self: start;
 }
 
+/* ─── Доверие: разбор готов, проверка утверждений, прогноз банка разошёлся ─── */
+.row-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.ready-mark {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.event-row__source .ready-mark {
+  margin-left: 8px;
+}
+
+.ready-mark--ready {
+  color: var(--ok-text);
+}
+
+.ready-mark--queued {
+  color: var(--ink-3);
+}
+
+.ready-mark__dot {
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.claims__toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.claims--ok .claims__toggle {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.claims__toggle .flip {
+  transform: rotate(180deg);
+}
+
+.claims__list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.claims__row {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.claims__row--verified {
+  border-left-color: var(--ok);
+}
+
+.claims__row--partly {
+  border-left-color: var(--warn);
+}
+
+.claims__row--hypothesis {
+  border-left-color: var(--origin-ai);
+}
+
+.claims__status {
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.claims__support {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+
+.claims__src {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  color: var(--ink-2);
+  font-size: 12px;
+}
+
+.claims__src--bank svg {
+  color: var(--origin-bank);
+}
+
+.verdict__outdated {
+  font-weight: 600;
+}
+
+.verdict__outdated-note {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.outdated {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--r-control);
+  background: var(--warn-bg);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.outdated__icon {
+  margin-top: 1px;
+  color: var(--level-watch);
+}
+
+.outdated__title {
+  font-weight: 600;
+}
+
+.outdated__list b {
+  font-weight: 500;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

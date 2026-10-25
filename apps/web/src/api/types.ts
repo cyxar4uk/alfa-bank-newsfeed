@@ -366,6 +366,13 @@ export interface EstimateScenario {
   basis: Statement;
 }
 
+/** Утверждение разбора и чем оно подтверждено: новостью, позицией банка, данными компании. */
+export interface Claim {
+  text: string;
+  status: 'verified' | 'partly' | 'hypothesis';
+  support?: { kind: 'news' | 'bank' | 'data'; ref?: string | null; label?: string | null }[] | null;
+}
+
 export interface Insight {
   id: string;
   event: InsightEvent;
@@ -393,7 +400,12 @@ export interface Insight {
   /** итог «важно ли и что делать» (07_feedback §3) */
   verdict?: { level: Takeaway['level']; headline: string; why?: string | null; actions?: string[] } | null;
   /** позиция банка одной фразой «Альфа-Банк ожидает …» */
-  bank_position?: { statement: string } | null;
+  /** outdated — прогноз банка разошёлся с фактом; outdated_note — «банк ждал 87 ₽/$, сейчас 80,6» */
+  bank_position?: { statement: string; outdated?: boolean | null; outdated_note?: string | null } | null;
+  /** проверка утверждений агентом: что подтверждено и чем */
+  claims?: Claim[] | null;
+  verified_count?: number | null;
+  claims_total?: number | null;
   /** цитаты из новости, на которые опирается вывод — подсветка в полном тексте */
   quotes?: { text: string; source_id: string }[] | null;
   group_impact?: GroupImpact | null;
@@ -422,6 +434,8 @@ export interface FeedItem {
   short?: string | null;
   /** разбор текущей версии уже собран — его можно взять с cached=true без сборки */
   insight_ready?: boolean | null;
+  /** разбор собран заранее (ready), готовится (queued) или не нужен (none) */
+  insight_state?: 'ready' | 'queued' | 'none' | null;
   /** вывод одной фразой с уровнем (07_feedback §3) */
   takeaway?: Takeaway | null;
   /** картинка новости (og:image источника) и значок издания */
@@ -448,6 +462,8 @@ export interface Story {
   takeaway?: Takeaway | null;
   /** события сюжета — главное первым */
   event_ids: string[];
+  /** разбор главного события сюжета: собран заранее, готовится или не нужен */
+  insight_state?: 'ready' | 'queued' | 'none' | null;
 }
 
 /** Позиция Альфа-Банка по теме недели или фактору: фраза из материала, материал и дата. */

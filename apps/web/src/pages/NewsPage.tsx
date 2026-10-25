@@ -7,6 +7,8 @@ import { Icon } from '../components/Icon';
 import { ExpandButton, LevelBadge, LevelIcon, NewsThumb } from '../components/NewsParts';
 import { ServiceTabs } from '../components/ServiceTabs';
 import { ChipSwitch, DynamicsTag, Spark } from '../components/WeekParts';
+import { OutdatedBanner, ReadyMark } from '../components/TrustParts';
+import { outdatedSignals } from '../state/trust';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { useBriefing, useWeekBriefing, type Period } from '../state/briefing';
 import { useHidden } from '../state/hidden';
@@ -53,8 +55,13 @@ function Day({ row, index, read }: { row: DayRow; index: number; read: boolean }
           {row.headline}
         </Link>
         <p className="day-row__why">{row.why}</p>
-        {read && <ReadMark read />}
         {row.todo && <p className="day-row__todo">Что делать: {row.todo}</p>}
+        {(read || row.ready) && (
+          <p className="row-marks">
+            {read && <ReadMark read />}
+            <ReadyMark ready={row.ready} />
+          </p>
+        )}
       </div>
     </li>
   );
@@ -71,6 +78,7 @@ function Event({ row, index, read }: { row: EventRow; index: number; read: boole
           {row.iconUrl ? <img src={row.iconUrl} alt="" className="event-row__icon" /> : <Icon name="news" size={14} />}
           {row.sourceLine}
           {read && <ReadMark read />}
+          <ReadyMark ready={row.ready} />
         </p>
         <Link to={eventPath(row.eventId)} className="event-row__title">
           {!read && <ReadMark read={false} />}
@@ -114,7 +122,12 @@ function Week({ row, index, read }: { row: WeekRow; index: number; read: boolean
         </p>
         {row.why && <p className="day-row__why">{row.why}</p>}
         {row.todo && <p className="day-row__todo">Что делать: {row.todo}</p>}
-        {read && <ReadMark read />}
+        {(read || row.ready) && (
+          <p className="row-marks">
+            {read && <ReadMark read />}
+            <ReadyMark ready={row.ready} />
+          </p>
+        )}
       </div>
     </li>
   );
@@ -234,6 +247,16 @@ export function NewsPage() {
     `${leadId}|${persona.id}`,
   );
 
+  // Карта рисков — только ради сигнала «прогноз банка разошёлся»: не загрузилась — сигнала нет, лента работает.
+  const riskMap = useAsync(
+    (signal) => api.riskMap(company.id, persona.id, persona.role, signal).catch(() => null),
+    `${company.id}|${persona.id}`,
+  );
+  const outdated = useMemo(
+    () => outdatedSignals(riskMap.status === 'ok' ? riskMap.data : null, lead.status === 'ok' ? lead.data : null),
+    [riskMap, lead],
+  );
+
   // Прочитанное читаем при каждом заходе на ленту: карточка отмечает событие, возврат пересоздаёт страницу.
   const read = useMemo(() => readEvents(persona.id), [persona.id]);
   const screen = useMemo(
@@ -317,6 +340,7 @@ export function NewsPage() {
             ) : (
               <p className="day-row__why">Важного для компании сегодня нет — ниже все события дня.</p>
             )}
+            {period === 'day' && <OutdatedBanner signals={outdated} />}
             {(plate.bank || plate.action) && (
               <div className="day-bank">
                 {plate.bank ? (

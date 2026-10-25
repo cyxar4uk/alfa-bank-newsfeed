@@ -24,6 +24,8 @@ import { markRead } from '../state/read';
 import { progressOf, stepsOf } from '../state/steps';
 import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
+import { claimsOf } from '../state/trust';
+import { ClaimsCheck } from '../components/TrustParts';
 
 const ROW_ICON: Record<CardRow['id'], IconName> = {
   chain: 'group',
@@ -150,6 +152,7 @@ function Card({
     .slice(0, 3)
     .map(plain);
   const bank = bankOf(insight);
+  const claims = claimsOf(insight);
   // Цифры из данных компании (подписи уже без кодов ОКВЭД и без дублей — cardScreen).
   const numbers = screen.forYou.numbers.map((n) => ({ value: n.value, label: plain(n.label) }));
   const topic = screen.target?.topic ?? 'последствия для компании';
@@ -204,9 +207,16 @@ function Card({
               ))}
             </dl>
           )}
+          {claims && <ClaimsCheck view={claims} />}
           {bank ? (
             <div className="verdict__bank">
-              <p>{bank.statement}</p>
+              <p>
+                {bank.statement}
+                {insight.bank_position?.outdated && <b className="verdict__outdated"> — прогноз устарел</b>}
+              </p>
+              {insight.bank_position?.outdated && insight.bank_position.outdated_note && (
+                <p className="verdict__outdated-note">{insight.bank_position.outdated_note}</p>
+              )}
               <span>{bank.caption}</span>
             </div>
           ) : (
