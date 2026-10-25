@@ -480,6 +480,37 @@ class Quote(BaseModel):
     source_id: str = Field(pattern=r"^src:")
 
 
+class ClaimSupport(BaseModel):
+    """Опора утверждения: фрагмент новости, материала банка или поле данных компании."""
+
+    kind: Literal["news", "bank", "company"]
+    ref: str = Field(description="src:… или feat:…")
+    quote: str = Field(description="предложение источника или «признак: значение»")
+
+
+class Claim(BaseModel):
+    """Утверждение вывода и его проверка перед показом."""
+
+    text: str
+    status: Literal["verified", "partly", "hypothesis"] = Field(
+        description="verified — есть опора и числа сходятся; partly — опора слабая или число не нашлось;"
+        " hypothesis — предположение («Возможно, …»)"
+    )
+    support: list[ClaimSupport] = Field(default_factory=list)
+    unsupported_numbers: list[str] = Field(default_factory=list, description="числа, которых нет в фактах")
+
+
+class ClaimsSummary(BaseModel):
+    """Сводка проверки утверждений: «12 из 12 подтверждены»."""
+
+    total: int = 0
+    verified_count: int = 0
+    partly_count: int = 0
+    hypothesis_count: int = 0
+    rewritten: int = Field(default=0, description="исправлено доработкой")
+    removed: int = Field(default=0, description="убрано: не подтвердилось")
+
+
 class Quality(BaseModel):
     checks_passed: list[str] = Field(
         default_factory=list, examples=[["refs", "facts_in_source", "multi_factor"]]
@@ -510,6 +541,8 @@ class Insight(BaseModel):
     quotes: list[Quote] = Field(
         default_factory=list, description="цитаты из новости, на которых держится вывод"
     )
+    claims: list[Claim] = Field(default_factory=list, description="утверждения вывода с опорой и статусом")
+    claims_summary: ClaimsSummary | None = Field(default=None, description="сколько утверждений подтверждено")
 
     @model_validator(mode="after")
     def _check_bank_view(self) -> Self:
