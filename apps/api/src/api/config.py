@@ -22,6 +22,13 @@ class Settings(BaseSettings):
     feed_llm_top: int = 10
     # прогревать ленты и карту рисков демо-пользователей при старте и раз в 12 минут
     feed_warmup: bool = True
+    # разбор заранее (api.precompute): карточки «важно»/«следить» демо-пользователей — до открытия
+    precompute_enabled: bool = True
+    precompute_budget_rub: float = 100.0  # свой суточный бюджет — часть общего LLM_DAILY_BUDGET_RUB
+    precompute_per_hour: int = 20
+    precompute_in_flight: int = 2  # одновременно в очереди агента; остальные места — пользователям
+    precompute_every_s: int = 300
+    precompute_watch: bool = True  # «следить» — пока потрачено меньше половины бюджета
 
     # модели организаторов: без ключа и адреса агент не запускается, остальное API работает
     llm_api_key: SecretStr | None = None
