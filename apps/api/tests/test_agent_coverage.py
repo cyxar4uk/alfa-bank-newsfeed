@@ -121,3 +121,30 @@ def test_card_texts_get_russian_decimals():
     agent, _ = make_agent(reply(GOOD_PLAN), reply(good_draft(verdict=verdict)))
     insight = agent.run(PERSONA, make_event()).insight
     assert insight.verdict.headline == "Для вас важно: ставка 14,0 % до конца года"
+
+
+def test_feed_takeaway_and_agent_get_one_number():
+    """Сквозная сверка: число охвата в выводе ленты у разных ролей — то же, что получает агент."""
+    from agent_fakes import FactorTag, SectorTag
+    from test_api import FakeRepo, GroupNews
+
+    from api.agent.bridges import ServiceCompanyData
+    from api.service import persona_feed
+
+    repo = FakeRepo()
+    news = GroupNews()
+    events = {e.id: e for e in news.events(None, 10)}
+    agent_data = ServiceCompanyData(repo)
+    checked = 0
+    for persona in ("p-u1-owner", "p-u1-cfo", "p-u1-ceo"):
+        for item in persona_feed(repo, news, persona).items:
+            news_event = events[item.event_id]
+            event = make_event(
+                factors=[FactorTag(code=c, strength=s) for c, s, _ in news_event.factors],
+                sectors=[SectorTag(okved=o, strength=s) for o, s in news_event.sectors],
+            )
+            coverage = agent_data.coverage("U_1", event)
+            assert coverage is not None
+            assert coverage_fact(coverage) in item.takeaway.text
+            checked += 1
+    assert checked == 3
