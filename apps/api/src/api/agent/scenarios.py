@@ -35,11 +35,56 @@ MIN_FX_CHANGE = 0.005  # меньше полупроцента — сценар�
 
 @dataclass
 class Inputs:
-    """Числа пользователя, ₽: долг, валютные расчёты за год, закупки за год. Нет — расчёт на единицу."""
+    """Числа пользователя: долг ₽, валютные расчёты за год ₽, закупки за год ₽, топливо т/мес, тип ставки.
+
+    Нет числа — расчёт на единицу. «Мои числа» сохраняет пользователь (`api.inputs`), их же можно передать в
+    пересчёт явно.
+    """
 
     debt: float | None = None
     fx: float | None = None
     purchases: float | None = None
+    fuel_t: float | None = None  # закупка топлива в месяц, т
+    rate_type: str | None = None  # floating | fixed
+
+    @classmethod
+    def from_user(cls, saved) -> "Inputs":
+        """Из сохранённых «моих чисел» (`api.contract.UserInputs`): закупки в месяц → в год."""
+        if saved is None:
+            return cls()
+        monthly = getattr(saved, "fx_purchases_month_rub", None)
+        return cls(
+            debt=getattr(saved, "debt_rub", None),
+            fx=monthly * 12 if monthly else None,
+            fuel_t=getattr(saved, "fuel_purchase_month_t", None),
+            rate_type=getattr(saved, "rate_type", None),
+        )
+
+    def any(self) -> bool:
+        return any(v for v in (self.debt, self.fx, self.purchases, self.fuel_t))
+
+
+def saved_inputs(persona_id: str):
+    """«Мои числа» пользователя (`api.inputs.user_inputs`); модуля нет или числа не вводили — None."""
+    import importlib
+
+    try:
+        fn = getattr(importlib.import_module("api.inputs"), "user_inputs", None)
+    except ImportError:
+        return None
+    if fn is None:
+        return None
+    try:
+        return fn(persona_id)
+    except Exception:
+        return None
+
+
+def inputs_stamp(persona_id: str) -> str | None:
+    """Когда сохранены «мои числа» — часть версии карточки: после сохранения рубли пересчитаются."""
+    saved = saved_inputs(persona_id)
+    stamp = getattr(saved, "updated_at", None)
+    return stamp.isoformat() if stamp else None
 
 
 def _base(amount: float | None, unit: float) -> tuple[float, str]:
@@ -48,9 +93,20 @@ def _base(amount: float | None, unit: float) -> tuple[float, str]:
     return unit, f"на каждый {fmt_rub(unit)}" if unit >= 1e9 else f"на каждые {fmt_rub(unit)}"
 
 
-def rate(debt: float | None = None, refs: list[str] | None = None) -> Statement:
+def rate(debt: float | None = None, refs: list[str] | None = None, rate_type: str | None = None) -> Statement:
     base, label = _base(debt, DEBT_UNIT)
     now, later = base * RATE_NOW / 100, base * RATE_2027 / 100
+    if rate_type == "fixed":
+        return Statement(
+            text=(
+                f"Ставка по долгу фиксированная: проценты {label} до пересмотра договора не изменятся. При"
+                f" рефинансировании: при {fmt_number(RATE_NOW)} % — {fmt_rub(now)} в год, при"
+                f" {fmt_number(RATE_2027)} % (прогноз Альфа-Банка на конец 2027 г.) — {fmt_rub(later)}."
+            ),
+            origin="estimate",
+            refs=refs or [],
+            confidence="medium",
+        )
     return Statement(
         text=(
             f"Проценты {label} долга, если ставка по кредиту идёт за ключевой:"
@@ -100,9 +156,30 @@ def fx(
     )
 
 
-def oil(purchases: float | None = None, reseller: bool = True, refs: list[str] | None = None) -> Statement:
+def oil(
+    purchases: float | None = None,
+    reseller: bool = True,
+    refs: list[str] | None = None,
+    fuel_t: float | None = None,
+) -> Statement:
     base, label = _base(purchases, PURCHASE_UNIT)
     first = OIL_PRICES[0]
+    if fuel_t and not purchases:
+        # тонны без цены — рост в процентах: цену тонны в данных банка не знаем
+        steps = ", ".join(
+            f"при ${fmt_number(p, 0)} — на {fmt_number((p / first - 1) * 100)} %" for p in OIL_PRICES[1:]
+        )
+        tail = " На столько же сожмётся ваша маржа, если цены продажи не успеют." if reseller else ""
+        return Statement(
+            text=(
+                "Допущение сервиса — цена закупки топлива идёт за нефтью. Тогда ваши"
+                f" {fmt_number(fuel_t, 0)} т топлива в месяц от условного уровня ${fmt_number(first, 0)}"
+                f" за баррель подорожают {steps}.{tail}"
+            ),
+            origin="estimate",
+            refs=refs or [],
+            confidence="low",
+        )
     steps = ", ".join(
         f"при ${fmt_number(p, 0)} — на {fmt_rub(base * (p / first - 1))}" for p in OIL_PRICES[1:]
     )
@@ -135,7 +212,7 @@ def for_context(ctx, inputs: Inputs | None = None) -> list[tuple[str, Statement,
     from api.agent.ports import LEVEL_RANK
     from api.agent.topics import event_topics, ved_direction
 
-    inputs = inputs or Inputs()
+    inputs = inputs if inputs is not None and inputs.any() else Inputs.from_user(ctx.user_inputs)
     topics = event_topics(ctx.event)
     features = {f.id: f.value for f in ctx.profile.features}
     exposure = {f.code: f for f in ctx.exposure}
@@ -157,7 +234,7 @@ def for_context(ctx, inputs: Inputs | None = None) -> list[tuple[str, Statement,
             RATE_PAGE,
             *(f for f in ("feat:CL_PRODUCT_LOA_MARK", "feat:CL_PRODUCT_LEA_MARK") if features.get(f)),
         ]
-        out.append(("est:rate_scenario", rate(inputs.debt, refs), "risks", "rate"))
+        out.append(("est:rate_scenario", rate(inputs.debt, refs, inputs.rate_type), "risks", "rate"))
     fx_hit = next((h for h in ctx.analytics if h.source.id == FX_SOURCE), None)
     now = fx_now(ctx.event.text) or fx_now(ctx.event.source.title)
     fx_verified = fx_hit is not None and "87" in (fx_hit.source.fragment or "")
@@ -180,13 +257,13 @@ def for_context(ctx, inputs: Inputs | None = None) -> list[tuple[str, Statement,
         ),
         default=0,
     )
-    if "oil" in topics and (oil_level >= 2 or inputs.purchases):
+    if "oil" in topics and (oil_level >= 2 or inputs.purchases or inputs.fuel_t):
         # маржа — у того, кто перепродаёт само топливо, а не у любой торговли
         reseller = bool(_TRADE.search(ctx.profile.display_name) and _FUEL.search(ctx.profile.display_name))
         out.append(
             (
                 "est:oil_scenario",
-                oil(inputs.purchases, reseller),
+                oil(inputs.purchases, reseller, fuel_t=inputs.fuel_t),
                 "risks",
                 "commodity_oil",
             )

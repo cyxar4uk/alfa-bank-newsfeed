@@ -167,9 +167,9 @@ class AgentContext:
     page_texts: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     today: dt.date = field(default_factory=today)  # от какой даты «прошло» и «предстоит»
-    feed_level: str | None = (
-        None  # уровень события в ленте пользователя (act/watch/info), если лента открывалась
-    )
+    # уровень события в ленте пользователя (act/watch/info), если лента открывалась
+    feed_level: str | None = None
+    user_inputs: object | None = None  # «мои числа» пользователя (api.contract.UserInputs) — для рублей
 
     # --- что можно цитировать и на что ссылаться ------------------------------------------------
 
@@ -458,6 +458,7 @@ class AgentContext:
             "chain": self.chain.model_dump(mode="json"),
             "group": self.group.model_dump(mode="json") if self.group else None,
             "coverage": self.coverage.model_dump(mode="json") if self.coverage else None,
+            "user_inputs": self.user_inputs.model_dump(mode="json") if self.user_inputs else None,
             "analytics": [h.model_dump(mode="json") for h in self.analytics],
             "news": [e.model_dump(mode="json") for e in self.news],
             "event": self.event.model_dump(mode="json"),

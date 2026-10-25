@@ -24,6 +24,7 @@ from api.agent.prompts import draft_messages, plan_messages, revise_messages
 from api.agent.relevance import combine as relevance_combine
 from api.agent.relevance import formula as relevance_formula
 from api.agent.relevance import terms_for as relevance_terms
+from api.agent.scenarios import saved_inputs
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
 from api.agent.topics import TOPIC_LABELS, TOPIC_QUERIES, event_topics, on_topic
 from api.agent.trace import TOOL_STAGES, ProgressStep, TraceRecorder
@@ -98,6 +99,7 @@ class Agent:
         )
         ctx = AgentContext(persona=persona, profile=profile, event=event)
         ctx.feed_level = feed_level(persona.id, event.id)
+        ctx.user_inputs = saved_inputs(persona.id)  # «мои числа»: рубли разбора — на них
         if event.warnings:
             # например, в тексте своей новости фразы, похожие на команды модели: это данные, их не выполняем
             ctx.warnings += event.warnings

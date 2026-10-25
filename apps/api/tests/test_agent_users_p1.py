@@ -146,3 +146,64 @@ def test_review_cases_fx_and_hypothesis_and_level():
     assert up.headline == FALLBACK_HEADLINES["act"] and up.steps and up.steps[0].text == "Проверьте долг"
     down = _with_level(Verdict(level="act", headline=FALLBACK_HEADLINES["act"], why="x"), "info")
     assert down.headline == FALLBACK_HEADLINES["info"]
+
+
+# --- «мои числа» пользователя (api.inputs) -------------------------------------------------------------
+
+
+class Saved:
+    """Как `api.contract.UserInputs`: долг, тип ставки, валютные закупки в месяц, топливо в месяц."""
+
+    def __init__(self, **kw):
+        import datetime as dt
+
+        self.debt_rub = kw.get("debt_rub")
+        self.rate_type = kw.get("rate_type")
+        self.fx_purchases_month_rub = kw.get("fx")
+        self.fuel_purchase_month_t = kw.get("fuel_t")
+        self.updated_at = kw.get("at", dt.datetime(2026, 10, 26, 9, 0))
+
+
+def test_saved_inputs_map_to_scenarios():
+    inputs = scenarios.Inputs.from_user(Saved(debt_rub=2e9, rate_type="fixed", fx=5e7, fuel_t=300))
+    assert inputs.debt == 2e9 and inputs.fx == 6e8 and inputs.fuel_t == 300 and inputs.rate_type == "fixed"
+    assert not scenarios.Inputs.from_user(None).any()
+
+
+def test_fixed_rate_and_fuel_tonnes():
+    fixed = scenarios.rate(2e9, rate_type="fixed").text
+    assert "фиксированная" in fixed and "не изменятся" in fixed and "280 млн ₽" in fixed
+    tonnes = scenarios.oil(fuel_t=300).text
+    assert "300 т" in tonnes and "18,1 %" in tonnes and "38,9 %" in tonnes and "маржа" in tonnes
+
+
+def test_card_scenarios_use_saved_numbers():
+    ctx = make_ctx()
+    ctx.page_texts[scenarios.RATE_PAGE] = "14,0% до конца года, 12,0% на конец 2027"
+    ctx.user_inputs = Saved(debt_rub=5e8)
+    (_, statement, _, _) = scenarios.for_context(ctx)[0]
+    assert "ваши 500 млн ₽" in statement.text
+
+
+def test_card_version_follows_saved_numbers(monkeypatch):
+    import datetime as dt
+
+    from agent_fakes import FakeCompany, FakeLibrary, ScriptedTransport, make_llm
+
+    import api.agent.service as service_mod
+    from api.agent.loop import insight_id
+    from api.agent.service import AgentService
+    from api.agent.store import MemoryAgentStore
+
+    stamp = {"value": None}
+    monkeypatch.setattr(service_mod, "inputs_stamp", lambda persona_id: stamp["value"])
+    llm = make_llm(ScriptedTransport(reply(GOOD_PLAN), reply(good_draft())))
+    service = AgentService(llm, FakeCompany(), FakeLibrary(), MemoryAgentStore())
+    event = make_event()
+    service.insight(event.id, PERSONA.id)
+    key = insight_id(event.id, PERSONA.id)
+    assert service.cached(key, PERSONA.id) is not None
+    # пользователь сохранил «мои числа» — старая карточка не отдаётся, рубли пересчитаются
+    stamp["value"] = dt.datetime(2026, 10, 26, 9, 0).isoformat()
+    assert service.cached(key, PERSONA.id) is None
+    assert service.cached(key) is not None  # вопрос и пересчёт по открытой карточке — работают
