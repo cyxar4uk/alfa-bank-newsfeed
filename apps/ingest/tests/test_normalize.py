@@ -92,3 +92,13 @@ def test_parse_feed_handles_cp1251_and_html_lead():
     assert src.fragment == "Совет директоров принял решение."
     assert src.url == "https://www.example.ru/news/1"
     assert src.published_at == datetime(2026, 10, 23, 13, 30, tzinfo=MSK)
+
+
+def test_publisher_suffix_is_removed_from_title():
+    from ingest.news.fetch import RawItem
+    from ingest.news.normalize import normalize
+
+    raw = RawItem(
+        "new-retail", "New Retail", 4, "Импортный алкоголь подорожает | New Retail", "", "https://x.ru/a", None
+    )
+    assert normalize(raw).title == "Импортный алкоголь подорожает"

@@ -70,6 +70,8 @@ CREATE TABLE IF NOT EXISTS source_connections (
     connected_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (persona_id, source_id)
 );
+-- on — пользователь подключил источник; off — отключил открытую ленту, которую сервис читает для всех
+ALTER TABLE source_connections ADD COLUMN IF NOT EXISTS state text NOT NULL DEFAULT 'on';
 
 CREATE TABLE IF NOT EXISTS imported_files (
     file        text PRIMARY KEY,

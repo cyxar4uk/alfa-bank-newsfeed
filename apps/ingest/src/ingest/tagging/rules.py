@@ -220,16 +220,20 @@ def business_verdict(
     trace = any(signals.values()) or bool(
         dicts.business_words and dicts.business_words.search(f"{raw['title']}\n{raw['lead']}")
     )
+    # сильный признак фактора в заголовке; отрасль одна («контейнеровоз», «маркетплейс») — слабее
+    factor_strong = [w for k, hits in signals.items() if not k.startswith("sector:") for p, kind, w in hits
+                     if p == "title" and kind == "strong"]  # fmt: skip
     if off_title and off_title.name in dicts.offtopic_strict:
         # строгая категория сильнее отрасли («Локомотив» проиграл), "always" — и фактора («поздравил таможенников»);
         # слова о бизнесе в заголовке сильнее любой: «футболист купил завод» решит модель
         if dicts.business_words and dicts.business_words.search(raw["title"]):
             return None, f"{off_title.name}, но в заголовке слова о бизнесе"
-        factor_strong = [w for k, hits in signals.items() if not k.startswith("sector:") for p, kind, w in hits
-                         if p == "title" and kind == "strong"]  # fmt: skip
         if factor_strong and dicts.offtopic_strict[off_title.name] != "always":
             return None, f"{off_title.name}, но в заголовке «{factor_strong[0]}»"
         return False, off_title.name
+    if title_strong and off_title and not factor_strong:
+        # «круизный лайнер столкнулся с контейнеровозом», «что делать, если купили подделку на маркетплейсе»
+        return None, f"{off_title.name}, но в заголовке «{title_strong[0]}»"
     if title_strong:
         return True, f"деловые слова в заголовке: «{title_strong[0]}»"
     if off_title and not trace:
