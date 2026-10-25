@@ -83,8 +83,14 @@ def to_statement(s: DraftStatement) -> Statement:
     conflict = None
     if s.bank_conflict is not None and s.origin in ("ai", "hypothesis"):
         conflict = BankConflict(text=s.bank_conflict.text, refs=list(dict.fromkeys(s.bank_conflict.refs)))
+    text = ru_decimals(s.text)
+    if s.origin == "hypothesis" and not text.lower().startswith(("возможно", "вероятно", "может", "можно")):
+        first = text.split(" ", 1)[0]
+        # «ЦБ», «Альфа-Банк», «Urals» — имена: регистр не трогаем
+        proper = len(first) > 1 and (first[1:2].isupper() or "-" in first or first[:1].isascii())
+        text = "Возможно, " + (text if proper else text[:1].lower() + text[1:])
     return Statement(
-        text=ru_decimals(s.text),
+        text=text,
         origin=s.origin,
         refs=list(dict.fromkeys(s.refs)),
         confidence=s.confidence,

@@ -12,7 +12,7 @@ from api.agent.loop import AgentError, CompanyNotFound
 from api.agent.ports import ParseError
 from api.agent.service import AgentService, NotFound, NotRelevant
 from api.agent.store import FeedbackIn, FeedbackOut, FeedbackStats
-from api.contract import Insight, Trace
+from api.contract import Insight, Statement, Trace
 from api.llm import BudgetExceeded, LlmError
 
 router = APIRouter(prefix="/api", tags=["агент"])
@@ -163,6 +163,38 @@ def ask(insight_id: str, body: AskIn, agent: Agent) -> AskOut:
         return agent.ask(insight_id, body.question)
     except Exception as exc:
         raise _fail(exc) from exc
+
+
+class ScenariosIn(BaseModel):
+    debt_rub: float | None = Field(default=None, ge=0, description="ваш долг, ₽")
+    fx_rub: float | None = Field(default=None, ge=0, description="валютные расчёты за год, ₽")
+    purchases_rub: float | None = Field(
+        default=None, ge=0, description="закупки за год, ₽ (например, топливо)"
+    )
+
+
+class ScenariosOut(BaseModel):
+    scenarios: list[Statement] = Field(
+        description="сценарии в рублях на ваших числах; нет числа — на единицу"
+    )
+
+
+@router.post(
+    "/insights/{insight_id}/scenarios",
+    response_model=ScenariosOut,
+    responses={404: {"description": "нет инсайта"}},
+)
+def scenarios(insight_id: str, body: ScenariosIn, agent: Agent) -> ScenariosOut:
+    """Пересчитать рубли карточки на своих числах: долг, валютные расчёты, закупки. Без модели, сразу."""
+    from api.agent.scenarios import Inputs
+
+    try:
+        found = agent.scenarios(
+            insight_id, Inputs(debt=body.debt_rub, fx=body.fx_rub, purchases=body.purchases_rub)
+        )
+    except Exception as exc:
+        raise _fail(exc) from exc
+    return ScenariosOut(scenarios=found)
 
 
 @router.get("/traces/{trace_id}", response_model=Trace, responses={404: {"description": "нет трассы"}})
