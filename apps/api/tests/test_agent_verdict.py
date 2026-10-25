@@ -26,9 +26,9 @@ class NoAnalytics(FakeLibrary):
         return []
 
 
-def build(*drafts, **kw) -> Insight:
+def build(*drafts, event=None, **kw) -> Insight:
     agent, _ = make_agent(reply(GOOD_PLAN), *(reply(d) for d in drafts), **kw)
-    return agent.run(PERSONA, make_event()).insight
+    return agent.run(PERSONA, event or make_event()).insight
 
 
 def test_insight_carries_verdict_bank_position_and_quotes():
@@ -228,7 +228,11 @@ def test_bank_position_label_comes_from_the_quoted_material():
         refs=[BUDGET_FRAGMENT],
         quote="бюджету приходится менять правила",
     )
-    insight = build(good_draft(bank_position=bp), library=TwoMaterials())
+    # событие — про бюджет и нефть: позиция банка по бюджету — по теме
+    budget = make_event()
+    budget.source.title = "Минфин изменит бюджетное правило: ставка и цена на нефть"
+    # цитата банка про ставку в bank_view для бюджетного события — не по теме, её нет
+    insight = build(good_draft(bank_position=bp, bank_view=[]), library=TwoMaterials(), event=budget)
     pos = insight.bank_position
     assert pos.source_id == BUDGET_FRAGMENT
     assert pos.material.startswith("Тактический взгляд") and pos.date.isoformat() == "2026-07-22"

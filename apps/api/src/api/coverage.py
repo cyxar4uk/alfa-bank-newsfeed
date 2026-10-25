@@ -12,7 +12,6 @@ from api.chain import build_chain
 from api.contract import GroupImpact
 from api.group import GroupContext, group_context, group_impact
 from api.numbers import fmt_rub
-from api.profile import companies
 from api.ranking import default_ranking
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
@@ -21,8 +20,18 @@ Pairs = list[tuple[str, float]]
 
 
 def coverage_phrase(impact: GroupImpact) -> str:
-    """«127 компаний группы с выручкой 127,1 млрд ₽» — так число стоит и в выводе ленты, и у агента."""
-    return f"{companies(impact.affected_count)} группы с выручкой {fmt_rub(impact.affected_revenue)}"
+    """«127 из 368 других компаний группы с выручкой 127,1 млрд ₽» — одно определение на все экраны: N задетых
+    из K компаний группы без вашей; так число стоит и в выводе ленты, и у агента."""
+    others = impact.others_total or impact.companies_total - 1
+    revenue = fmt_rub(impact.affected_revenue)
+    return f"{impact.affected_count} из {others} других компаний группы с выручкой {revenue}"
+
+
+def credit_phrase(impact: GroupImpact) -> str:
+    """«из них с кредитом в банке — 3» — вторая часть того же определения, для ставки и долга."""
+    if impact.affected_with_credit is None:  # старый снимок охвата: числа нет — не пишем «0»
+        return ""
+    return f"из них с кредитом в банке — {impact.affected_with_credit}"
 
 
 def _through_group(

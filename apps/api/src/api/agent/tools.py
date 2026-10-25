@@ -14,6 +14,7 @@ from pathlib import Path
 from api.agent.bridges import group_from_coverage
 from api.agent.context import AgentContext, Estimate, Offer, coverage_fact
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, CompanyData, Event, Library
+from api.agent.scenarios import for_context as scenario_estimates
 from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import Statement
 
@@ -310,12 +311,13 @@ class Tools:
                         "est:rate_debt",
                         Statement(
                             text=(
-                                "На каждый 1 млрд ₽ долга по плавающей ставке: прогноз банка на конец 2026 "
+                                "На каждый 1 млрд ₽ долга, ставка по которому идёт за ключевой: прогноз банка"
+                                " на конец 2026 "
                                 "г. — "
                                 f"{_fmt_pct(r['end_2026'])} вместо прежних "
                                 f"{_fmt_pct(r['previous_end_2026'])}, это "
                                 f"+{_fmt_mln(1000 * delta / 100)} процентов в год. Формула: долг × Δставки = "
-                                f"1 млрд ₽ × {_fmt_pct(delta).replace(' %', ' п.п')}. Свой долг и тип "
+                                f"1 млрд ₽ × {_fmt_pct(delta)}. Свой долг и тип "
                                 "ставки в данных "
                                 "банка не указаны — введите сумму, без неё расчёта нет."
                             ),
@@ -362,7 +364,8 @@ class Tools:
                         text=(
                             "На каждые 100 млн ₽ валютных расчётов изменение курса на 10 % — это ±10 млн ₽ "
                             "в рублёвом "
-                            "выражении. Направление ВЭД (импорт или экспорт) и объём в данных банка не "
+                            "выражении. Направление внешней торговли (импорт или экспорт) и объём"
+                            " в данных банка не "
                             "указаны — "
                             "знак и сумму определяет пользователь."
                         ),
@@ -377,6 +380,14 @@ class Tools:
                     "fx",
                 )
             )
+        # сценарии на условных числах: ставка 14/12 %, курс к прогнозу банка, нефть $72/$85/$100
+        have = {e.factor for e in out}
+        for est_id, statement, place, factor in scenario_estimates(ctx):
+            if est_id == "est:rate_scenario":
+                out = [e for e in out if e.id != "est:rate_debt"] if "rate" in have else out
+            if est_id == "est:fx_scenario":
+                out = [e for e in out if e.id != "est:fx"]
+            out.append(Estimate(est_id, statement, place, factor))
         ctx.estimates = out
         self.trace.found(*(_short(e.statement.text) for e in out))
         if rate_relevant and not verified:

@@ -88,16 +88,14 @@ class SearchNews:
     PAGE = 50  # больше поиск за раз не отдаёт
 
     def __init__(self, search: Any) -> None:
-        self.search = search
+        self.repo = search  # не self.search: имя занято методом search()
         self._bank: dict[tuple[str, ...], bool] = {}
 
     def events(self, since: dt.datetime | None, limit: int) -> list[NewsEvent]:
         result: list[NewsEvent] = []
         offset = 0
         while len(result) < limit:
-            page = self.search.list_news(
-                since=since, limit=min(self.PAGE, limit - len(result)), offset=offset
-            )
+            page = self.repo.list_news(since=since, limit=min(self.PAGE, limit - len(result)), offset=offset)
             result.extend(event_from(item) for item in page.items)
             offset += len(page.items)
             if not page.items or offset >= page.total:
@@ -111,7 +109,7 @@ class SearchNews:
             return False
         if codes not in self._bank:
             try:
-                self._bank[codes] = bool(self.search.search_alfa_analytics("", factors=list(codes), limit=1))
+                self._bank[codes] = bool(self.repo.search_alfa_analytics("", factors=list(codes), limit=1))
             except Exception:
                 self._bank[codes] = False  # нет аналитики или фактор неизвестен поиску — бонуса нет
         return self._bank[codes]
@@ -123,7 +121,7 @@ class SearchNews:
         """Фрагменты аналитики банка по теме — лучшие по запросу, без устаревших материалов."""
         codes = sorted({self.SEARCH_CODES.get(c, c) for c in factors})
         try:
-            found = self.search.search_alfa_analytics(query, factors=codes, limit=5)
+            found = self.repo.search_alfa_analytics(query, factors=codes, limit=5)
         except Exception:
             # нет аналитики или фактор неизвестен поиску — позиции банка нет; причину — в журнал
             logger.debug("аналитика банка по %s не найдена", codes, exc_info=True)
@@ -133,14 +131,14 @@ class SearchNews:
     def event(self, event_id: str) -> NewsEvent | None:
         if not event_id.startswith("src:news:"):
             return None
-        item = self.search.get_source(event_id)
+        item = self.repo.get_source(event_id)
         return event_from(item) if item is not None else None
 
     def search(self, query: str, limit: int) -> list[NewsEvent]:
         """Новости по запросу — полнотекстовым поиском базы, по убыванию совпадения."""
         if not query.strip():
             return []
-        page = self.search.list_news(query=query, limit=min(self.PAGE, limit))
+        page = self.repo.list_news(query=query, limit=min(self.PAGE, limit))
         return [event_from(item) for item in page.items]
 
 

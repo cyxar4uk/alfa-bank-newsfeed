@@ -173,7 +173,7 @@ def test_group_signals():
     # кредиты у трёх компаний группы
     assert (
         f["rate"].channel.text == "капиталоёмкие компании группы (стройка, генерация) — 57 % выручки группы;"
-        " также кредиты у 3 компаний группы"
+        " также кредиты у 3 из 5 других компаний группы"
     )
     assert any(e.value == "3 из 5" for e in f["rate"].evidence)
 
@@ -315,7 +315,7 @@ def test_concentration_warning():
     flows = [flow("U_99", "in", 6e8), flow("U_10", "in", 4e8, cafe)]
     exposure = build_exposure(company, flows)
     assert (
-        "60 % внешних поступлений — один плательщик (U_99, вне данных банка):"
+        "ваш крупнейший покупатель — 60 % внешних поступлений (вне данных банка):"
         " зависимость от одного контрагента" in exposure.warnings
     )
 
@@ -355,3 +355,19 @@ def test_levels_are_defined_in_api():
     assert (levels["low"].min, levels["low"].max) == (0.01, 0.3)  # ноль — уровень none
     assert levels["high"].meaning.startswith("сильная прямая связь")
     assert all(x.meaning for x in levels.values())
+
+
+def test_inflation_is_strong_for_food_and_fuel_trade():
+    for okved in ("46.71", "47.11", "56.10"):
+        inflation = next(
+            f
+            for f in build_exposure(make_company(okved_code=okved, **NO_GROUP), []).factors
+            if f.code == "inflation"
+        )
+        assert inflation.level == "high" and "по марже" in inflation.channel.text
+    parts = next(
+        f
+        for f in build_exposure(make_company(okved_code="45.31", **NO_GROUP), []).factors
+        if f.code == "inflation"
+    )
+    assert parts.level == "medium"

@@ -64,6 +64,10 @@ def test_happy_path_builds_insight_by_contract():
         "not_retelling",
         "verdict",
         "plain_language",
+        "on_topic",
+        "fresh_dates",
+        "fits_profile",
+        "action_owner",
     ]
     assert insight.unresolved_refs() == set()
     assert all(s.origin == "bank" for s in insight.bank_view)
@@ -90,7 +94,8 @@ def test_estimates_come_from_tool_not_model():
     insight = agent.run(PERSONA, make_event()).insight
     estimates = [s for s in insight.consequences.risks if s.origin == "estimate"]
     assert len(estimates) == 1
-    assert "+5 млн ₽" in estimates[0].text and "долг × Δставки" in estimates[0].text
+    # сценарий на условных числах: 1 млрд ₽ долга при 14 % и при прогнозе банка 12 %
+    assert "140 млн ₽" in estimates[0].text and "120 млн ₽" in estimates[0].text
     assert "src:alfa:keyrate-2026-09#p1" in estimates[0].refs
     assert insight.unresolved_refs() == set()
 

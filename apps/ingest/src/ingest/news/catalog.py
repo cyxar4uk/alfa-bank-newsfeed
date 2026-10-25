@@ -21,13 +21,23 @@ class CatalogSource(BaseModel):
     kind: Literal["free", "paid_api"]
     reliability: Reliability
     topics: list[str] = Field(default_factory=list)
+    # для руководителя: что это за источник, что даст подключение, бесплатно или по подписке
+    about: str = Field(min_length=1)
+    benefit: str = Field(min_length=1)
+    access: str = Field(min_length=1)
+    industries: list[str] = Field(
+        default_factory=list, description="префиксы ОКВЭД, для которых источник особенно полезен; пусто — для всех"
+    )
     connected: bool = False
     how_to_connect: list[str] = Field(min_length=1)
     docs_url: str | None = None
     icon_url: str | None = Field(default=None, description="значок издания — из его ленты в sources.toml")
     feeds: list[str] = Field(default_factory=list, description="id лент из sources.toml")
     key_env: str | None = Field(default=None, description="куда на сервере кладут ключ платного API (.env)")
-    note: str | None = Field(default=None, description="ограничения и то, что по документации подтвердить не удалось")
+    note: str | None = Field(
+        default=None,
+        description="ограничение для руководителя («сейчас недоступно в России»); техника — в how_to_connect",
+    )
 
 
 def load_catalog(path: str | None = None, feeds: list[Feed] | None = None) -> list[CatalogSource]:

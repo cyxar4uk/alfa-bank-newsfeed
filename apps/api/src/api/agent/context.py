@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from api.agent.numbers import NumberBank
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, Chain, Event, ExposureFactor, GroupImpact
+from api.agent.topics import TOPIC_LABELS, event_topics, today, ved_direction
 from api.contract import CompanyProfile, Persona, Source, Statement
 from api.contract import GroupImpact as Coverage
 from api.numbers import fmt_rub
@@ -101,6 +102,15 @@ def as_data(source_id: str, text: str | None, meta: str = "") -> str:
     return f"{head}\n{body}\n{DATA_CLOSE}"
 
 
+LEVEL_WORDS = {"act": "важно (act)", "watch": "следить (watch)", "info": "к сведению (info)"}
+_TRADE = re.compile(r"торговл", re.IGNORECASE)
+
+
+def is_reseller(display_name: str) -> bool:
+    """Компания перепродаёт товар (оптовая или розничная торговля): для неё рост цен — вопрос маржи."""
+    return bool(_TRADE.search(display_name or ""))  # торговая компания: рост цен товара — вопрос маржи
+
+
 def coverage_fact(c: Coverage) -> str:
     """«127 компаний группы с выручкой 127,1 млрд ₽» — та же фраза, что в выводе ленты (`api.coverage`)."""
     from api.coverage import coverage_phrase
@@ -156,6 +166,10 @@ class AgentContext:
     offer: Offer | None = None
     page_texts: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    today: dt.date = field(default_factory=today)  # от какой даты «прошло» и «предстоит»
+    # уровень события в ленте пользователя (act/watch/info), если лента открывалась
+    feed_level: str | None = None
+    user_inputs: object | None = None  # «мои числа» пользователя (api.contract.UserInputs) — для рублей
 
     # --- что можно цитировать и на что ссылаться ------------------------------------------------
 
@@ -297,6 +311,13 @@ class AgentContext:
         for f in sorted(self.exposure, key=lambda f: -LEVEL_RANK.get(f.level, 0)):
             cov = f" · покрытие {_short(f.coverage)}" if f.coverage is not None else ""
             lines.append(f"- {f.code} · {f.label} · {f.level} · {f.channel_text}{cov} · {', '.join(f.refs)}")
+        direction = ved_direction(self.exposure)
+        if direction:
+            word = "экспорт" if direction == "export" else "импорт"
+            lines.append(
+                f"Направление внешней торговли по данным банка: {word} —"
+                " противоположного компании не приписывай."
+            )
         return "\n".join(lines)
 
     def render_chain(self) -> str:
@@ -344,6 +365,25 @@ class AgentContext:
         tags = ", ".join(f"{clean(f.code)} ({f.strength:.1f})" for f in self.event.factors) or "нет"
         sectors = ", ".join(f"{clean(t.okved)} {clean(t.name)}" for t in self.event.sectors) or "нет"
         parts = [
+            f"СЕГОДНЯ: {self.today:%d.%m.%Y}. Всё, что раньше этой даты, — уже прошло.",
+            *(
+                [
+                    f"УРОВЕНЬ В ЛЕНТЕ: {LEVEL_WORDS[self.feed_level]} — verdict.level ставь таким же"
+                    " и пиши итог под него."
+                ]
+                if self.feed_level
+                else []
+            ),
+            *(
+                [
+                    "Компания — перепродавец (торговля): для неё главное — маржа, а не выручка:"
+                    " успеет ли она переложить рост закупочных цен в цены продажи."
+                ]
+                if is_reseller(self.profile.display_name)
+                else []
+            ),
+            "Тема события для позиции банка: "
+            + (", ".join(TOPIC_LABELS[t] for t in sorted(event_topics(self.event))) or "не определена"),
             "Событие (новость):",
             as_data(s.id, self.event.text, meta),
             f"Разметка парсера: факторы — {tags}; отрасли ОКВЭД — {sectors}",
@@ -418,6 +458,7 @@ class AgentContext:
             "chain": self.chain.model_dump(mode="json"),
             "group": self.group.model_dump(mode="json") if self.group else None,
             "coverage": self.coverage.model_dump(mode="json") if self.coverage else None,
+            "user_inputs": self.user_inputs.model_dump(mode="json") if self.user_inputs else None,
             "analytics": [h.model_dump(mode="json") for h in self.analytics],
             "news": [e.model_dump(mode="json") for e in self.news],
             "event": self.event.model_dump(mode="json"),
