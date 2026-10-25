@@ -102,6 +102,15 @@ def as_data(source_id: str, text: str | None, meta: str = "") -> str:
     return f"{head}\n{body}\n{DATA_CLOSE}"
 
 
+LEVEL_WORDS = {"act": "важно (act)", "watch": "следить (watch)", "info": "к сведению (info)"}
+_TRADE = re.compile(r"торговл", re.IGNORECASE)
+
+
+def is_reseller(display_name: str) -> bool:
+    """Компания перепродаёт товар (оптовая или розничная торговля): для неё рост цен — вопрос маржи."""
+    return bool(_TRADE.search(display_name or ""))  # торговая компания: рост цен товара — вопрос маржи
+
+
 def coverage_fact(c: Coverage) -> str:
     """«127 компаний группы с выручкой 127,1 млрд ₽» — та же фраза, что в выводе ленты (`api.coverage`)."""
     from api.coverage import coverage_phrase
@@ -158,6 +167,9 @@ class AgentContext:
     page_texts: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     today: dt.date = field(default_factory=today)  # от какой даты «прошло» и «предстоит»
+    feed_level: str | None = (
+        None  # уровень события в ленте пользователя (act/watch/info), если лента открывалась
+    )
 
     # --- что можно цитировать и на что ссылаться ------------------------------------------------
 
@@ -303,7 +315,8 @@ class AgentContext:
         if direction:
             word = "экспорт" if direction == "export" else "импорт"
             lines.append(
-                f"Направление ВЭД по данным банка: {word} — противоположного компании не приписывай."
+                f"Направление внешней торговли по данным банка: {word} —"
+                " противоположного компании не приписывай."
             )
         return "\n".join(lines)
 
@@ -353,6 +366,22 @@ class AgentContext:
         sectors = ", ".join(f"{clean(t.okved)} {clean(t.name)}" for t in self.event.sectors) or "нет"
         parts = [
             f"СЕГОДНЯ: {self.today:%d.%m.%Y}. Всё, что раньше этой даты, — уже прошло.",
+            *(
+                [
+                    f"УРОВЕНЬ В ЛЕНТЕ: {LEVEL_WORDS[self.feed_level]} — verdict.level ставь таким же"
+                    " и пиши итог под него."
+                ]
+                if self.feed_level
+                else []
+            ),
+            *(
+                [
+                    "Компания — перепродавец (торговля): для неё главное — маржа, а не выручка:"
+                    " успеет ли она переложить рост закупочных цен в цены продажи."
+                ]
+                if is_reseller(self.profile.display_name)
+                else []
+            ),
             "Тема события для позиции банка: "
             + (", ".join(TOPIC_LABELS[t] for t in sorted(event_topics(self.event))) or "не определена"),
             "Событие (новость):",

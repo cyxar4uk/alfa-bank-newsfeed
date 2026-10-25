@@ -224,6 +224,16 @@ class AgentService:
             )
         raise NotFound(f"сборка карточки {event_id} для {persona_id} не запускалась")
 
+    def scenarios(self, insight_id_: str, inputs) -> list:
+        """Сценарии карточки на числах пользователя (долг, валютные расчёты, закупки) — без модели."""
+        from api.agent.scenarios import for_context
+
+        stored = self.cached(insight_id_)
+        if stored is None:
+            raise NotFound(f"инсайт {insight_id_} не найден — откройте карточку события заново")
+        ctx = from_snapshot(stored.context)
+        return [statement for _, statement, _, _ in for_context(ctx, inputs)]
+
     def ask(self, insight_id_: str, question: str) -> AskOut:
         stored = self.cached(insight_id_)
         if stored is None:

@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from api.agent.bridges import optional
 from api.agent.checks import CHECKS, Checker, Report, quote_in
 from api.agent.context import AgentContext, coverage_fact
 from api.agent.drafts import Draft, Plan, cited, to_statement
@@ -96,6 +97,7 @@ class Agent:
             "get_profile", {"company_id": profile.id}, [f.id for f in profile.features], profile.display_name
         )
         ctx = AgentContext(persona=persona, profile=profile, event=event)
+        ctx.feed_level = feed_level(persona.id, event.id)
         if event.warnings:
             # например, в тексте своей новости фразы, похожие на команды модели: это данные, их не выполняем
             ctx.warnings += event.warnings
@@ -293,7 +295,8 @@ class Agent:
             getattr(consequences, est.place).append(est.statement)
             for ref in est.statement.refs:
                 if ref.startswith("src:alfa:") and ref not in used_sources:
-                    used_sources[ref] = _page_source(ref, ctx.page_texts.get(ref, ""))
+                    # найденный фрагмент — со своим названием и датой; страница прогноза ставки — по BANK_RATE
+                    used_sources[ref] = sources.get(ref) or _page_source(ref, ctx.page_texts.get(ref, ""))
 
         actions = [
             Action(text=ru_decimals(a.text), kind=a.kind, refs=a.refs, owner=a.owner, due=a.due)
@@ -363,7 +366,7 @@ class Agent:
             features_used=features_used,
             quality=Quality(checks_passed=final.passed, warnings=warnings),
             trace_id=trace.id,
-            verdict=_verdict(clean, score, reason, actions),
+            verdict=_with_level(_verdict(clean, score, reason, actions), ctx.feed_level, actions),
             bank_position=_bank_position(ctx, clean),
             quotes=_quotes(ctx, clean),
         )
@@ -389,6 +392,56 @@ NO_BANK_POSITION = (
 UNCONFIRMED_BANK_POSITION = "Позицию Альфа-Банка по этой теме подтвердить материалом не удалось"
 
 
+LEADS = {"act": "Для вас важно", "watch": "Стоит следить", "info": "На вашу компанию почти не влияет"}
+
+
+def feed_level(persona_id: str, event_id: str) -> str | None:
+    """Уровень события в ленте пользователя (`api.levels.event_level`); лента не открывалась — None."""
+    fn = optional("api.levels", "event_level")
+    if fn is None:
+        return None
+    try:
+        level = fn(persona_id, event_id)
+    except Exception:
+        return None
+    return level if level in LEADS else None
+
+
+FALLBACK_HEADLINES = {
+    "act": "Для вас важно: событие задевает деньги или ключевых контрагентов компании",
+    "watch": "Стоит следить: влияние на компанию возможно, но не прямое",
+    "info": "На вашу компанию почти не влияет",
+}
+
+
+def _with_level(verdict: Verdict, level: str | None, actions: list[Action] | None = None) -> Verdict:
+    """Уровень карточки — как в ленте: «Важно» в ленте не становится «Следить» в разборе.
+
+    Заголовок модели со стандартным началом получает начало нового уровня; запасной или нестандартный —
+    заменяется целиком, чтобы не противоречить уровню. У «важно» и «следить» без шагов — шаги из действий.
+    """
+    if level is None or verdict.level == level:
+        return verdict
+    headline = FALLBACK_HEADLINES[level]
+    if verdict.headline not in FALLBACK_HEADLINES.values():
+        for lead in LEADS.values():
+            if verdict.headline.startswith(lead + ":"):
+                headline = LEADS[level] + verdict.headline[len(lead) :]
+                break
+    steps = list(verdict.steps)
+    if level == "info":
+        steps = steps[:1]
+    elif not steps:
+        steps = [
+            VerdictStep(text=a.text, owner=a.owner, due=a.due)
+            for a in actions or []
+            if a.kind != "product" and is_plain(a.text)
+        ][:3]
+    return verdict.model_copy(
+        update={"level": level, "headline": headline, "steps": steps, "actions": [s.text for s in steps]}
+    )
+
+
 def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> Verdict:
     """Итог из черновика; если модель его не дала или он не прошёл проверку — по оценке и выводам карточки."""
     v = draft.verdict
@@ -403,11 +456,7 @@ def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> 
             refs=list(dict.fromkeys(v.refs)),
         )
     level = "act" if score >= 0.5 else "watch" if score >= 0.2 else "info"
-    headline = {
-        "act": "Для вас важно: событие задевает деньги или ключевых контрагентов компании",
-        "watch": "Стоит следить: влияние на компанию возможно, но не прямое",
-        "info": "На вашу компанию почти не влияет",
-    }[level]
+    headline = FALLBACK_HEADLINES[level]
     plain = [s.text for s in draft.why_it_matters if s.origin == "data" and is_plain(s.text)]
     why = next((t for t in plain if numbers_in(t)), plain[0] if plain else reason)
     steps = (
