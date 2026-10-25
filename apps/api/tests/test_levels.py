@@ -44,3 +44,7 @@ def test_level_expires():
     levels = EventLevels(ttl=-1)
     levels.pin(feed(item(0.6)), None)
     assert levels.get("p-u1-cfo", item(0.6).event_id) is None
+
+
+def test_shown_count_is_what_the_feed_unfolds():
+    assert feed(item(0.6), item(0.4, title="b"), item(0.1, title="c")).shown_count == 2

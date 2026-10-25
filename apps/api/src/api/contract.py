@@ -10,7 +10,7 @@
 import datetime as dt
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, computed_field, model_validator
 
 Origin = Literal["fact", "bank", "ai", "hypothesis", "data", "estimate", "offer"]
 # происхождение, которое обязано ссылаться на источник или признак
@@ -751,6 +751,15 @@ class Feed(BaseModel):
     items: list[FeedItem]
     candidates: int = Field(description="сколько событий рассмотрено")
     news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+
+    @computed_field(
+        description="сколько событий лента показывает развёрнутыми («важно» и «следить») — число"
+        " в «Весь брифинг · N»; «к сведению» свёрнуты и не считаются"
+    )
+    @property
+    def shown_count(self) -> int:
+        return sum(1 for i in self.items if i.takeaway is not None and i.takeaway.level != "info")
+
     summary: list[Statement] = Field(
         default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
     )
