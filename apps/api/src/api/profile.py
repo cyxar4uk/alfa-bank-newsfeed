@@ -15,6 +15,7 @@ from api.contract import (
     PaymentStructure,
     SectorShare,
 )
+from api.numbers import fmt_percent, fmt_rub
 from api.okved import SECTOR_BY_CODE, okved_prefix, sector_for
 from api.records import CompanyRecord, Flow
 
@@ -59,15 +60,11 @@ def display_name(company: CompanyRecord | None, company_id: str) -> str:
 
 
 def format_rub(amount: float) -> str:
-    for scale, unit in ((1e12, "трлн"), (1e9, "млрд"), (1e6, "млн"), (1e3, "тыс.")):
-        if abs(amount) >= scale:
-            return f"{amount / scale:.1f}".replace(".", ",") + f" {unit} ₽"
-    return f"{amount:.0f} ₽"
+    return fmt_rub(amount)
 
 
 def format_share(share: float) -> str:
-    percent = share * 100
-    return f"{percent:.0f} %" if percent >= 1 else f"{percent:.1f} %".replace(".", ",")
+    return fmt_percent(share)
 
 
 def companies(n: int) -> str:

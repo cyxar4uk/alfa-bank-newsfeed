@@ -74,6 +74,18 @@ _NEWS_COLUMNS = (
 )
 
 
+# не деловая новость: так решили словари парсера (tags.business = false), а если они не решили —
+# модель (news_business)
+# Нет ключа business (размечено моделью, ещё не переразмечено) — как null: решает ответ модели,
+# а без него — деловая.
+_NOT_BUSINESS = """coalesce(
+    coalesce(n.tags->'business', 'null'::jsonb) = 'false'::jsonb
+    OR (coalesce(n.tags->'business', 'null'::jsonb) = 'null'::jsonb
+        AND EXISTS (SELECT 1 FROM news_business b WHERE b.id = n.id AND NOT b.business)),
+    false
+)"""
+
+
 class UnknownFilter(ValueError):
     """Фильтр не из каталога: агент должен узнать об ошибке, а не получить пустую выдачу."""
 
@@ -218,6 +230,7 @@ class SearchRepo:
         until: dt.datetime | dt.date | str | None = None,
         min_strength: float = 0.0,
         include_user: bool = False,
+        include_non_business: bool = False,
     ) -> list[NewsItem]:
         """Новости по запросу и фильтрам, лучшие первыми.
 
@@ -228,8 +241,9 @@ class SearchRepo:
         пользователем на разбор — только с include_user.
         """
         items, _ = self._news(
-            query, factors, sectors, since, _limit(limit), 0, min_strength, include_user, until=until
-        )
+            query, factors, sectors, since, _limit(limit), 0, min_strength, include_user, until=until,
+            include_non_business=include_non_business,
+        )  # fmt: skip
         return items
 
     def search_alfa_analytics(
@@ -381,8 +395,13 @@ class SearchRepo:
         limit: int = 20,
         offset: int = 0,
         min_strength: float = 0.0,
+        include_non_business: bool = False,
     ) -> NewsPage:
-        items, total = self._news(query, factors, sectors, since, _limit(limit), offset, min_strength, False)
+        """Лента новостей: не деловые (спорт, происшествия, культура…) отсеяны, если не попросить их явно."""
+        items, total = self._news(
+            query, factors, sectors, since, _limit(limit), offset, min_strength, False,
+            include_non_business=include_non_business,
+        )  # fmt: skip
         return NewsPage(items=items, total=total, limit=_limit(limit), offset=offset)
 
     def get_source(self, source_id: str) -> Source | None:
@@ -438,6 +457,7 @@ class SearchRepo:
         min_strength: float,
         include_user: bool,
         until: dt.datetime | dt.date | str | None = None,
+        include_non_business: bool = False,
     ) -> tuple[list[NewsItem], int]:
         factor_codes, okved = _factor_codes(factors), _okved_codes(sectors)
         query = _text(query)
@@ -467,6 +487,7 @@ class SearchRepo:
               AND (%(since)s::timestamptz IS NULL OR n.published_at >= %(since)s::timestamptz)
               AND (%(until)s::timestamptz IS NULL OR n.published_at < %(until)s::timestamptz)
               AND (n.origin = 'feed' OR %(include_user)s)
+              AND (%(include_non_business)s OR NOT {_NOT_BUSINESS})
             ORDER BY {order}
             LIMIT %(limit)s OFFSET %(offset)s
         """
@@ -479,6 +500,7 @@ class SearchRepo:
             "until": _since(until),
             "min_strength": float(min_strength),
             "include_user": include_user,
+            "include_non_business": include_non_business,
             "limit": limit,
             "offset": max(0, int(offset)),
         }

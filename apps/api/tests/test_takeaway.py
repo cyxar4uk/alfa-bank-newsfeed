@@ -59,7 +59,7 @@ def test_act_has_event_number_and_action():
     act = takeaway(item(0.6, short=short), "cfo")
     assert act.level == "act"
     assert act.text == (
-        "Ставка 14 % продержится дольше — долг дороже: собственный кредит в банке, кредиты у 11 компаний"
+        "Ставка 14,0 % продержится дольше — долг дороже: собственный кредит в банке, кредиты у 11 компаний"
         " группы. Что делать: сверьте сроки пересмотра ставок."
     )
 
@@ -87,12 +87,12 @@ def test_group_number_for_owner():
     )
     # в заголовке «ЦБ не спешит» направления нет — так и сказано, число и действие на месте
     assert takeaway(it, "owner", exposure_map()).text == (
-        "ЦБ не спешит — направление пока неясно. 178 компаний группы с выручкой 149,0 млрд ₽"
+        "ЦБ не спешит — направление пока неясно. 178 компаний группы с выручкой 149 млрд ₽"
         " зависят от кредитов. Что делать: сверьте сроки пересмотра ставок."
     )
     it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
     assert takeaway(it, "owner", exposure_map()).text.startswith(
-        "Ставка продержится дольше — долг группы дороже: 178 компаний группы с выручкой 149,0 млрд ₽"
+        "Ставка продержится дольше — долг группы дороже: 178 компаний группы с выручкой 149 млрд ₽"
     )
 
 
@@ -105,7 +105,7 @@ def test_consequence_direction_and_side():
         exposure.factors[0].channel = ExposureChannel(kind="direct", text=channel)
         return consequence(item(0.6, title=title), key, exposure)
 
-    assert cons("ЦБ сохранил ставку 14,00%", "rate") == "Ставка 14 % продержится дольше — долг дороже"
+    assert cons("ЦБ сохранил ставку 14,00%", "rate") == "Ставка 14,0 % продержится дольше — долг дороже"
     assert cons("ЦБ снизил ключевую ставку", "rate") == "Ставка снижается — долг подешевеет"
     oil_up = "Цена Brent обновила полугодовой максимум"
     assert (
@@ -190,13 +190,12 @@ def test_facts_skip_okved_lists_and_shorten_group_lines():
             value="48 компаний, 116,8 млрд ₽ — 59 % выручки группы без самой компании; крупнейшие: U_4909",
         ),
     ]
-    assert facts(item(0.6), "rate", exposure) == [
-        "48 компаний группы с выручкой 116,8 млрд ₽ зависят от кредитов"
-    ]
+    # «48 компаний отрасли в группе» — не охват события: число задетых компаний даёт только api.coverage
+    assert facts(item(0.6), "rate", exposure) == []
     text = takeaway(
         item(0.6, title="ЦБ сохранил ключевую ставку на уровне 14 % годовых и дал сигнал"), "cfo", exposure
     )
-    assert "48 компаний" in text.text and len(text.text) <= TEXT_MAX
+    assert "48 компаний" not in text.text and len(text.text) <= TEXT_MAX
 
 
 def test_consequence_does_not_flip_meaning():
@@ -212,7 +211,7 @@ def test_consequence_does_not_flip_meaning():
     assert cons(pause, "rate") == "Ставка продержится дольше — долг дороже"
     assert cons("ЦБ снизил ставку, сохранив жесткий сигнал", "rate") == "Ставка снижается — долг подешевеет"
     assert cons("ЦБ не повысил ставку", "rate") == "Ставка не меняется — долг остаётся дорогим"
-    assert cons("Инфляция 9,5 %: ЦБ сохранил ставку 16 %", "rate").startswith("Ставка 16 %")
+    assert cons("Инфляция 9,5 %: ЦБ сохранил ставку 16 %", "rate").startswith("Ставка 16,0 %")
     # без предмета рядом с глаголом и при неясной стороне — не гадаем
     assert cons("Инфляция замедлилась, ЦБ обсудит ставку", "rate") is None
     assert cons("ОПЕК+ сократит добычу нефти", "commodity_oil", "своя отрасль — нефть") is None

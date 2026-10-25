@@ -15,6 +15,7 @@ from api.agent.context import as_data
 from api.consequence import consequence
 from api.contract import ExposureMap, Feed, FeedItem, ScoreTerm, Takeaway
 from api.llm import BudgetExceeded, LlmClient, LlmError
+from api.numbers import russian_numbers
 from api.takeaway import TEXT_MAX, WATCH, action_for, facts, main_reason, model_view
 
 TOP_N = 8
@@ -129,7 +130,10 @@ def write_top(feed: Feed, llm: LlmClient, exposure: ExposureMap, role_label: str
     except Exception:  # сбой формулировки не роняет ленту
         log.exception("вывод для верха ленты не написан")
         return feed
-    by_number = {w.event_id.strip().lstrip("EeЕе"): w.text.strip() for w in completion.value.items}
+    # «149.0 млрд ₽» у модели → «149 млрд ₽»: числа по-русски, как во всём API
+    by_number = {
+        w.event_id.strip().lstrip("EeЕе"): russian_numbers(w.text.strip()) for w in completion.value.items
+    }
     used = {i.takeaway.text for i in feed.items if i.takeaway}
     for n, (item, body) in enumerate(top, 1):
         text = by_number.get(str(n))

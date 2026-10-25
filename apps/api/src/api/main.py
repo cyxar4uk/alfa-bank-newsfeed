@@ -1,7 +1,8 @@
+import datetime as dt
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response
 from ingest.db.schema import ensure_schema as ensure_search_schema
@@ -22,6 +23,7 @@ from api.contract import (
     Health,
     InfluenceChain,
     Persona,
+    RiskMap,
     SourceConnection,
     SourceEntry,
 )
@@ -33,10 +35,21 @@ from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import parse_persona_id, personas_for
 from api.profile import LARGE_REVENUE, display_name
+from api.ranking import MSK
 from api.repo import CompanyRepo, PgCompanyRepo
 from api.search.repo import SearchRepo
 from api.search.routes import router as search_router
-from api.service import company_chain, company_exposure, company_group_impact, company_profile, persona_feed
+from api.service import (
+    WEEK_EVENTS,
+    company_chain,
+    company_exposure,
+    company_group_impact,
+    company_profile,
+    company_risk_map,
+    finish_week,
+    persona_feed,
+    week_events,
+)
 from api.sources import (
     Connections,
     MemoryConnections,
@@ -317,14 +330,34 @@ def get_feed(
     persona: Annotated[str, Query(description="id тестового пользователя, например p-u8318-cfo")],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     llm: Annotated[bool, Query(description="дооценить верх ленты моделью (слагаемое llm)")] = True,
+    period: Annotated[
+        Literal["day", "week"],
+        Query(
+            description="day — лента; week — «Главное за неделю»: 3–5 сюжетов недели, позиция банка, действие"
+        ),
+    ] = "day",
 ) -> Feed:
     """Лента пользователя: события, которые задевают его компанию, с оценкой и её разложением.
 
     Верх ленты дополнительно оценивает дешёвая модель — слагаемое `llm` в разложении; без моделей или бюджета
-    лента остаётся формальной."""
+    лента остаётся формальной. `period=week` — события за 7 дней и сюжеты недели (`stories`): события
+    одной темы, динамика и пик по числу новостей по дням, вывод с охватом группы."""
     settings = get_settings()
+    now = dt.datetime.now(MSK)
+    if period == "week" and not _client_persona(repo, persona):
+        raise HTTPException(
+            status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
+        )
+    events = week_events(news, now) if period == "week" else None  # неделю грузим только для своих
     feed = persona_feed(
-        repo, news, persona, limit=limit, candidates=settings.feed_candidates, days=settings.feed_days
+        repo,
+        news,
+        persona,
+        limit=WEEK_EVENTS if events is not None else limit,
+        candidates=settings.feed_candidates,
+        days=settings.feed_days,
+        now=now,
+        events=events,
     )
     if feed is None:
         raise HTTPException(
@@ -342,7 +375,32 @@ def get_feed(
             feed = demote_unrelated(feed)
             takeaways(feed.items, feed.role, exposure)
             feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
+    if events is not None:
+        feed = finish_week(feed, events, news, now, limit)
     return feed
+
+
+@app.get("/api/companies/{company_id}/risk-map", response_model=RiskMap, tags=["компании"])
+def get_risk_map(
+    company_id: str,
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    persona: Annotated[str, Query(description="пользователь этой компании: порядок факторов — для его роли")],
+) -> RiskMap:
+    """К чему уязвима компания: 5–7 факторов по силе и роли — почему (число из данных банка), что с фактором
+    на этой неделе, позиция банка и новости по дням; `limits` — чего не оцениваем."""
+    risk = company_risk_map(repo, news, company_id, persona)
+    if risk is None:
+        raise HTTPException(
+            status_code=404, detail=f"компания {company_id} или пользователь {persona} не найдены"
+        )
+    return risk
+
+
+def _client_persona(repo: CompanyRepo, persona: str) -> bool:
+    parsed = parse_persona_id(persona)
+    company = repo.get_company(parsed[0]) if parsed else None
+    return company is not None and company.client_type == "CLIENT"
 
 
 def _mark_ready(agent, feed: Feed) -> None:

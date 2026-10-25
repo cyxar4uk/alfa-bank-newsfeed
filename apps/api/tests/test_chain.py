@@ -38,7 +38,7 @@ def test_event_in_foreign_industry_reaches_company_through_buyers():
     assert buyers.counterparties == 2
     assert buyers.text == (
         "событие → гостиницы и общепит (56) → ваши покупатели: 2 компании,"
-        " 50 % внешних поступлений (500,0 млн ₽) → вы"
+        " 50 % внешних поступлений (500 млн ₽) → вы"
     )
     assert [(n.id, n.share, n.region) for n in buyers.nodes] == [
         ("U_10", 0.3, "Москва"),

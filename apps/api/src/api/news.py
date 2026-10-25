@@ -22,6 +22,8 @@ class NewsProvider(Protocol):
 
     def has_bank_view(self, factors: list[str]) -> bool: ...
 
+    def bank_fragments(self, factors: list[str], query: str = "") -> list[Any]: ...
+
     def event(self, event_id: str) -> NewsEvent | None: ...
 
     def search(self, query: str, limit: int) -> list[NewsEvent]: ...
@@ -59,6 +61,9 @@ class SnapshotNews:
 
     def has_bank_view(self, factors: list[str]) -> bool:
         return False
+
+    def bank_fragments(self, factors: list[str], query: str = "") -> list[Any]:
+        return []
 
     def event(self, event_id: str) -> NewsEvent | None:
         items = _snapshot(str(self.path), self.path.stat().st_mtime)
@@ -111,6 +116,20 @@ class SearchNews:
                 self._bank[codes] = False  # нет аналитики или фактор неизвестен поиску — бонуса нет
         return self._bank[codes]
 
+    # коды карты чувствительности, которые в поиске называются иначе (обратно к aliases из roles.toml)
+    SEARCH_CODES = {"commodity_oil": "commodity_oil_gas"}
+
+    def bank_fragments(self, factors: list[str], query: str = "") -> list[Any]:
+        """Фрагменты аналитики банка по теме — лучшие по запросу, без устаревших материалов."""
+        codes = sorted({self.SEARCH_CODES.get(c, c) for c in factors})
+        try:
+            found = self.search.search_alfa_analytics(query, factors=codes, limit=5)
+        except Exception:
+            # нет аналитики или фактор неизвестен поиску — позиции банка нет; причину — в журнал
+            logger.debug("аналитика банка по %s не найдена", codes, exc_info=True)
+            return []
+        return [f for f in found if not getattr(f, "stale", False)]
+
     def event(self, event_id: str) -> NewsEvent | None:
         if not event_id.startswith("src:news:"):
             return None
@@ -143,6 +162,9 @@ class FallbackNews:
 
     def has_bank_view(self, factors: list[str]) -> bool:
         return self._used.has_bank_view(factors)
+
+    def bank_fragments(self, factors: list[str], query: str = "") -> list[Any]:
+        return self._used.bank_fragments(factors, query)
 
     def event(self, event_id: str) -> NewsEvent | None:
         try:
