@@ -2,7 +2,6 @@ import { useId, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CompanyProfile, ExposureMap, FeedItem, Persona, Role, SensitivityFactor, Strength } from '../api/types';
-import { Disclaimer } from '../components/Disclaimer';
 import { factorIcon } from '../components/factorIcon';
 import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
@@ -239,7 +238,7 @@ function RiskFactorRow({ row, index }: { row: RiskRow; index: number }) {
             <span className="risk-row__bank">
               <Icon name="bank" size={16} />
               <span>
-                <span className="risk-row__bank-text">
+                <span className="risk-row__bank-text" title={row.bank.text}>
                   {row.bank.text}
                   {row.bank.outdated && <span className="risk-row__outdated"> — прогноз устарел</span>}
                 </span>
@@ -372,7 +371,6 @@ export function ExposureMapPage() {
           ))}
         </ul>
       )}
-      <Disclaimer />
     </div>
   );
 }

@@ -113,6 +113,7 @@ function Week({ row, index, read }: { row: WeekRow; index: number; read: boolean
           <span>{row.countLine}</span>
         </p>
         {row.why && <p className="day-row__why">{row.why}</p>}
+        {row.todo && <p className="day-row__todo">Что делать: {row.todo}</p>}
         {read && <ReadMark read />}
       </div>
     </li>

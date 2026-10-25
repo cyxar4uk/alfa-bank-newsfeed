@@ -6047,8 +6047,9 @@ a:hover .thumb img,
 }
 
 .risk-legend {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  justify-content: start;
   gap: 4px 28px;
   color: var(--ink-2);
   font-size: 13px;
@@ -6057,6 +6058,7 @@ a:hover .thumb img,
 
 .risk-legend .strength__word {
   color: var(--ink-2);
+  line-height: 20px;
 }
 
 .strength__bar--dash i {
@@ -6073,7 +6075,6 @@ a:hover .thumb img,
 
 .risk-list {
   display: grid;
-  margin-top: 24px;
 }
 
 .risk-row {
@@ -6154,7 +6155,12 @@ a:hover .thumb img,
 }
 
 .risk-row__bank-text {
-  display: block;
+  /* цитата банка бывает длинной — три строки, целиком в подсказке */
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
   color: var(--ink);
   font-weight: 500;
 }
@@ -6237,7 +6243,23 @@ a:hover .thumb img,
 }
 
 @media (max-width: 640px) {
+  /* три вкладки раздела — в одну строку с прокруткой, а не в две */
+  .service-head .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .service-head .tabs__item {
+    flex: none;
+    white-space: nowrap;
+  }
+
   .risk-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .risk-legend {
     grid-template-columns: minmax(0, 1fr);
   }
 

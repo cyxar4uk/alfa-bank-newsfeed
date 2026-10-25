@@ -70,7 +70,10 @@ export interface BankLine {
 export function bankLine(b: BankView): BankLine {
   return {
     text: plain(b.text),
-    caption: [b.publisher || 'Аналитики Альфа-Банка', fullDate(b.date)].filter(Boolean).join(' · '),
+    // «Альфа-Банк» в подписи материала — это его аналитики: так подписано во всём интерфейсе.
+    caption: [!b.publisher || b.publisher === 'Альфа-Банк' ? 'Аналитики Альфа-Банка' : b.publisher, fullDate(b.date)]
+      .filter(Boolean)
+      .join(' · '),
     outdated: b.outdated === true,
     note: b.outdated_note ?? null,
   };
@@ -89,6 +92,8 @@ export interface WeekRow {
   /** «22 новости за неделю · пик 23.10 — решение ЦБ» */
   countLine: string;
   why: string | null;
+  /** «Что делать» из вывода — отдельной строкой */
+  todo: string | null;
 }
 
 export interface WeekScreen {
@@ -101,10 +106,23 @@ export interface WeekScreen {
   action: { eventId: string; label: string } | null;
 }
 
+/** Вывод API пишет действие в конце: «… Что делать: сверьте сроки». В макете это отдельная строка. */
+export function splitTodo(text: string | null): { why: string | null; todo: string | null } {
+  if (!text) return { why: null, todo: null };
+  const m = /^(.*?)[\s.]*Что делать:\s*(.+)$/s.exec(text);
+  return m && m[1].trim() ? { why: `${m[1].trim()}.`, todo: m[2].trim() } : { why: text, todo: null };
+}
+
 function countLineOf(story: Story, week: string[]): string {
   const head = `${newsWord(story.news_count)} за неделю`;
   let tail: string | null = null;
-  if (story.peak) tail = `пик ${shortDate(story.peak.date)} — ${story.peak.what}`;
+  if (story.peak) {
+    // Пик о том же событии, что и заголовок сюжета, — без повтора заголовка.
+    const bare = (t: string) => plain(t).replace(/…$/, '').trim().toLowerCase();
+    const [a, b] = [bare(story.peak.what), bare(story.title)];
+    const same = a.startsWith(b) || b.startsWith(a);
+    tail = same ? `пик ${shortDate(story.peak.date)}` : `пик ${shortDate(story.peak.date)} — ${story.peak.what}`;
+  }
   else if (story.dynamics === 'faded') {
     // Утих: «с 24.10 новых нет» — день после последней новости, если он внутри недели.
     const last = story.daily_counts.reduce((acc, n, i) => (n > 0 ? i : acc), -1);
@@ -129,7 +147,7 @@ export function weekScreen(feed: Briefing, hidden: string[]): WeekScreen {
       dynamics: st.dynamics,
       days: daysOf(st.daily_counts, week),
       countLine: countLineOf(st, week),
-      why: st.takeaway?.text ? plain(st.takeaway.text) : null,
+      ...splitTodo(st.takeaway?.text ? plain(st.takeaway.text) : null),
     }));
   const meta = [periodText(week), rows.length > 0 ? `${rows.length} ${plural(rows.length, ['сюжет', 'сюжета', 'сюжетов'])}` : '']
     .filter(Boolean)

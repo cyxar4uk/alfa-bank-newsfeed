@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Briefing, FeedItem, RiskMap, Story } from '../api/types.ts';
 import { newsScreen } from './news.ts';
-import { daysLabel, daysOf, periodText, riskScreen, weekScreen } from './week.ts';
+import { daysLabel, daysOf, periodText, riskScreen, splitTodo, weekScreen } from './week.ts';
 
 const WEEK = ['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25'];
 
@@ -36,7 +36,7 @@ const week: Briefing = {
     }),
     story('fx', { level: 'info', dynamics: 'faded', daily_counts: [0, 3, 3, 1, 0, 0, 0], news_count: 7 }),
   ],
-  bank: { text: 'Альфа-Банк ожидает ставку 14,0 % до конца 2026 года', publisher: null, date: '2026-09-11', outdated: false },
+  bank: { text: 'Альфа-Банк ожидает ставку 14,0 % до конца 2026 года', publisher: 'Альфа-Банк', date: '2026-09-11', outdated: false },
   action: { code: 'rate', topic: 'долг', label: 'Обсудить долг с менеджером', event_id: null },
 };
 
@@ -51,6 +51,18 @@ test('неделя: период, число сюжетов, пик, «новы�
   // Последняя новость в четверг 22.10 — значит, с пятницы новых нет.
   assert.equal(fx.countLine, '7 новостей за неделю · с 23.10 новых нет');
   assert.equal(fx.why, null);
+  assert.deepEqual(splitTodo('Ставка продержится дольше. Что делать: сверьте сроки пересмотра ставок.'), {
+    why: 'Ставка продержится дольше.',
+    todo: 'сверьте сроки пересмотра ставок.',
+  });
+  assert.deepEqual(splitTodo('Без действия'), { why: 'Без действия', todo: null });
+  const cut = weekScreen(
+    { ...week, stories: [story('oil', { title: 'ЦБ повысил прогноз цены на нефть Urals до $72 за…', peak: { date: '2026-10-24', what: 'ЦБ повысил прогноз цены на нефть Urals до $72 за баррель', event_id: 'e' } })] },
+    [],
+  );
+  assert.equal(cut.rows[0].countLine, '12 новостей за неделю · пик 24.10');
+  const same = weekScreen({ ...week, stories: [story('rate', { title: 'ЦБ не спешит', peak: { date: '2026-10-23', what: 'ЦБ не спешит', event_id: 'e' } })] }, []);
+  assert.equal(same.rows[0].countLine, '12 новостей за неделю · пик 23.10');
   assert.deepEqual(s.bank, { text: week.bank!.text, caption: 'Аналитики Альфа-Банка · 11.09.2026', outdated: false, note: null });
   // У действия нет события — открываем главное событие сюжета его темы; темы среди сюжетов нет — кнопки нет.
   assert.deepEqual(s.action, { eventId: 'e-rate', label: 'Обсудить долг с менеджером' });
