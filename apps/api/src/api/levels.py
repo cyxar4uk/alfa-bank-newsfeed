@@ -25,35 +25,47 @@ class EventLevels:
 
     def get(self, persona: str, event_id: str) -> str | None:
         with self._lock:
-            found = self._levels.get((persona, event_id))
-            if found is None:
-                return None
-            level, at = found
-            if time.monotonic() - at > self.ttl:
-                del self._levels[(persona, event_id)]
-                return None
-            return level
+            return self._fresh((persona, event_id))
 
-    def _put(self, persona: str, event_id: str, level: str) -> None:
-        with self._lock:
-            if len(self._levels) >= self.max_events:
-                # самые старые — первыми: словарь хранит порядок вставки
-                for key in list(self._levels)[: self.max_events // 10]:
-                    del self._levels[key]
-            self._levels[(persona, event_id)] = (level, time.monotonic())
+    def _fresh(self, key: tuple[str, str]) -> str | None:
+        found = self._levels.get(key)
+        if found is None:
+            return None
+        level, at = found
+        if time.monotonic() - at > self.ttl:
+            del self._levels[key]
+            return None
+        return level
+
+    def _store(self, key: tuple[str, str], level: str) -> None:
+        """Под замком вызывающего: проверка и запись — одним шагом, два запроса не запомнят разное."""
+        if len(self._levels) >= self.max_events:
+            # самые старые — первыми: словарь хранит порядок вставки
+            for old in list(self._levels)[: self.max_events // 10]:
+                del self._levels[old]
+        self._levels.pop(key, None)
+        self._levels[key] = (level, time.monotonic())
 
     def pin(self, feed: Feed, exposure: ExposureMap | None, remember: bool = True) -> Feed:
         """Привести уровни ленты к уже показанным; новые — запомнить (`remember=False` — только привести:
         поиск оценивает без модели и не должен задавать уровень ленте)."""
         used = {i.takeaway.text for i in feed.items if i.takeaway}
         for item in feed.items:
-            if item.takeaway is None:
+            if item.takeaway is None or not item.relevance.breakdown:
                 continue
-            known = self.get(feed.persona_id, item.event_id)
-            if known is None:
-                if remember:
-                    self._put(feed.persona_id, item.event_id, item.takeaway.level)
-            elif known != item.takeaway.level and item.relevance.breakdown:
+            key = (feed.persona_id, item.event_id)
+            level = item.takeaway.level
+            with self._lock:
+                known = self._fresh(key)
+                # «к сведению» и «важно / следить» разделяет свёртывание по оценке (ниже 0,3 — в свёрнутой
+                # части): если новая оценка перешла эту границу (модель сочла «не задевает» или «сильно»),
+                # прежний уровень спорил бы со свёртыванием — верна новая оценка, её и запоминаем
+                crossed = known is not None and (known == "info") != (level == "info")
+                if known is None or crossed:
+                    if remember:
+                        self._store(key, level)
+                    continue
+            if known != level:  # act ↔ watch: тот же уровень, что пользователь уже видел
                 used.discard(item.takeaway.text)
                 item.takeaway = takeaway(item, feed.role, exposure, used, level=known)
                 used.add(item.takeaway.text)

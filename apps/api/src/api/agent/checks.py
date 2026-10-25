@@ -336,7 +336,7 @@ class Checker:
                 wrong.append(f"«{m[0][:60]}» — по данным {coverage_fact(cov)}")
         for m in _COVERAGE_HIT.finditer(text):
             n = int(m[1] or m[2])
-            if cov is not None and n != cov.affected_count and n != cov.companies_total:
+            if cov is not None and n not in (cov.affected_count, cov.companies_total, cov.others_total):
                 wrong.append(f"«{m[0][:60]}» — событие касается {cov.affected_count} компаний группы")
         return list(dict.fromkeys(wrong))
 

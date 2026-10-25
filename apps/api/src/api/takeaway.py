@@ -127,34 +127,23 @@ def gist(item: FeedItem) -> str:
     return title if len(title) <= GIST_MAX else title[: GIST_MAX - 1].rsplit(" ", 1)[0] + "…"
 
 
-# от чего зависят компании группы, которых задевает событие, — по главной причине
-DEPENDS = {
-    "rate": "от кредитов",
-    "deposit_yield": "от доходности свободных денег",
-    "commodity_oil": "от цен на топливо",
-    "fx": "от курса",
-    "ved_logistics": "от внешней торговли",
-    "gov": "от госзаказа",
-    "consumer": "от спроса",
-    "inflation": "от издержек",
-    "tax_regulation": "от налогов и пошлин",
-}
 _GROUP_LINE = re.compile(r"^(\d+) компани\w*, ([\d,]+ (?:тыс\.|млн|млрд|трлн) ₽)")
 _SHARE_OF = re.compile(r"^(\d+) из (\d+)$")
-
-
-def _depend(n: int, key: str) -> str:
-    verb = "зависит" if n % 10 == 1 and n % 100 != 11 else "зависят"
-    return f" {verb} {DEPENDS[key]}" if key in DEPENDS else ""
 
 
 def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     """Числа из данных компании человеческими фразами: группа, строка «для вас», признаки компании."""
     found = []
     gi = item.coverage or item.group_impact  # охват в группе — одно число с агентом (api.coverage)
+    credit = (
+        gi is not None
+        and gi.affected_count > 0
+        and key in CREDIT_KEYS
+        and gi.affected_with_credit is not None
+    )
     if gi and gi.affected_count:
         phrase = coverage_phrase(gi)
-        if key in CREDIT_KEYS:  # для долга — и сколько из них с кредитом в банке
+        if credit:  # для долга — и сколько из них с кредитом в банке
             phrase += f", {credit_phrase(gi)}"
         found.append(phrase)
     if item.short and _DIGIT.search(item.short):
@@ -170,7 +159,8 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
             # о том же «сколько компаний» спорило бы с охватом события
             continue
         if (m := _SHARE_OF.match(value)) and "кредит" in label:  # «11 из 28»
-            found.append(f"кредиты у {m.group(1)} из {m.group(2)} компаний группы")
+            if not credit:  # рядом с «из них с кредитом в банке — M» второе M про всю группу путало бы
+                found.append(f"кредиты у {m.group(1)} из {m.group(2)} других компаний группы")
         elif not label.startswith("компании группы"):
             found.append(f"{label}: {value}")
     return list(dict.fromkeys(found))

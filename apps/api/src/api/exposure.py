@@ -37,6 +37,12 @@ from api.profile import (
 )
 from api.records import COLUMN_OF, CompanyRecord, Flow
 
+
+def _lower(name: str) -> str:
+    """Название посреди фразы: строчная только первая буква — аббревиатуры («АЗС», «ЖКХ») остаются."""
+    return name[:1].lower() + name[1:] if name[1:2].islower() else name
+
+
 CATALOG_PATH = Path(__file__).with_name("factors.toml")
 
 # подписи признаков в доказательствах
@@ -509,7 +515,7 @@ def _group_okved(ctx: Context, s: SignalConfig) -> Hit | None:
             label=f"Компании группы с ОКВЭД {', '.join(s.codes)}",
             value=f"{len(matched)} компаний, {format_rub(amount)} — {format_share(share)} выручки группы "
             "без самой компании; крупнейшие: "
-            + ", ".join(f"{display_name(m, m.id).lower()} — {format_rub(m.revenue)}" for m in top),
+            + ", ".join(f"{_lower(display_name(m, m.id))} — {format_rub(m.revenue)}" for m in top),
         ),
     ]
     text = _fmt(s.text, share=format_share(share), count=len(matched), amount=format_rub(amount))
@@ -555,7 +561,7 @@ def _group_suppliers_fts(ctx: Context, s: SignalConfig) -> Hit | None:
             label="Платежи компаниям своей группы с ВЭД",
             value=f"{format_share(share)} всех платежей компании; "
             + ", ".join(
-                f"{display_name(p.counterparty, p.counterparty.id).lower()} — {format_rub(p.out_amount)}"
+                f"{_lower(display_name(p.counterparty, p.counterparty.id))} — {format_rub(p.out_amount)}"
                 f" ({p.counterparty.fts_countries or 'страны не указаны'})"
                 for p in top
             ),

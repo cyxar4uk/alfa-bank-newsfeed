@@ -88,11 +88,6 @@ def group_context(
     return GroupContext(company=company, members=mapped, flows=aggregate_flows(company, flows))
 
 
-def companies_genitive(n: int) -> str:
-    """«касается 1 компании», «касается 3 компаний»."""
-    return f"{n} компании" if n % 10 == 1 and n % 100 != 11 else f"{n} компаний"
-
-
 def _industry_match(member_code: str | None, codes: dict[str, list[tuple[str, float]]]) -> float:
     """Совпадение отрасли участника с событием: свой код — полная сила, сосед по классу — половина."""
     prefix = okved_prefix(member_code)

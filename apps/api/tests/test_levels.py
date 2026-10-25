@@ -25,9 +25,19 @@ def test_level_shown_once_stays_on_every_screen():
 
 def test_search_follows_but_does_not_set_levels():
     levels = EventLevels()
-    levels.pin(feed(item(0.1)), None, remember=False)
-    assert levels.get("p-u1-cfo", item(0.1).event_id) is None
-    assert levels.pin(feed(item(0.6)), None).items[0].takeaway.level == "act"
+    levels.pin(feed(item(0.6)), None, remember=False)
+    assert levels.get("p-u1-cfo", item(0.6).event_id) is None  # поиск уровень не задаёт
+    levels.pin(feed(item(0.4)), None)  # лента показала «следить»
+    assert levels.pin(feed(item(0.6)), None, remember=False).items[0].takeaway.level == "watch"
+
+
+def test_new_score_across_collapse_wins():
+    levels = EventLevels()
+    levels.pin(feed(item(0.6)), None)
+    # модель сочла «не задевает» — событие ушло в свёрнутую часть: «важно» там спорило бы со свёртыванием
+    later = levels.pin(feed(item(0.1)), None)
+    assert later.items[0].takeaway.level == "info"
+    assert levels.get("p-u1-cfo", item(0.1).event_id) == "info"
 
 
 def test_level_expires():

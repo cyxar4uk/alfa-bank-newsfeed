@@ -29,6 +29,8 @@ def coverage_phrase(impact: GroupImpact) -> str:
 
 def credit_phrase(impact: GroupImpact) -> str:
     """«из них с кредитом в банке — 3» — вторая часть того же определения, для ставки и долга."""
+    if impact.affected_with_credit is None:  # старый снимок охвата: числа нет — не пишем «0»
+        return ""
     return f"из них с кредитом в банке — {impact.affected_with_credit}"
 
 

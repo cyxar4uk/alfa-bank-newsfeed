@@ -600,7 +600,9 @@ class GroupImpact(BaseModel):
         default=0, description="других компаний группы, без компании пользователя, — K в «затронуто N из K»"
     )
     affected_count: int = Field(description="сколько других компаний группы затрагивает событие — N")
-    affected_with_credit: int = Field(default=0, description="из затронутых — с кредитом в Альфа-Банке, M")
+    affected_with_credit: int | None = Field(
+        default=None, description="из затронутых — с кредитом в Альфа-Банке, M; null — в данных не посчитано"
+    )
     major_count: int = Field(default=0, description="из них с выручкой от 1 млрд ₽")
     affected_revenue: float = Field(description="суммарная выручка задетых компаний, ₽")
     affected_revenue_bn: float

@@ -66,7 +66,7 @@ def test_act_has_event_number_and_action():
 
 def test_number_from_company_data_when_no_short_line():
     text = takeaway(item(0.6), "cfo", exposure_map()).text
-    assert "кредиты у 3 из 368 компаний группы" in text
+    assert "кредиты у 3 из 368 других компаний группы" in text
 
 
 def test_group_number_for_owner():
