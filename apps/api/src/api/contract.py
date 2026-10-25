@@ -10,7 +10,7 @@
 import datetime as dt
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Origin = Literal["fact", "bank", "ai", "hypothesis", "data", "estimate", "offer"]
 # происхождение, которое обязано ссылаться на источник или признак
@@ -320,7 +320,10 @@ class InfluenceChain(BaseModel):
 
 class CompanyProfile(BaseModel):
     id: str = Field(examples=["U_1595"])
-    display_name: str = Field(examples=["Компания №1595 · торговля розничная лекарственными средствами"])
+    display_name: str = Field(
+        examples=["Торговля розничная лекарственными средствами"],
+        description="вид деятельности — имён в данных нет, номер компании только в id",
+    )
     features: list[Feature]
     group: CompanyGroup | None = None
     counterparties: list[Counterparty] = Field(
@@ -611,7 +614,13 @@ class GroupImpact(BaseModel):
 
     group_id: str
     companies_total: int = Field(description="компаний в группе, включая компанию пользователя")
-    affected_count: int = Field(description="сколько компаний группы затрагивает событие")
+    others_total: int = Field(
+        default=0, description="других компаний группы, без компании пользователя, — K в «затронуто N из K»"
+    )
+    affected_count: int = Field(description="сколько других компаний группы затрагивает событие — N")
+    affected_with_credit: int | None = Field(
+        default=None, description="из затронутых — с кредитом в Альфа-Банке, M; null — в данных не посчитано"
+    )
     major_count: int = Field(default=0, description="из них с выручкой от 1 млрд ₽")
     affected_revenue: float = Field(description="суммарная выручка задетых компаний, ₽")
     affected_revenue_bn: float
@@ -693,11 +702,47 @@ class SourceEntry(BaseModel):
     kind: Literal["free", "paid_api"]
     reliability: Literal["official", "agency", "business_media", "other"] | None = None
     topics: list[str] = Field(default_factory=list)
+    about: str | None = Field(default=None, description="что это за источник — для руководителя")
+    benefit: str | None = Field(default=None, description="что даст подключение — одной фразой")
+    access: str | None = Field(default=None, description="бесплатно или по подписке, человеческим языком")
+    for_your_industry: bool = Field(
+        default=False,
+        description="особенно полезен отрасли пользователя: его компании или её ключевых контрагентов",
+    )
     connected: bool
-    how_to_connect: list[str] = Field(default_factory=list, description="шаги подключения")
+    connected_by: Literal["service", "user"] | None = Field(
+        default=None, description="service — открытую ленту читает сервис; user — пользователь отметил сам"
+    )
+    can_disconnect: bool = Field(
+        default=False, description="можно ли отключить (показать кнопку «Отключить»)"
+    )
+    how_to_connect: list[str] = Field(
+        default_factory=list, description="шаги подключения — для тех, кто подключает"
+    )
     docs_url: str | None = None
     icon_url: str | None = None
-    note: str | None = Field(default=None, description="ограничения: что не подтвердилось, условия")
+    note: str | None = Field(
+        default=None, description="ограничение для руководителя («сейчас недоступно в России»)"
+    )
+
+
+class UserInputsIn(BaseModel):
+    """«Мои числа» — то, чего нет в данных банка; любое поле можно не заполнять."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
+    rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
+    fx_purchases_month_rub: float | None = Field(
+        default=None, ge=0, description="валютные закупки в месяц, ₽"
+    )
+    fuel_purchase_month_t: float | None = Field(default=None, ge=0, description="закупка топлива в месяц, т")
+
+
+class UserInputs(UserInputsIn):
+    model_config = ConfigDict(extra="ignore")  # старая запись с удалённым полем не роняет чтение
+
+    updated_at: dt.datetime
 
 
 class SourceConnection(BaseModel):
@@ -760,6 +805,7 @@ class Feed(BaseModel):
     items: list[FeedItem]
     candidates: int = Field(description="сколько событий рассмотрено")
     news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+
     summary: list[Statement] = Field(
         default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
     )

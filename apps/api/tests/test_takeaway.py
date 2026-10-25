@@ -66,7 +66,7 @@ def test_act_has_event_number_and_action():
 
 def test_number_from_company_data_when_no_short_line():
     text = takeaway(item(0.6), "cfo", exposure_map()).text
-    assert "кредиты у 3 из 368 компаний группы" in text
+    assert "кредиты у 3 из 368 других компаний группы" in text
 
 
 def test_group_number_for_owner():
@@ -87,12 +87,12 @@ def test_group_number_for_owner():
     )
     # в заголовке «ЦБ не спешит» направления нет — так и сказано, число и действие на месте
     assert takeaway(it, "owner", exposure_map()).text == (
-        "ЦБ не спешит — направление пока неясно. 178 компаний группы с выручкой 149 млрд ₽"
-        " зависят от кредитов. Что делать: сверьте сроки пересмотра ставок."
+        "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽."
+        " Что делать: учтите стоимость долга в планах инвестиций группы."
     )
     it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
     assert takeaway(it, "owner", exposure_map()).text.startswith(
-        "Ставка продержится дольше — долг группы дороже: 178 компаний группы с выручкой 149 млрд ₽"
+        "Ставка продержится дольше — долг группы дороже: 178 из 368 других компаний группы"
     )
 
 
@@ -223,3 +223,30 @@ def test_consequence_does_not_flip_meaning():
         cons("Минпромторг предложил ввести утильсбор", "tax_regulation")
         == "Налоги и пошлины растут — нагрузка выше"
     )
+
+
+def test_tag_against_title_is_not_the_reason():
+    from api.takeaway import about, main_reason
+
+    mortgage = item(0.5, title="Льготную ипотеку продлят до 2027 года")
+    assert not about(mortgage, "rate") and main_reason(mortgage)[0] == ""
+    assert about(item(0.5, title="ЦБ сохранил ключевую ставку, ипотека подорожает"), "rate")
+    fuel = item(0.5, code="ved_logistics", title="Бензин на бирже подорожал")
+    assert not about(fuel, "ved_logistics")
+    assert about(item(0.5, code="ved_logistics", title="Запрет экспорта бензина продлён"), "ved_logistics")
+
+
+def test_off_topic_news_is_info_and_not_a_story():
+    from test_week import DAYS, dated
+
+    from api.week import build_stories
+
+    mortgage = dated(item(0.6, title="Льготную ипотеку продлят до 2027 года"), 4, "m")
+    takeaways([mortgage], "cfo")
+    assert mortgage.takeaway.level == "info"
+    assert build_stories([mortgage], [], DAYS, {}) == []
+    for title in (
+        "Банки снизили ставки по ипотеке вслед за ЦБ",
+        "Ставки по ипотеке и кредитам МСП растут",
+    ):
+        assert takeaway(item(0.6, title=title), "cfo").level == "act"

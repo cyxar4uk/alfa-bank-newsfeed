@@ -1,5 +1,7 @@
 import datetime as dt
 import logging
+import threading
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Literal
@@ -8,9 +10,11 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
+from api import inputs
 from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
+from api.cache import FEEDS
 from api.config import get_settings
 from api.contract import (
     ROLE_LABELS,
@@ -26,14 +30,18 @@ from api.contract import (
     RiskMap,
     SourceConnection,
     SourceEntry,
+    UserInputs,
+    UserInputsIn,
 )
 from api.db import connect, ensure_schema
 from api.images import ImageError, proxied
 from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
+from api.inputs import PgInputs
+from api.levels import LEVELS
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
-from api.personas import parse_persona_id, personas_for
+from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
 from api.profile import LARGE_REVENUE, display_name
 from api.ranking import MSK
 from api.repo import CompanyRepo, PgCompanyRepo
@@ -54,10 +62,14 @@ from api.sources import (
     Connections,
     MemoryConnections,
     PgConnections,
+    WithoutPublishers,
     catalog,
     catalog_entries,
+    company_industries,
     connect_message,
+    disconnect_message,
     entry_id,
+    publishers_of,
 )
 from api.takeaway import takeaways
 from api.takeaway_llm import demote_unrelated, write_top
@@ -77,6 +89,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.repo = PgCompanyRepo(pool)
     app.state.search = SearchRepo(pool)
     app.state.connections = PgConnections(pool)
+    inputs.STORE = PgInputs(pool)
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
@@ -87,12 +100,50 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
         logger.exception("агент не запустился")
         app.state.agent = None
+    if settings.feed_warmup:
+        threading.Thread(target=warm_feeds, args=(app.state,), name="warm-feeds", daemon=True).start()
     try:
         yield
     finally:
         if app.state.agent is not None:
             app.state.agent.jobs.shutdown()  # фоновые сборки не переживут остановку — после старта они failed
         pool.close()
+
+
+WARM_EVERY = 12 * 60  # чаще, чем истекает кэш лент (15 мин): демо-пользователь не попадает на холодную ленту
+
+
+def warm_feeds(state, rounds: int | None = None) -> None:
+    """Прогреть ленту за день, неделю и карту рисков демо-пользователей и держать их тёплыми.
+
+    Первый запрос недели с оценкой модели идёт до минуты; жюри открывает именно демо-пользователей."""
+    done = 0
+    while rounds is None or done < rounds:
+        for company_id, role, _ in DEMO_PERSONAS:
+            try:
+                warm_one(state, company_id, role)
+            except Exception:  # прогрев — не работа API: сбой одного пользователя не мешает остальным
+                logger.warning("не прогрета лента %s %s", company_id, role, exc_info=True)
+        done += 1
+        if rounds is None or done < rounds:
+            time.sleep(WARM_EVERY)
+
+
+def warm_one(state, company_id: str, role: str) -> None:
+    persona = persona_id(company_id, role)
+    news = news_for(state)
+    agent = getattr(state, "agent", None)
+    for period in ("day", "week"):
+        FEEDS.get_or_compute(
+            (persona, period, 20, True, news.name),
+            lambda period=period: build_feed(state.repo, news, agent, persona, 20, True, period),
+            refresh=True,
+        )
+    FEEDS.get_or_compute(
+        ("risk", company_id, persona, news.name),
+        lambda: company_risk_map(state.repo, news, company_id, persona),
+        refresh=True,
+    )
 
 
 app = FastAPI(
@@ -136,6 +187,21 @@ def _persona_or_404(repo: CompanyRepo, persona: str) -> str:
     return persona
 
 
+def _okveds(repo: CompanyRepo, persona: str) -> set[str]:
+    """Отрасли пользователя для пометки «для вашей отрасли»: его компания и её ключевые контрагенты."""
+    parsed = parse_persona_id(persona)
+    company = repo.get_company(parsed[0]) if parsed else None
+    return company_industries(company, repo.flows(company.id)) if company is not None else set()
+
+
+def _source_or_404(source_id: str) -> dict:
+    source_id = entry_id(source_id)  # любая лента издателя — его запись в каталоге
+    raw = next((e for e in catalog_entries() if e["id"] == source_id), None)
+    if raw is None:
+        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
+    return raw
+
+
 @sources_router.get("/catalog", response_model=list[SourceEntry])
 def sources_catalog(
     repo: Repo,
@@ -146,7 +212,8 @@ def sources_catalog(
 ) -> list[SourceEntry]:
     """Пул источников: российские и зарубежные, открытые и платные по API, подключён ли у пользователя и как
     подключить. Открытые ленты подключены всем — парсер их уже читает."""
-    return catalog(connections, _persona_or_404(repo, persona))
+    persona = _persona_or_404(repo, persona)
+    return catalog(connections, persona, _okveds(repo, persona))
 
 
 @sources_router.post("/{source_id}/connect", response_model=SourceConnection)
@@ -159,13 +226,38 @@ def connect_source(
     """Отметить источник подключённым. Ключи API в прототипе не принимаются: в ответе — куда ключ кладётся
     на сервере."""
     persona = _persona_or_404(repo, persona)
-    source_id = entry_id(source_id)  # любая лента издателя — его запись в каталоге
-    if not any(e["id"] == source_id for e in catalog_entries()):
-        raise HTTPException(status_code=404, detail=f"источник {source_id} не найден")
-    connections.connect(persona, source_id)
-    entry = next(e for e in catalog(connections, persona) if e.id == source_id)
-    raw = next(e for e in catalog_entries() if e["id"] == source_id)
+    raw = _source_or_404(source_id)
+    connections.connect(persona, raw["id"])
+    entry = next(e for e in catalog(connections, persona, _okveds(repo, persona)) if e.id == raw["id"])
     return SourceConnection(source=entry, message=connect_message(raw))
+
+
+@app.get("/api/personas/{persona}/inputs", response_model=UserInputs | None, tags=["пользователи"])
+def get_inputs(repo: Repo, persona: str) -> UserInputs | None:
+    """«Мои числа» пользователя — долг, тип ставки, валютные закупки, закупка топлива; не вводил — null."""
+    return inputs.STORE.get(_persona_or_404(repo, persona))
+
+
+@app.put("/api/personas/{persona}/inputs", response_model=UserInputs, tags=["пользователи"])
+def put_inputs(repo: Repo, persona: str, body: UserInputsIn) -> UserInputs:
+    """Сохранить «мои числа»: разбор события посчитает последствия в рублях компании. Незаполненное — null."""
+    return inputs.STORE.put(_persona_or_404(repo, persona), body)
+
+
+@sources_router.post("/{source_id}/disconnect", response_model=SourceConnection)
+def disconnect_source(
+    repo: Repo,
+    source_id: str,
+    connections: Annotated[Connections, Depends(get_connections)],
+    persona: Annotated[str, Query(description="id тестового пользователя")],
+) -> SourceConnection:
+    """Отключить источник у пользователя: новости открытой ленты уходят из его ленты, брифинга и поиска
+    (у остальных пользователей остаются); отметка «подключён» у платного снимается. Вернуть — `connect`."""
+    persona = _persona_or_404(repo, persona)
+    raw = _source_or_404(source_id)
+    connections.disconnect(persona, raw["id"])
+    entry = next(e for e in catalog(connections, persona, _okveds(repo, persona)) if e.id == raw["id"])
+    return SourceConnection(source=entry, message=disconnect_message(raw))
 
 
 app.include_router(sources_router)
@@ -310,10 +402,23 @@ def get_group_impact(
 
 
 def news_provider(request: Request) -> NewsProvider:
-    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo."""
+    """База новостей поиска, если она подключена (пустая — со снимком в запасе); иначе — снимок data/demo.
+
+    Источники, которые пользователь (`persona` в запросе) отключил в каталоге, из его новостей убраны."""
+    provider = news_for(request.app.state)
+    persona = request.query_params.get("persona")
+    try:
+        off = get_connections(request).disconnected(persona) if persona else set()
+    except Exception:  # лента важнее фильтра: без базы отметок показываем все источники
+        logger.warning("не удалось прочитать отключённые источники", exc_info=True)
+        off = set()
+    return WithoutPublishers(provider, publishers_of(off)) if off else provider
+
+
+def news_for(state) -> NewsProvider:
     path = get_settings().news_snapshot
     snapshot = SnapshotNews(path) if path.is_file() else None
-    search = getattr(request.app.state, "search", None)
+    search = getattr(state, "search", None)
     if search is not None:
         return FallbackNews(SearchNews(search), snapshot)
     if snapshot is None:
@@ -341,13 +446,29 @@ def get_feed(
 
     Верх ленты дополнительно оценивает дешёвая модель — слагаемое `llm` в разложении; без моделей или бюджета
     лента остаётся формальной. `period=week` — события за 7 дней и сюжеты недели (`stories`): события
-    одной темы, динамика и пик по числу новостей по дням, вывод с охватом группы."""
-    settings = get_settings()
-    now = dt.datetime.now(MSK)
-    if period == "week" and not _client_persona(repo, persona):
+    одной темы, динамика и пик по числу новостей по дням, вывод с охватом группы.
+
+    Готовая лента живёт 15 минут (api.cache): второй запрос с главной или вкладки отвечает сразу."""
+    agent = getattr(request.app.state, "agent", None)
+    key = (persona, period, limit, llm, news.name)
+    feed = FEEDS.get_or_compute(key, lambda: build_feed(repo, news, agent, persona, limit, llm, period))
+    if feed is None:
         raise HTTPException(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
+    feed = feed.model_copy(deep=True)  # готовность карточек — своя у каждого запроса
+    _mark_ready(agent, feed)
+    return feed
+
+
+def build_feed(
+    repo: CompanyRepo, news: NewsProvider, agent, persona: str, limit: int, llm: bool, period: str
+) -> Feed | None:
+    """Лента или неделя пользователя целиком — с оценкой модели и закреплённым уровнем; не клиент — None."""
+    settings = get_settings()
+    now = dt.datetime.now(MSK)
+    if period == "week" and not _client_persona(repo, persona):
+        return None
     events = week_events(news, now) if period == "week" else None  # неделю грузим только для своих
     feed = persona_feed(
         repo,
@@ -360,13 +481,9 @@ def get_feed(
         events=events,
     )
     if feed is None:
-        raise HTTPException(
-            status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
-        )
-    agent = getattr(request.app.state, "agent", None)
-    _mark_ready(agent, feed)
+        return None
+    exposure = company_exposure(repo, feed.company_id)
     if llm and settings.feed_llm_top and agent is not None and agent.llm is not None:
-        exposure = company_exposure(repo, feed.company_id)
         if exposure is not None:
             feed = rerank(
                 feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""), top_n=settings.feed_llm_top
@@ -375,8 +492,10 @@ def get_feed(
             feed = demote_unrelated(feed)
             takeaways(feed.items, feed.role, exposure)
             feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
+    # уровень, однажды показанный, — тот же в дне, неделе и карточке (api.levels); сюжеты недели берут его же
+    feed = LEVELS.pin(feed, exposure)
     if events is not None:
-        feed = finish_week(feed, events, news, now, limit)
+        feed = finish_week(feed, events, news, now, limit, exposure)
     return feed
 
 
@@ -389,7 +508,9 @@ def get_risk_map(
 ) -> RiskMap:
     """К чему уязвима компания: 5–7 факторов по силе и роли — почему (число из данных банка), что с фактором
     на этой неделе, позиция банка и новости по дням; `limits` — чего не оцениваем."""
-    risk = company_risk_map(repo, news, company_id, persona)
+    risk = FEEDS.get_or_compute(
+        ("risk", company_id, persona, news.name), lambda: company_risk_map(repo, news, company_id, persona)
+    )
     if risk is None:
         raise HTTPException(
             status_code=404, detail=f"компания {company_id} или пользователь {persona} не найдены"
@@ -435,7 +556,7 @@ def search_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     _mark_ready(getattr(request.app.state, "agent", None), feed)
-    return feed
+    return LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])
