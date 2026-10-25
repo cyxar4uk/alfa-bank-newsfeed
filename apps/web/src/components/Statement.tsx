@@ -168,13 +168,13 @@ export function StatementItem({
         <dl className="stmt__check">
           {statement.check.confirm && (
             <div>
-              <dt>Подтвердит</dt>
+              <dt>Станет ясно, если</dt>
               <dd>{statement.check.confirm}</dd>
             </div>
           )}
           {statement.check.refute && (
             <div>
-              <dt>Опровергнет</dt>
+              <dt>Не подтвердится, если</dt>
               <dd>{statement.check.refute}</dd>
             </div>
           )}

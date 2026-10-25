@@ -1,17 +1,27 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CatalogSource } from '../api/types';
 import { Disclaimer } from '../components/Disclaimer';
 import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
+import { ChipSwitch } from '../components/WeekParts';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { useBriefing } from '../state/briefing';
 import { useCurrentUser } from '../state/session';
 import { useAsync } from '../state/useAsync';
 
 function metaOf(s: CatalogSource): string {
-  return [s.country === 'intl' ? 'Мир' : 'Россия', s.kind === 'paid_api' ? 'по подписке · через API' : 'бесплатно'].join(' · ');
+  return [s.country === 'intl' ? 'Мир' : 'Россия', s.access || (s.kind === 'paid_api' ? 'по подписке · через API' : 'бесплатно')].join(' · ');
+}
+
+/** Что появится в ленте после подключения: темы источника, если они есть в каталоге. */
+function connectedNote(source: CatalogSource): string {
+  if (source.benefit) return `Подключён. ${source.benefit}`;
+  const topics = (source.topics ?? []).slice(0, 3);
+  return topics.length > 0
+    ? `Подключён — в ленте появятся новости ${source.name}: ${topics.join(', ')}.`
+    : `Подключён — в ленте появятся новости ${source.name}.`;
 }
 
 function SourceCard({
@@ -19,7 +29,7 @@ function SourceCard({
   open,
   onOpen,
   connected,
-  onConnected,
+  onToggle,
   personaId,
 }: {
   personaId: string;
@@ -27,12 +37,44 @@ function SourceCard({
   open: boolean;
   onOpen: () => void;
   connected: boolean;
-  onConnected: () => void;
+  onToggle: (connected: boolean) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
   const [iconFailed, setIconFailed] = useState(false);
   const paid = source.kind === 'paid_api';
+
+  function connect() {
+    setBusy(true);
+    setError(null);
+    api
+      .connectSource(source.id, personaId)
+      .then((res) => {
+        onToggle(true);
+        setMessage(res?.message || connectedNote(source));
+      })
+      .catch(() => setError('Не удалось подключить — попробуйте ещё раз.'))
+      .finally(() => setBusy(false));
+  }
+
+  function disconnect() {
+    setBusy(true);
+    setError(null);
+    api
+      .disconnectSource(source.id, personaId)
+      .then((res) => {
+        onToggle(false);
+        setMessage(
+          res
+            ? res.message || `Отключён — новостей ${source.name} в ленте больше не будет.`
+            : `Отключён на этом экране — в прототипе сервер пока не запоминает отключение.`,
+        );
+      })
+      .catch(() => setError('Не удалось отключить — попробуйте ещё раз.'))
+      .finally(() => setBusy(false));
+  }
+
   return (
     <li className="source-card appear">
       <div className="source-card__head">
@@ -48,37 +90,41 @@ function SourceCard({
           <p className="source-card__meta">{metaOf(source)}</p>
         </div>
       </div>
-      {source.topics && source.topics.length > 0 && <p className="source-card__topics">{source.topics.join(', ')}</p>}
+      {source.about ? (
+        <p className="source-card__topics">{source.about}</p>
+      ) : (
+        source.topics && source.topics.length > 0 && <p className="source-card__topics">{source.topics.join(', ')}</p>
+      )}
+      {source.benefit && <p className="source-card__gives">{source.benefit}</p>}
+      {/* note для руководителя — только в новом каталоге (#78); в старом это заметки команды, их не показываем */}
+      {source.note && source.can_disconnect !== undefined && <p className="source-card__note">{source.note}</p>}
       {connected ? (
-        <span className="status-ok">
-          <Icon name="check" size={16} />
-          Подключён
-        </span>
+        <div className="source-card__state">
+          <span className="status-ok">
+            <Icon name="check" size={16} />
+            Подключён
+          </span>
+          {source.can_disconnect !== false && (
+            <button type="button" className="link-button source-card__off" disabled={busy} onClick={disconnect}>
+              Отключить<span className="visually-hidden"> {source.name}</span>
+            </button>
+          )}
+        </div>
       ) : paid ? (
-        <button type="button" className="btn btn--outline btn--s" aria-expanded={open} onClick={onOpen}>
-          Подключить по API
+        <button type="button" className="btn btn--outline btn--s" aria-expanded={open} aria-controls="howto" onClick={onOpen}>
+          {open ? 'Скрыть инструкцию' : 'Подключить по API'}
         </button>
       ) : (
-        <button
-          type="button"
-          className="btn btn--secondary btn--s"
-          disabled={busy}
-          onClick={() => {
-            setBusy(true);
-            setError(false);
-            api
-              .connectSource(source.id, personaId)
-              .then(onConnected)
-              .catch(() => setError(true))
-              .finally(() => setBusy(false));
-          }}
-        >
-          Подключить
+        <button type="button" className="btn btn--secondary btn--s" disabled={busy} onClick={connect}>
+          Подключить<span className="visually-hidden"> {source.name}</span>
         </button>
       )}
+      <p className="source-card__message" role="status">
+        {message}
+      </p>
       {error && (
         <p className="source-card__error" role="alert">
-          Не удалось подключить — попробуйте ещё раз.
+          {error}
         </p>
       )}
     </li>
@@ -89,14 +135,20 @@ function SourceCard({
 function HowTo({ source, onDone }: { source: CatalogSource; onDone: () => Promise<void> }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  // Открыли инструкцию — показываем её сразу: прокрутка к ней и фокус на заголовок.
+  useEffect(() => {
+    titleRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    titleRef.current?.focus({ preventScroll: true });
+  }, [source.id]);
   return (
-    <section className="card howto appear" aria-labelledby="howto-title">
-      <h2 className="howto__title" id="howto-title">
+    <section className="card howto appear" id="howto" aria-labelledby="howto-title">
+      <h2 className="howto__title" id="howto-title" ref={titleRef} tabIndex={-1}>
         <Icon name="key" size={20} />
         Как подключить {source.name} по API
       </h2>
+      {(source.benefit || source.about) && <p className="howto__benefit">{source.benefit ?? source.about}</p>}
       <ol className="howto__steps">
-        {/* how_to_connect и note из каталога — заметки для команды (файлы настроек, проверка документации), не для клиента. */}
         {[
           'Оформите подписку на новостной API у издателя.',
           'В личном кабинете издателя создайте ключ доступа к API.',
@@ -136,7 +188,7 @@ function HowTo({ source, onDone }: { source: CatalogSource; onDone: () => Promis
   );
 }
 
-/** «Источники» (макет «A+ · Источники»): пул важных для бизнеса источников и подключение; своя новость — внизу. */
+/** «Источники» (макет «A+ · Источники»): своя новость — наверху; пул важных для бизнеса источников, подключение и отключение. */
 export function SourcesPage() {
   const { persona } = useCurrentUser();
   const catalog = useAsync((signal) => api.catalog(persona.id, signal), `catalog|${persona.id}`);
@@ -145,6 +197,7 @@ export function SourcesPage() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [connected, setConnected] = useState<Record<string, boolean>>({});
   const [input, setInput] = useState('');
+  const [view, setView] = useState<'all' | 'relevant' | 'connected'>('all');
 
   // Каталога в API может ещё не быть — тогда честно показываем издания, которые уже приходят в ленту.
   const fromFeed: CatalogSource[] =
@@ -162,6 +215,16 @@ export function SourcesPage() {
   const waiting = catalog.status === 'loading' || (catalog.status === 'ok' && !catalog.data?.length && briefing.status === 'loading');
   const open = list.find((s) => s.id === openId) ?? null;
   const isConnected = (s: CatalogSource) => connected[s.id] ?? s.connected;
+  // «Для вашей отрасли» — только если каталог знает, какие источники пишут об отрасли компании.
+  const hasRelevant = list.some((s) => s.for_your_industry === true);
+  const shown = list.filter((s) =>
+    view === 'relevant' ? s.for_your_industry === true : view === 'connected' ? isConnected(s) : true,
+  );
+  const views: { value: typeof view; label: string }[] = [
+    { value: 'all', label: 'Все' },
+    ...(hasRelevant ? [{ value: 'relevant' as const, label: 'Для вашей отрасли' }] : []),
+    { value: 'connected', label: 'Подключённые' },
+  ];
 
   function onAnalyze(e: FormEvent) {
     e.preventDefault();
@@ -171,6 +234,24 @@ export function SourcesPage() {
   return (
     <div className="page news-page">
       <ServiceTabs />
+      <section className="card own-news-card" aria-labelledby="own-news-title">
+        <h2 className="own-news-card__title" id="own-news-title">
+          <Icon name="model" size={20} />
+          Своя новость
+        </h2>
+        <p className="own-news-card__lead">Вставьте ссылку или текст — разберём, что это значит для компании.</p>
+        <form className="own-news" onSubmit={onAnalyze}>
+          <Icon name="search" size={18} />
+          <label htmlFor="own-news" className="visually-hidden">
+            Своя новость: ссылка или текст
+          </label>
+          <input id="own-news" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Ссылка на новость или её текст" />
+          <button type="submit" className="btn btn--primary btn--s" disabled={!input.trim()}>
+            Разобрать
+          </button>
+        </form>
+      </section>
+
       <p className="sources-lead">Подключите источники, которые важны для вашего бизнеса. Чем больше надёжных источников, тем точнее выводы.</p>
 
       {waiting && (
@@ -188,15 +269,19 @@ export function SourcesPage() {
         <EmptyState title="Источников пока нет">Они появятся, когда загрузится лента новостей.</EmptyState>
       )}
       {list.length > 0 && (
+        <ChipSwitch label="Какие источники показать" value={view} options={views} onChange={setView} />
+      )}
+      {list.length > 0 && shown.length === 0 && <p className="muted">Здесь пока пусто.</p>}
+      {shown.length > 0 && (
         <ul className="source-grid">
-          {list.map((s) => (
+          {shown.map((s) => (
             <SourceCard
               key={s.id}
               source={s}
               open={openId === s.id}
               onOpen={() => setOpenId(openId === s.id ? null : s.id)}
               connected={isConnected(s)}
-              onConnected={() => setConnected((c) => ({ ...c, [s.id]: true }))}
+              onToggle={(on) => setConnected((c) => ({ ...c, [s.id]: on }))}
               personaId={persona.id}
             />
           ))}
@@ -214,21 +299,6 @@ export function SourcesPage() {
         />
       )}
 
-      <form className="own-news" onSubmit={onAnalyze}>
-        <Icon name="search" size={18} />
-        <label htmlFor="own-news" className="visually-hidden">
-          Своя новость: ссылка или текст
-        </label>
-        <input
-          id="own-news"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Есть своя новость? Вставьте ссылку или текст — разберём для компании"
-        />
-        <button type="submit" className="btn btn--secondary btn--s" disabled={!input.trim()}>
-          Разобрать
-        </button>
-      </form>
       <Disclaimer />
     </div>
   );

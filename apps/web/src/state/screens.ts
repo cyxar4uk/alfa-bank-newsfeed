@@ -19,7 +19,7 @@ import type {
 const FACTOR_SHORT: Record<string, string> = {
   rate: 'Ставка',
   fx: 'Курс',
-  ved_logistics: 'ВЭД и логистика',
+  ved_logistics: 'Внешняя торговля и логистика',
   inflation: 'Инфляция',
   consumer: 'Спрос',
   labor: 'Рынок труда',
@@ -487,7 +487,7 @@ export interface CardRow {
 }
 
 export interface CardMenuItem {
-  id: 'forward' | 'weekly' | 'remind' | 'product' | 'hide';
+  id: 'weekly' | 'remind' | 'product' | 'hide';
   label: string;
 }
 
@@ -596,7 +596,6 @@ export function cardScreen({ insight, item, exposure }: CardState): CardScreen {
       : null;
 
   const menu: CardMenuItem[] = [
-    { id: 'forward', label: 'Переслать коллеге' },
     { id: 'weekly', label: 'Добавить в сводку недели' },
     { id: 'remind', label: 'Напомнить через неделю' },
   ];
@@ -641,7 +640,7 @@ export function cardScreen({ insight, item, exposure }: CardState): CardScreen {
     lead: insight.what_happened.slice(0, 2).map((s) => s.text),
     forYou: {
       phrase: insight.why_it_matters[0]
-        ? `${isHypothesis(insight.why_it_matters[0]) ? 'Гипотеза: ' : ''}${insight.why_it_matters[0].text}`
+        ? `${isHypothesis(insight.why_it_matters[0]) ? 'Возможно: ' : ''}${insight.why_it_matters[0].text}`
         : insight.relevance.reason,
       numbers,
       quote,

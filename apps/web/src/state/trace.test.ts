@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Trace, TraceStep } from '../api/types.ts';
-import { scrubDeep, scrubIds, traceStory } from './trace.ts';
+import { expandAbbr, scrubDeep, scrubIds, traceStory } from './trace.ts';
 
 const step = (n: number, kind: TraceStep['kind'], extra: Partial<TraceStep> = {}): TraceStep => ({ n, kind, output_refs: [], ...extra });
 
@@ -72,4 +72,19 @@ test('служебные id компаний убираем из текста, �
   assert.equal(scrubIds('Крупные контрагенты: U_4754 · поставщик · 14 % оборота; U_909 · покупатель · 2 % оборота'), 'Крупные контрагенты: поставщик · 14 % оборота; покупатель · 2 % оборота');
   const body = scrubDeep({ company_id: 'U_57706', items: [{ text: 'Кредиты у Компания №333 и U_909' }], n: 3, ok: true, none: null });
   assert.deepEqual(body, { company_id: 'U_57706', items: [{ text: 'Кредиты у 2 компании' }], n: 3, ok: true, none: null });
+});
+
+test('сокращения расшифрованы при первом упоминании, «п.п.» — словами', () => {
+  assert.equal(expandAbbr('ВЭД со странами ЕАЭС; ВЭД: Киргизия'), 'ВЭД (внешнеэкономическая деятельность) со странами ЕАЭС; ВЭД: Киргизия');
+  assert.equal(expandAbbr('ставка выше на 0,5 п.п. и на 2 п. п.'), 'ставка выше на 0,5 процентного пункта и на 2 процентных пункта.');
+  assert.equal(expandAbbr('рост ФОТ на 5 п.п.'), 'рост ФОТ (фонд оплаты труда) на 5 процентных пунктов.');
+  assert.equal(expandAbbr('ВЭД'), 'ВЭД');
+  assert.equal(expandAbbr('выше на 2 п.п. Это давит на маржу'), 'выше на 2 процентных пункта. Это давит на маржу');
+  assert.equal(expandAbbr('рост на 2 п.п.'), 'рост на 2 процентных пункта.');
+  assert.equal(expandAbbr('новые ВЭД-контракты и ВЭД группы'), 'новые ВЭД-контракты и ВЭД (внешнеэкономическая деятельность) группы');
+  assert.deepEqual(scrubDeep({ title: 'ВЭД под санкциями', text: 'ВЭД под санкциями' }), {
+    title: 'ВЭД под санкциями',
+    text: 'ВЭД (внешнеэкономическая деятельность) под санкциями',
+  });
+  assert.equal(expandAbbr('СВЭДЕНИЯ о компании'), 'СВЭДЕНИЯ о компании');
 });

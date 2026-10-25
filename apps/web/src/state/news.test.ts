@@ -60,11 +60,11 @@ test('главное за день — три темы с уровнем; лен
       ['e', 'watch', 'Событие e', null],
     ],
   );
+  // События из «Главного за день» второй раз в ленте не показываем.
   assert.deepEqual(
     s.events.map((e) => e.eventId),
-    ['a', 'c', 'e', 'd'],
+    ['d'],
   );
-  assert.equal(s.events[0].sourceLine, 'Коммерсантъ · ещё 1 по теме · 23.10');
   assert.equal(s.day[0].fromModel, false);
   assert.equal(s.more, 0);
   assert.equal(s.updated, '24 октября · последняя новость — 23.10, 13:30');
@@ -89,9 +89,14 @@ test('цепочка — из данных компании, без выдума
 test('фильтр по теме и «показать ещё»', () => {
   const many = { ...feed, items: [...feed.items, item('f', 0.25, ['labor']), item('g', 0.22, ['gov'])] };
   const s = newsScreen({ ...base, feed: many });
-  assert.equal(s.events.length, 4);
-  assert.equal(s.more, 2);
-  assert.equal(newsScreen({ ...base, feed: many, showAll: true }).more, 0);
+  assert.deepEqual(
+    s.events.map((e) => e.eventId),
+    ['f', 'g', 'd'],
+  );
+  assert.equal(s.more, 0);
+  const lots = { ...feed, items: [...many.items, item('h', 0.21, ['fx2']), item('i', 0.2, ['oil'])] };
+  assert.equal(newsScreen({ ...base, feed: lots }).more, 1);
+  assert.equal(newsScreen({ ...base, feed: lots, showAll: true }).more, 0);
   const f = newsScreen({ ...base, filter: 'rate' });
   assert.deepEqual(
     f.events.map((e) => e.eventId),
@@ -135,8 +140,10 @@ test('с разбором главного события: вывод, «что 
     caption: 'Аналитики Альфа-Банка · «Ключевая ставка» · 11.09.2026 · стр. 1',
     eventId: 'a',
   });
-  assert.equal(s.events[0].bank, 'Альфа-Банк ожидает ставку 14 % до конца 2026 года');
-  assert.equal(s.events[1].bank, null);
+  // В ленте главное событие — только при выборе его темы, с позицией банка.
+  const byTopic = newsScreen({ ...base, lead, filter: 'rate' });
+  assert.equal(byTopic.events[0].bank, 'Альфа-Банк ожидает ставку 14 % до конца 2026 года');
+  assert.equal(byTopic.events[1].bank, null);
   assert.equal(s.leadInsight?.id, 'ins:a');
 });
 
@@ -200,7 +207,7 @@ test('подсветка цитат в полном тексте', async () => {
 test('фильтр по теме, которой нет, не действует; «главное за день» пустое, если всё слабое', () => {
   const s = newsScreen({ ...base, filter: 'oil' });
   assert.equal(s.chips[0].selected, true);
-  assert.equal(s.events.length, 4);
+  assert.equal(s.events.length, 1);
   const weak = newsScreen({ ...base, feed: { ...feed, items: [item('w', 0.2, ['rate'])] } });
   assert.deepEqual(weak.day, []);
   assert.equal(weak.events.length, 1);

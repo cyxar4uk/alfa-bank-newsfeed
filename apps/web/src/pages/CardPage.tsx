@@ -21,7 +21,7 @@ import { tracePath } from '../state/routes';
 import { cardScreen, isHypothesis, type CardMenuItem, type CardRow } from '../state/screens';
 import { useCurrentUser } from '../state/session';
 import { markRead } from '../state/read';
-import { stepsOf } from '../state/steps';
+import { progressOf, stepsOf } from '../state/steps';
 import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
 
@@ -90,7 +90,6 @@ function NewsHead({ title, publisher, date, factor, image }: { title: string; pu
 }
 
 const MENU_NOTE: Partial<Record<CardMenuItem['id'], string>> = {
-  forward: 'Переслать коллеге — в прототипе недоступно: ничего не отправляется.',
   weekly: 'Сводки недели в прототипе пока нет.',
   remind: 'Напоминание — в прототипе недоступно: ничего не сохраняется.',
 };
@@ -184,7 +183,7 @@ function Card({
         <section className="card verdict__card">
           <p className={`verdict__level verdict__level--${level}`}>
             <LevelIcon level={level} />
-            {LEVEL_LABEL[level]} для компании
+            {LEVEL_LABEL[level]}
           </p>
           {headline && (
             <h2 className="verdict__headline">
@@ -216,22 +215,69 @@ function Card({
               Позиции Альфа-Банка по этой теме нет
             </p>
           )}
+          {why && (
+            <>
+              <p className="caps">Почему</p>
+              <p className="verdict__text">{why}</p>
+            </>
+          )}
+          {todo.length > 0 && (
+            <section className="verdict__todo-box" aria-labelledby="todo-title">
+              <h3 className="verdict__todo-title" id="todo-title">
+                Что делать
+              </h3>
+              <ol className="verdict__todo">
+                {todo.map((t) => (
+                  <li key={t}>{t}</li>
+                ))}
+              </ol>
+            </section>
+          )}
+          <div className="verdict__actions">
+            <button
+              type="button"
+              className="btn btn--secondary btn--s"
+              aria-expanded={request === 'task'}
+              aria-controls={request === 'task' ? 'request-form' : undefined}
+              onClick={() => open('task')}
+            >
+              <Icon name="check" size={16} />
+              Поручить
+            </button>
+            <button
+              type="button"
+              className="btn btn--secondary btn--s"
+              aria-expanded={request === 'forward'}
+              aria-controls={request === 'forward' ? 'request-form' : undefined}
+              onClick={() => open('forward')}
+            >
+              <Icon name="forward" size={16} />
+              Переслать коллеге
+            </button>
+          </div>
           <button
             ref={triggerRef}
             type="button"
-            className="btn btn--primary btn--block"
+            className="btn btn--outline btn--block verdict__manager"
             onClick={() => open('manager')}
-            aria-expanded={request !== null}
-            aria-controls={request ? 'request-form' : undefined}
+            aria-expanded={request === 'manager'}
+            aria-controls={request === 'manager' ? 'request-form' : undefined}
           >
-            Обсудить с менеджером
+            <span>Оставить заявку менеджеру</span>
+            <span className="verdict__manager-hint">Менеджер получит разбор и тему: {topic}</span>
           </button>
           {request && (
             <div id="request-form">
               <RequestForm
                 key={`${request}-${round}`}
                 kind={request}
-                topic={request === 'application' ? (insight.actions.find((a) => a.kind === 'product')?.text ?? topic) : topic}
+                topic={
+                  request === 'application'
+                    ? (insight.actions.find((a) => a.kind === 'product')?.text ?? topic)
+                    : request === 'task'
+                      ? (todo[0] ?? topic)
+                      : topic
+                }
                 context={context}
                 onClose={() => {
                   setRequest(null);
@@ -241,22 +287,7 @@ function Card({
               />
             </div>
           )}
-          {why && (
-            <>
-              <p className="caps">Почему</p>
-              <p className="verdict__text">{why}</p>
-            </>
-          )}
-          {todo.length > 0 && (
-            <>
-              <p className="caps">Что делать</p>
-              <ol className="verdict__todo">
-                {todo.map((t) => (
-                  <li key={t}>{t}</li>
-                ))}
-              </ol>
-            </>
-          )}
+          <AskBox insight={insight} personaId={personaId} index={index} />
           {steps.length > 0 && (
             <details className="howgot">
               <summary>
@@ -334,9 +365,6 @@ function Card({
           image={imageOf(detail, item)}
         />
         <FullText detail={detail} quotes={quotes} lead={leadNews} />
-        <div className="discuss">
-          <AskBox insight={insight} personaId={personaId} index={index} />
-        </div>
       </article>
 
     </div>
@@ -385,7 +413,14 @@ export function CardPage() {
       {(load.status === 'loading' || load.status === 'building') && (
         <div className="article-page">
           <div className="side-col side-col--live">
-            <Thinking steps={stepsOf(load.status === 'building' ? load.job : null)} eta={load.status === 'building' ? load.job.eta_s : null} />
+            <Thinking
+              steps={stepsOf(load.status === 'building' ? load.job : null)}
+              progress={
+                load.status === 'building'
+                  ? progressOf(stepsOf(load.job), load.job.steps_total, load.job.elapsed_s, load.job.status === 'queued')
+                  : 'Запрашиваю разбор'
+              }
+            />
           </div>
           <article className="card article">
             {item || d?.source?.title ? (

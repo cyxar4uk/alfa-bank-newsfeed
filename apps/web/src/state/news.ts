@@ -19,7 +19,7 @@ import {
 
 export type Level = Takeaway['level'];
 
-export const LEVEL_LABEL: Record<Level, string> = { act: 'Важно', watch: 'Следить', info: 'К сведению' };
+export const LEVEL_LABEL: Record<Level, string> = { act: 'Важно', watch: 'На контроле', info: 'К сведению' };
 
 export interface DayRow {
   eventId: string;
@@ -86,6 +86,8 @@ export function levelOf(item: FeedItem): Level {
 
 /** Уровень с учётом разбора: итог разбора главнее оценки ленты — один уровень на всех экранах. */
 export function levelWith(item: FeedItem | null, insight: Insight | null): Level {
+  // Уровень события держит лента (takeaway.level, 6 ч): бейдж в ленте и в карточке не расходятся.
+  if (item?.takeaway?.level) return item.takeaway.level;
   if (insight?.verdict?.level) return insight.verdict.level;
   if (item) return levelOf(item);
   const score = insight?.relevance.score ?? 0;
@@ -115,7 +117,21 @@ export function plain(text: string): string {
 
 /** Почему это важно: вывод API, иначе короткая строка из данных, иначе очищенный канал. */
 export function whyOf(item: FeedItem): string {
-  return plain(item.takeaway?.text || item.short || humanize(item.channel_text || item.relevance.reason));
+  return withoutLevel(plain(item.takeaway?.text || item.short || humanize(item.channel_text || item.relevance.reason)));
+}
+
+/** Вывод API иногда начинается со своей метки уровня («Важно: …») — на экране метка уже есть, второй раз не пишем. */
+export function withoutLevel(text: string): string {
+  const out = text.replace(/^(?:важно|следить|стоит следить|на контроле|к сведению)\s*:\s*/i, '');
+  return out ? out[0].toUpperCase() + out.slice(1) : text;
+}
+
+/** Вывод API пишет действие в конце: «… Что делать: сверьте сроки». В макете это отдельная строка. */
+export function splitTodo(text: string | null): { why: string | null; todo: string | null } {
+  if (!text) return { why: null, todo: null };
+  const m = /^(.*?)[\s.]*Что делать:\s*(.+)$/s.exec(text);
+  const why = m?.[1].trim() ?? '';
+  return why ? { why: /[.!?…]$/.test(why) ? why : `${why}.`, todo: m![2].trim() } : { why: text, todo: null };
 }
 
 /** Цепочка: событие → фактор → число из данных компании → Вы. Только то, что есть в данных. */
@@ -190,13 +206,15 @@ export function newsScreen(s: NewsState): NewsScreen {
       const todo = fromInsight
         ? (fromInsight.verdict?.actions?.[0] ?? fromInsight.actions.find((a) => a.kind !== 'product')?.text ?? null)
         : null;
+      // «Что делать» в выводе ленты — отдельной строкой; из разбора — главнее.
+      const split = splitTodo(whyOf(top));
       return {
         eventId: top.event_id,
         level: levelWith(top, fromInsight),
         headline: plain(model ?? top.event.title),
         fromModel: model !== null,
-        why: whyOf(top),
-        todo: todo ? plain(todo) : null,
+        why: split.why ?? whyOf(top),
+        todo: todo ? plain(todo) : split.todo,
       };
     });
 
@@ -246,7 +264,10 @@ export function newsScreen(s: NewsState): NewsScreen {
       bank: isLead && bankLead ? bankLead.statement : null,
     };
   });
-  const shown = s.showAll || filter ? rows : rows.slice(0, FIRST_EVENTS);
+  // Без фильтра события из «Главного за день» второй раз не показываем — только когда пользователь выбрал тему.
+  const dayIds = new Set(day.map((d) => d.eventId));
+  const rest = filter ? rows : rows.filter((r) => !dayIds.has(r.eventId));
+  const shown = s.showAll || filter ? rest : rest.slice(0, FIRST_EVENTS);
 
   // Время сборки лента не отдаёт — показываем время последней новости в местном поясе.
   const last = [...visible]
@@ -268,7 +289,7 @@ export function newsScreen(s: NewsState): NewsScreen {
     action,
     chips,
     events: shown,
-    more: rows.length - shown.length,
+    more: rest.length - shown.length,
     leadInsight: ins,
     empty: visible.length === 0,
   };
@@ -285,4 +306,9 @@ export function matchFeed(items: FeedItem[], query: string): FeedItem[] {
       .toLowerCase();
     return words.every((w) => hay.includes(w.slice(0, Math.max(4, w.length - 2))));
   });
+}
+
+/** Сколько событий в ленте — то же число, что пользователь увидит в «Главном» и «Событиях» (по одному на тему). */
+export function feedCount(items: FeedItem[]): number {
+  return groupsOf(items).length;
 }
