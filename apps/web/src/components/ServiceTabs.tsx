@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { NavLink, useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon } from './Icon';
 
-/** Шапка сервиса «Новости»: название, вкладки «Лента» и «Источники», поиск по новостям (макет A+). */
+/** Шапка сервиса «Новости»: название, вкладки «Лента», «К чему уязвима компания» и «Источники», поиск по новостям (макет A+). */
 export function ServiceTabs() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
@@ -17,6 +17,9 @@ export function ServiceTabs() {
       <nav className="tabs" aria-label="Разделы сервиса">
         <NavLink to="/radar" end className="tabs__item">
           Лента
+        </NavLink>
+        <NavLink to="/radar/map" className="tabs__item">
+          К чему уязвима компания
         </NavLink>
         <NavLink to="/radar/sources" className="tabs__item">
           Источники

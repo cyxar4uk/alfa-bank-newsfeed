@@ -5925,6 +5925,358 @@ a:hover .thumb img,
   font-weight: 600;
 }
 
+/* ─── «Главное» за день / за неделю (макет B1) ─────────────────────────────── */
+.news-card__lead,
+.news-card__aside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+
+.chip-switch {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.week-row__trend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.tag--warm {
+  background: var(--warn-bg);
+  color: var(--level-watch);
+}
+
+.tag--info {
+  background: var(--info-bg);
+  color: var(--info-text);
+}
+
+.tag--calm {
+  background: var(--field);
+  color: var(--ink-2);
+}
+
+/* мини-график новостей по дням: столбик на день, пустой день — чёрточка */
+.spark {
+  display: inline-grid;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.spark__bars {
+  display: inline-flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 16px;
+}
+
+.spark__bars i {
+  width: 6px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--line-strong);
+  transform-origin: bottom;
+  animation: spark-grow var(--t-slow) var(--ease) both;
+}
+
+.spark__bars i.is-on {
+  background: var(--graphite);
+}
+
+.spark--days .spark__bars {
+  gap: 4px;
+  height: 32px;
+}
+
+.spark--days .spark__bars i {
+  width: 12px;
+}
+
+.spark__days {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.spark__days b {
+  width: 12px;
+  color: var(--ink-3);
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 12px;
+  text-align: center;
+}
+
+@keyframes spark-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* ─── «К чему уязвима компания» (макеты B2, B3) ─────────────────────────────── */
+.risk-head {
+  display: grid;
+  gap: 12px;
+}
+
+.risk-head__top {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.risk-head__view {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.risk-head__intro {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.risk-legend {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, auto));
+  justify-content: start;
+  gap: 4px 28px;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.risk-legend .strength__word {
+  color: var(--ink-2);
+  line-height: 20px;
+}
+
+.strength__bar--dash i {
+  width: 14px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.strength__word {
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.risk-list {
+  display: grid;
+}
+
+.risk-row {
+  display: grid;
+  grid-template-columns: minmax(0, 270px) minmax(0, 1fr) 140px;
+  gap: 16px 24px;
+  padding: 20px 0;
+  border-top: 1px solid var(--line);
+}
+
+.risk-row:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.risk-row:last-child {
+  padding-bottom: 0;
+}
+
+.risk-row__name {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.risk-row__title {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.risk-row__strength {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.risk-row__estimate {
+  color: var(--origin-ai-text);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.risk-row__facts {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px 12px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.risk-row__facts dt {
+  color: var(--ink-3);
+  font-size: 13px;
+}
+
+.risk-row__facts dd {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.risk-row__facts dd .tag {
+  margin-right: 4px;
+}
+
+.risk-row__bank {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.risk-row__bank > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--origin-bank);
+}
+
+.risk-row__bank-text {
+  /* цитата банка бывает длинной — три строки, целиком в подсказке */
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.risk-row__outdated {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.risk-row__bank-note {
+  display: block;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.risk-row__now {
+  color: inherit;
+  text-decoration: none;
+}
+
+.risk-row__now:hover {
+  color: var(--link);
+}
+
+.day-bank__outdated {
+  font-weight: 500;
+}
+
+.risk-row__bank-caption {
+  display: block;
+  color: var(--origin-bank-text);
+  font-size: 13px;
+}
+
+.risk-row__news {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  justify-items: start;
+}
+
+.risk-row__news-title {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.risk-row__news .muted {
+  font-size: 13px;
+}
+
+.risk-limits {
+  display: grid;
+  gap: 6px;
+  margin-top: 20px;
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.risk-limits li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.risk-limits svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+@media (max-width: 1100px) {
+  .risk-row {
+    grid-template-columns: minmax(0, 1fr) 140px;
+  }
+
+  .risk-row__name {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  /* три вкладки раздела — в одну строку с прокруткой, а не в две */
+  .service-head .tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .service-head .tabs__item {
+    flex: none;
+    white-space: nowrap;
+  }
+
+  .risk-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .risk-legend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .risk-row__facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .risk-row__facts dd {
+    margin-bottom: 8px;
+  }
+
+  .risk-head__view {
+    flex-wrap: wrap;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -14,8 +14,13 @@ import type {
   InsightResult,
   JobStatus,
   Persona,
+  Role,
+  RiskFactor,
+  RiskMap,
+  RiskStrength,
   SensitivityFactor,
   Statement,
+  Story,
   Strength,
   Trace,
   WeeklySummary,
@@ -24,8 +29,8 @@ import type {
 export interface Api {
   personas(signal?: AbortSignal): Promise<Persona[]>;
   company(id: string, signal?: AbortSignal): Promise<CompanyProfile>;
-  /** брифинг: сводка и события по убыванию значимости для пользователя */
-  briefing(personaId: string, signal?: AbortSignal): Promise<Briefing>;
+  /** брифинг: сводка и события по убыванию значимости для пользователя; week — сюжеты недели */
+  briefing(personaId: string, signal?: AbortSignal, period?: 'week'): Promise<Briefing>;
   /** null — событие не касается компании пользователя */
   insight(eventId: string, personaId: string, signal?: AbortSignal): Promise<Insight | null>;
   feedback(body: Feedback): Promise<void>;
@@ -62,6 +67,8 @@ export interface LiveApi extends Api {
   catalog(personaId: string, signal?: AbortSignal): Promise<CatalogSource[] | null>;
   /** отметить источник подключённым */
   connectSource(id: string, personaId: string): Promise<void>;
+  /** «К чему уязвима компания» глазами роли; null — метода в API пока нет */
+  riskMap(companyId: string, personaId: string, role: Role, signal?: AbortSignal): Promise<RiskMap | null>;
 }
 
 export class ApiError extends Error {
@@ -86,6 +93,55 @@ function normalizeBriefing(personaId: string, raw: unknown): Briefing {
     sources: asArray(body.sources),
     items: asArray<FeedItem>(body.items).map((item) => ({ ...item, factors: asArray(item.factors) })),
     candidates: typeof body.candidates === 'number' ? body.candidates : undefined,
+    period: body.period === 'week' ? 'week' : 'day',
+    week: asArray<unknown>(body.week).filter((d): d is string => typeof d === 'string'),
+    stories: asArray<Story>(body.stories)
+      .filter((st) => st && st.title)
+      .map((st) => ({ ...st, daily_counts: counts(st.daily_counts), event_ids: asArray<string>(st.event_ids) })),
+    bank: body.bank?.text ? body.bank : null,
+    action: body.action?.label ? body.action : null,
+  };
+}
+
+/** Счётчики по дням: только неотрицательные числа, всё прочее — ноль. */
+function counts(raw: unknown): number[] {
+  return asArray<unknown>(raw).map((n) => (typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0));
+}
+
+const RISK_STRENGTH: Record<string, RiskStrength> = {
+  strong: 'strong',
+  high: 'strong',
+  notable: 'notable',
+  medium: 'notable',
+  weak: 'weak',
+  low: 'weak',
+};
+
+/** Карта уязвимости: неизвестную силу считаем слабой, пустые поля — пустыми, «ограничения» строкой или списком. */
+function normalizeRiskMap(companyId: string, role: Role, raw: unknown): RiskMap {
+  const body = (raw ?? {}) as Partial<RiskMap> & { limits?: unknown };
+  const limits = typeof body.limits === 'string' ? [body.limits] : asArray<unknown>(body.limits).filter((x): x is string => typeof x === 'string');
+  return {
+    company_id: body.company_id ?? companyId,
+    role: body.role ?? role,
+    week: asArray<unknown>(body.week).filter((d): d is string => typeof d === 'string'),
+    factors: asArray<Partial<RiskFactor> & { strength?: string }>(body.factors)
+      .filter((f) => f.code && f.label)
+      .map((f) => {
+        const week = counts(f.week_counts);
+        return {
+          code: f.code as string,
+          label: f.label as string,
+          strength: RISK_STRENGTH[f.strength ?? ''] ?? 'weak',
+          why: f.why ?? '',
+          is_estimate: f.is_estimate === true,
+          now: f.now?.title && f.now.event_id ? f.now : null,
+          bank: f.bank?.text ? f.bank : null,
+          week_counts: week,
+          news_count: typeof f.news_count === 'number' ? f.news_count : week.reduce((a, b) => a + b, 0),
+        };
+      }),
+    limits: limits.filter((x) => x.trim()),
   };
 }
 
@@ -229,8 +285,11 @@ function createHttpApi(baseUrl: string): LiveApi {
   return {
     personas: (signal) => required(`/api/personas`, signal),
     company: (id, signal) => required(`/api/companies/${q(id)}`, signal),
-    briefing: async (personaId, signal) =>
-      normalizeBriefing(personaId, await required<unknown>(`/api/briefing?persona=${q(personaId)}`, signal)),
+    briefing: async (personaId, signal, period) =>
+      normalizeBriefing(
+        personaId,
+        await required<unknown>(`/api/briefing?persona=${q(personaId)}${period ? `&period=${period}` : ''}`, signal),
+      ),
     // 204 — событие не касается компании пользователя.
     insight: async (eventId, personaId, signal) => {
       const { body } = await request<Insight>(`/api/insights/${q(eventId)}?persona=${q(personaId)}`, { signal });
@@ -262,6 +321,10 @@ function createHttpApi(baseUrl: string): LiveApi {
     catalog: async (personaId, signal) => {
       const body = await missingAsNull(request<unknown>(`/api/sources/catalog?persona=${q(personaId)}`, { signal }));
       return body === null ? null : asArray<CatalogSource>(Array.isArray(body) ? body : (body as { items?: unknown }).items);
+    },
+    riskMap: async (companyId, personaId, role, signal) => {
+      const body = await missingAsNull(request<unknown>(`/api/companies/${q(companyId)}/risk-map?persona=${q(personaId)}`, { signal }));
+      return body === null ? null : normalizeRiskMap(companyId, role, body);
     },
     connectSource: async (id, personaId) => {
       await request<unknown>(`/api/sources/${q(id)}/connect?persona=${q(personaId)}`, post({}));
