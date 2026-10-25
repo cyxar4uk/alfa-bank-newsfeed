@@ -113,3 +113,43 @@ def test_new_budget_day_resets_spend_and_shared_budget_stops():
     p = make(broke)
     p.cycle()
     assert "общий бюджет" in p.status().stopped
+
+
+def test_failed_build_costs_reserve_and_is_retried_once():
+    agent = FakeAgent()
+    pre = make(agent, levels=("act",))
+    pre.cycle()
+    agent.running.clear()  # сборка упала: карточки нет
+    pre.cycle()  # итог: −3 ₽ запаса, вторая попытка
+    assert pre.status().failed == 1 and pre.status().spent_rub == 3.0 and len(agent.calls) == 2
+    agent.running.clear()
+    pre.cycle()
+    pre.cycle()
+    assert len(agent.calls) == 2  # две попытки — больше не ставим
+
+
+def test_not_relevant_is_final_and_temporary_error_is_retried():
+    class NotRelevant(Exception):
+        pass
+
+    agent = FakeAgent()
+    agent.fail_with = NotRelevant("src:news:e0")
+    pre = make(agent, levels=("act",))
+    pre.cycle()
+    pre.cycle()
+    assert pre._attempts == {} and len(pre._done) == 1
+    busy = FakeAgent()
+    busy.fail_with = RuntimeError("сервис занят")
+    p = make(busy, levels=("act",))
+    p.cycle()
+    assert not p._done and p._attempts
+    busy.fail_with = None
+    p.cycle()
+    assert busy.calls == ["src:news:e0"]
+
+
+def test_no_feeds_built_when_budget_is_spent():
+    built = []
+    pre = Precompute(FakeAgent(), ["p-u1-cfo"], lambda p: built.append(p), clock=lambda: NOW, budget_rub=2)
+    pre.cycle()
+    assert built == [] and "бюджет" in pre.status().stopped

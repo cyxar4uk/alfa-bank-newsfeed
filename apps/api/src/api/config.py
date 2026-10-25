@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     precompute_enabled: bool = True
     precompute_budget_rub: float = 100.0  # свой суточный бюджет — часть общего LLM_DAILY_BUDGET_RUB
     precompute_per_hour: int = 20
-    precompute_in_flight: int = 2  # одновременно в очереди агента; остальные места — пользователям
+    precompute_in_flight: int = 1  # одновременно в очереди агента (из 3); остальные места — пользователям
     precompute_every_s: int = 300
     precompute_watch: bool = True  # «следить» — пока потрачено меньше половины бюджета
 

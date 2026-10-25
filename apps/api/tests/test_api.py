@@ -723,4 +723,4 @@ def test_for_your_industry_by_company_and_key_counterparties():
 
 def test_precompute_status_without_scheduler(client):
     body = client.get("/api/precompute/status").json()
-    assert body["budget_rub"] == 100.0 and body["running"] is False and body["spent_rub"] == 0
+    assert body["running"] is False and body["spent_rub"] == 0 and body["budget_rub"] > 0

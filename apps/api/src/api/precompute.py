@@ -27,9 +27,10 @@ from api.ranking import MSK
 
 log = logging.getLogger("api.precompute")
 
-RESERVE_RUB = (
-    3.0  # дороже карточка не выходила (api.agent.service.RUN_RESERVE_RUB): не начинаем, если не хватит
-)
+# дороже карточка не выходила (как RUN_RESERVE_RUB агента): не хватит на неё — не начинаем
+FINAL_ERRORS = {"NotRelevant", "NotFound", "CompanyNotFound"}  # api.agent: повтор ничего не даст
+ATTEMPTS = 2  # временный отказ (модель упала, «сервис занят») — ещё одна попытка в следующем цикле
+RESERVE_RUB = 3.0
 
 
 class PrecomputeStatus(BaseModel):
@@ -59,7 +60,7 @@ class Precompute:
         feed_for: Callable[[str], Feed | None],
         budget_rub: float = 100.0,
         per_hour: int = 20,
-        in_flight: int = 2,
+        in_flight: int = 1,
         watch: bool = True,
         enabled: bool = True,
         clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(MSK),
@@ -76,6 +77,7 @@ class Precompute:
         self._lock = threading.Lock()
         self._day = budget_day(clock())
         self._pending: dict[str, str] = {}  # insight_id → persona: поставлены, ждём готовности
+        self._attempts: dict[str, int] = {}
         self._done: set[str] = set()  # собрано, уже было в кэше или не касается — больше не ставим
         self._hour: deque[float] = deque()
         self._spent = 0.0
@@ -92,6 +94,7 @@ class Precompute:
         if day != self._day:
             self._day, self._spent = day, 0.0
             self.built = self.cache_hits = self.failed = self.skipped_budget = 0
+            self._attempts.clear()
             self._done.clear()  # новые сутки: и карточки новой версии агента можно собрать заново
 
     def _collect(self) -> None:
@@ -101,13 +104,29 @@ class Precompute:
             if job is not None and job.status in ("queued", "running"):
                 continue
             del self._pending[key]
-            self._done.add(key)
             stored = self.agent.cached(key, persona)
             if stored is not None:
+                self._done.add(key)
                 self.built += 1
                 self._spent += stored.cost_rub or 0.0
             else:
+                # упала: план и черновик уже стоили денег — списываем запас; ещё попытка, если не исчерпаны
                 self.failed += 1
+                self._spent += RESERVE_RUB
+                self._retry_or_done(key)
+
+    def _retry_or_done(self, key: str) -> None:
+        self._attempts[key] = self._attempts.get(key, 0) + 1
+        if self._attempts[key] >= ATTEMPTS:
+            self._done.add(key)
+
+    def _room(self) -> str | None:
+        """Почему сейчас ставить нельзя — или None. Поставленные, но не собранные — тоже в счёт бюджета."""
+        if self._spent + RESERVE_RUB * (len(self._pending) + 1) > self.budget_rub:
+            return f"бюджет разборов заранее {self.budget_rub:.0f} ₽ на сутки исчерпан"
+        if self._hourly() >= self.per_hour:
+            return f"лимит {self.per_hour} разборов в час"
+        return None
 
     def _hourly(self) -> int:
         now = time.monotonic()
@@ -133,7 +152,9 @@ class Precompute:
         return sorted(found, key=lambda c: -c[0])
 
     def cycle(self) -> None:
-        """Один проход: итоги прошлых сборок, затем новые постановки в пределах лимитов."""
+        """Один проход: итоги прошлых сборок, затем новые постановки в пределах лимитов.
+
+        Ленты собираются вне замка (на холодном кэше — до минуты): статус отвечает и во время цикла."""
         with self._lock:
             self._roll_day()
             self.last_cycle_at = self.clock()
@@ -144,8 +165,13 @@ class Precompute:
                 self.stopped = "агент или модели не настроены"
                 return
             self._collect()
-            self.stopped = None
-            for _, event_id, persona in self.candidates():
+            # бюджет или час кончились — и ленты не собираем: их дооценка моделью тоже стоит денег
+            self.stopped = self._room()
+            if self.stopped or len(self._pending) >= self.in_flight:
+                return
+        found = self.candidates()
+        with self._lock:
+            for _, event_id, persona in found:
                 key = insight_id(event_id, persona)
                 if key in self._done or key in self._pending:
                     continue
@@ -153,13 +179,8 @@ class Precompute:
                     self._done.add(key)
                     self.cache_hits += 1
                     continue
-                # поставленные, но ещё не собранные — тоже в счёт: каждая может стоить до RESERVE_RUB
-                if self._spent + RESERVE_RUB * (len(self._pending) + 1) > self.budget_rub:
-                    self.stopped = f"бюджет разборов заранее {self.budget_rub:.0f} ₽ на сутки исчерпан"
-                    self.skipped_budget += 1
-                    break
-                if self._hourly() >= self.per_hour:
-                    self.stopped = f"лимит {self.per_hour} разборов в час"
+                if reason := self._room():
+                    self.stopped = reason
                     self.skipped_budget += 1
                     break
                 if len(self._pending) >= self.in_flight:
@@ -169,10 +190,14 @@ class Precompute:
     def _submit(self, key: str, event_id: str, persona: str) -> None:
         try:
             result = self.agent.insight(event_id, persona, wait=False)
-        except Exception as exc:  # не касается, нет события, кончился общий бюджет — больше не ставим
-            self._done.add(key)
-            if isinstance(exc, BudgetExceeded):
+        except Exception as exc:
+            if isinstance(exc, BudgetExceeded):  # общий бюджет: снова — в новые сутки (_roll_day)
                 self.stopped = f"общий бюджет моделей: {exc}"
+                self._done.add(key)
+            elif type(exc).__name__ in FINAL_ERRORS:  # не касается, нет события или компании
+                self._done.add(key)
+            else:  # временный отказ — ещё попытка в следующем цикле
+                self._retry_or_done(key)
             log.info("разбор заранее %s для %s не поставлен: %s", event_id, persona, exc)
             return
         if getattr(result, "status", None) in ("queued", "running"):
