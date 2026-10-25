@@ -231,6 +231,9 @@ export interface CatalogSource {
   connected_by?: 'service' | 'user' | null;
   /** показывать ли «Отключить» */
   can_disconnect?: boolean | null;
+  /** те же поля в другом варианте API (#80): пишет о сильных факторах компании; что даст подключение */
+  relevant?: boolean | null;
+  gives?: string | null;
 }
 
 /** Ответ на «Подключить» и «Отключить»: источник после изменения и что произошло. */

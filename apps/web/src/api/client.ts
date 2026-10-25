@@ -330,7 +330,13 @@ function createHttpApi(baseUrl: string): LiveApi {
     },
     catalog: async (personaId, signal) => {
       const body = await missingAsNull(request<unknown>(`/api/sources/catalog?persona=${q(personaId)}`, { signal }));
-      return body === null ? null : asArray<CatalogSource>(Array.isArray(body) ? body : (body as { items?: unknown }).items);
+      if (body === null) return null;
+      // Поля «для вашей отрасли» и «что даст подключение» приходят под двумя именами — сводим к одному.
+      return asArray<CatalogSource>(Array.isArray(body) ? body : (body as { items?: unknown }).items).map((s) => ({
+        ...s,
+        for_your_industry: s.for_your_industry ?? s.relevant ?? null,
+        benefit: s.benefit ?? s.gives ?? null,
+      }));
     },
     riskMap: async (companyId, personaId, role, signal) => {
       const body = await missingAsNull(request<unknown>(`/api/companies/${q(companyId)}/risk-map?persona=${q(personaId)}`, { signal }));
@@ -343,10 +349,12 @@ function createHttpApi(baseUrl: string): LiveApi {
     inputs: (personaId, signal) => missingAsNull(request<PersonaInputs>(`/api/personas/${q(personaId)}/inputs`, { signal })),
     saveInputs: async (personaId, body) => {
       try {
+        // Пустые поля не отправляем: API принимает только заданные значения.
+        const filled = Object.fromEntries(Object.entries(body).filter(([k, v]) => v != null && k !== 'updated_at'));
         await request<unknown>(`/api/personas/${q(personaId)}/inputs`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
+          body: JSON.stringify(filled),
         });
         return true;
       } catch (e) {
