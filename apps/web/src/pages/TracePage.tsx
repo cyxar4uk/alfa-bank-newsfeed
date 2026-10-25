@@ -5,6 +5,8 @@ import { Icon } from '../components/Icon';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { FeatureView, SourceView, type RefIndex } from '../components/Statement';
 import { useCurrentUser } from '../state/session';
+import { traceStory } from '../state/trace';
+import { plural } from '../state/screens';
 import { useAsync } from '../state/useAsync';
 
 const KIND_LABEL: Record<TraceStep['kind'], string> = {
@@ -36,19 +38,20 @@ function BackButton() {
 
 function Refs({ refs, index }: { refs: string[]; index: RefIndex }) {
   if (refs.length === 0) return null;
+  const known = refs.filter((r) => index.sources[r] || index.features[r]);
+  // Ссылки без описания в трассе — одной строкой со счётом, а не десятком строк с идентификаторами.
+  const unknown = refs.length - known.length;
   return (
     <div className="refs">
-      {refs.map((r) => {
+      {known.map((r) => {
         const source = index.sources[r];
-        if (source) return <SourceView key={r} source={source} />;
-        const feature = index.features[r];
-        if (feature) return <FeatureView key={r} feature={feature} />;
-        return (
-          <p key={r} className="ref ref--missing">
-            {r.startsWith('feat:') ? 'Признак' : 'Источник'} {r} не передан в трассе
-          </p>
-        );
+        return source ? <SourceView key={r} source={source} /> : <FeatureView key={r} feature={index.features[r]} />;
       })}
+      {unknown > 0 && (
+        <p className="ref ref--missing">
+          Ещё {unknown} {plural(unknown, ['ссылка', 'ссылки', 'ссылок'])} без описания в трассе
+        </p>
+      )}
     </div>
   );
 }
@@ -111,10 +114,73 @@ function TraceView({ trace, company }: { trace: Trace; company: CompanyProfile }
   const checkText =
     checks.length === 0 ? 'не выполнялась' : failed > 0 ? `не пройдена: ${failed} из ${checks.length}` : 'пройдена';
 
+  const story = traceStory(trace);
+  const done = trace.summary && trace.summary.length > 0 ? trace.summary : story.done;
+
   return (
     <>
       {trace.note && <p className="trace-note">{trace.note}</p>}
-      <dl className="card trace-summary">
+      <section className="card trace-story" aria-labelledby="trace-story">
+        <h2 className="card__title" id="trace-story">
+          Что проверил агент
+        </h2>
+        {done.length > 0 ? (
+          <ul className="trace-story__list">
+            {done.map((t) => (
+              <li key={t}>
+                <Icon name="check" size={16} />
+                {t}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="muted">Агент не записал, что проверял.</p>
+        )}
+        {story.missing.length > 0 && (
+          <>
+            <h3 className="trace-story__sub">Чего не нашлось</h3>
+            <ul className="trace-story__list trace-story__list--missing">
+              {story.missing.map((t) => (
+                <li key={t}>
+                  <Icon name="info" size={16} />
+                  {t}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+        <h3 className="trace-story__sub">Самопроверка</h3>
+        <p className={`trace-story__check${story.check.ran && !story.check.passed ? ' trace-story__check--warn' : ''}`}>{story.check.text}</p>
+        {story.check.issues.length > 0 && (
+          <p className="trace-story__issues">Что находила по ходу: {story.check.issues.join('; ')}.</p>
+        )}
+      </section>
+
+      <section className="card" aria-labelledby="trace-features">
+        <h2 className="card__title" id="trace-features">
+          Признаки компании, которые повлияли на вывод
+        </h2>
+        {features.length > 0 ? (
+          <div className="refs refs--grid">
+            {features.map((f) => (
+              <FeatureView key={f.id} feature={f} />
+            ))}
+          </div>
+        ) : (
+          <p className="muted">
+            {featureIds.length === 0
+              ? 'Трасса не передала признаков компании'
+              : 'Признаки из трассы не найдены в профиле компании'}
+          </p>
+        )}
+      </section>
+
+      <details className="card trace-tech">
+        <summary>
+          Для проверки: шаги агента, модели и расход
+          <Icon name="chevronDown" size={16} className="trace-tech__chevron" />
+        </summary>
+      <dl className="trace-summary">
         <div>
           <dt>Шагов</dt>
           <dd>{trace.steps.length}</dd>
@@ -136,35 +202,13 @@ function TraceView({ trace, company }: { trace: Trace; company: CompanyProfile }
         </div>
       </dl>
 
-      <section className="card" aria-labelledby="trace-features">
-        <h2 className="card__title" id="trace-features">
-          Признаки компании, которые повлияли на вывод
-        </h2>
-        {features.length > 0 ? (
-          <div className="refs refs--grid">
-            {features.map((f) => (
-              <FeatureView key={f.id} feature={f} />
-            ))}
-          </div>
-        ) : (
-          <p className="muted">
-            {featureIds.length === 0
-              ? 'Трасса не передала признаков компании'
-              : 'Признаки из трассы не найдены в профиле компании'}
-          </p>
-        )}
-      </section>
-
-      <section className="card" aria-labelledby="trace-steps">
-        <h2 className="card__title" id="trace-steps">
-          Шаги агента
-        </h2>
+        <p className="trace-story__sub">Шаги агента</p>
         <ol className="trace-steps">
           {trace.steps.map((s) => (
             <Step key={s.n} step={s} index={index} />
           ))}
         </ol>
-      </section>
+      </details>
     </>
   );
 }
@@ -180,8 +224,8 @@ export function TracePage() {
         <BackButton />
         <h1 className="page-head__title">Как получен вывод</h1>
         <p className="page-head__lead">
-          Шаги агента по порядку: план, инструменты и найденные источники, признаки компании, самопроверка и повторы,
-          модели и расход.
+          Что агент проверил, что нашёл и чего не нашёл, на какие данные о компании опирался. Шаги целиком — в блоке
+          «Для проверки».
         </p>
       </header>
 

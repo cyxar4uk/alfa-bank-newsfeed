@@ -6277,6 +6277,86 @@ a:hover .thumb img,
   }
 }
 
+/* ─── «Как получен вывод»: резюме сверху, техника — в «Для проверки» ─────────── */
+.trace-story {
+  display: grid;
+  gap: 10px;
+}
+
+.trace-story__list {
+  display: grid;
+  gap: 6px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.trace-story__list li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.trace-story__list svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ok-text);
+}
+
+.trace-story__list--missing {
+  color: var(--ink-2);
+}
+
+.trace-story__list--missing svg {
+  color: var(--ink-3);
+}
+
+.trace-story__sub {
+  margin-top: 6px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.trace-story__check {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.trace-story__check--warn {
+  padding: 8px 12px;
+  border-radius: var(--r-8);
+  background: var(--warn-bg);
+}
+
+.trace-story__issues {
+  color: var(--ink-2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.trace-tech > summary {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--link);
+  font-size: 15px;
+  font-weight: 500;
+  list-style: none;
+  cursor: pointer;
+}
+
+.trace-tech > summary::-webkit-details-marker {
+  display: none;
+}
+
+.trace-tech[open] > summary {
+  margin-bottom: 16px;
+}
+
+.trace-tech[open] .trace-tech__chevron {
+  transform: rotate(180deg);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

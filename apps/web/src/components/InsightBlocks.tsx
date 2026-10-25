@@ -65,7 +65,6 @@ function ChainLane({ ch }: { ch: ExposureChannel }) {
           <ul className="chain__parties" id={panelId} hidden={!open}>
             {ch.counterparties.map((c) => (
               <li key={c.id}>
-                <span className="chain__party-id">{c.id}</span>
                 <span>{c.label}</span>
                 {c.amount_bn != null && <span className="chain__party-num">{billions(c.amount_bn)}</span>}
                 {c.share != null && <span className="chain__party-num">{percent.format(c.share)}</span>}
@@ -131,7 +130,6 @@ export function GroupImpactView({ impact }: { impact: GroupImpact }) {
               <tr key={c.id}>
                 <td>
                   <span className="table__main">{c.label}</span>
-                  <span className="table__sub">{c.id}</span>
                 </td>
                 <td className="num">{billions(c.revenue_bn)}</td>
                 <td>{c.factors.map((f) => f.label).join(', ')}</td>
