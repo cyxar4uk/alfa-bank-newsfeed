@@ -5,6 +5,7 @@
 
 import datetime as dt
 
+from api.bankview import bank_view
 from api.chain import MIN_SHARE, build_chain
 from api.contract import (
     CompanyProfile,
@@ -15,6 +16,7 @@ from api.contract import (
     GroupImpact,
     InfluenceChain,
     InsightEvent,
+    RiskMap,
 )
 from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
@@ -23,10 +25,12 @@ from api.images import proxied
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
-from api.ranking import MSK, NewsEvent, rank
+from api.ranking import MSK, NewsEvent, default_ranking, rank
 from api.records import CompanyRecord, Flow
 from api.repo import CompanyRepo
+from api.riskmap import limits, order, risk_factor
 from api.takeaway import takeaways
+from api.week import DAYS, build_stories, lead_story, main_action, week_days
 
 # роли, которым в ленте показывается влияние на группу
 GROUP_ROLES = {"owner", "ceo"}
@@ -94,13 +98,14 @@ def persona_feed(
     days: int = 90,
     now: dt.datetime | None = None,
     query: str | None = None,
+    events: list[NewsEvent] | None = None,
 ) -> Feed | None:
     """Лента пользователя: события, задевающие его компанию, по убыванию оценки с учётом роли.
 
     Пользователь — `p-u<номер компании>-<роль>`; компания должна быть действующим клиентом банка (сервис — для
     клиентов), иначе — None. Так ленту можно открыть для любого клиента, не только из `/api/personas`.
     `query` — поиск: новости по запросу в том же формате; задевающие компанию — первыми, остальные следом
-    с оценкой 0 («к сведению»).
+    с оценкой 0 («к сведению»). `events` — уже загруженные события вместо выборки за `days` дней.
     """
     parsed = parse_persona_id(persona)
     if parsed is None:
@@ -113,7 +118,9 @@ def persona_feed(
     flows = repo.flows(company.id)
     group = repo.group_records(company.group_id, exclude=company.id) if company.group_id else []
     exposure = build_exposure(company, flows, group)
-    if query is not None:
+    if events is not None:
+        pass  # события уже загружены (неделя: те же события идут и в счётчики тем)
+    elif query is not None:
         events = news.search(query, limit=candidates)
     else:
         events = news.events(since=now - dt.timedelta(days=days), limit=candidates)
@@ -200,3 +207,64 @@ def company_group_impact(
         keep_empty=True,  # группа есть, событие её не касается — блок с нулём, а не «группы нет»
     )
     return True, impact
+
+
+WEEK_EVENTS = 2000  # событий недели, не больше (на стенде ≈1300 за неделю): из них и лента, и счётчики тем
+
+
+def week_events(news: NewsProvider, now: dt.datetime) -> list[NewsEvent]:
+    return news.events(since=now - dt.timedelta(days=DAYS), limit=WEEK_EVENTS)
+
+
+def finish_week(
+    feed: Feed, events: list[NewsEvent], news: NewsProvider, now: dt.datetime, limit: int
+) -> Feed:
+    """Неделя поверх ленты за 7 дней: сюжеты, позиция банка по главному сюжету и главное действие."""
+    days = week_days(now)
+    stories = build_stories(feed.items, events, days, default_ranking().aliases)
+    bank = None
+    lead = lead_story(stories)  # одна главная тема: и позиция банка, и действие — о ней
+    if lead:
+        top = next((i for i in feed.items if i.event_id == lead.event_ids[0]), None)
+        date = top.source.published_at.astimezone(MSK).date() if top and top.source.published_at else None
+        fragments = getattr(news, "bank_fragments", None)
+        bank = bank_view(lead.code, fragments, top.event.title if top else None, date)
+    return feed.model_copy(
+        update={
+            "period": "week",
+            "week": days,
+            "stories": stories,
+            "bank": bank,
+            "action": main_action(stories),
+            "items": feed.items[:limit],
+        }
+    )
+
+
+def company_risk_map(
+    repo: CompanyRepo, news: NewsProvider, company_id: str, persona: str, now: dt.datetime | None = None
+) -> RiskMap | None:
+    """К чему уязвима компания — для роли пользователя `persona`; его компания должна быть `company_id`."""
+    parsed = parse_persona_id(persona)
+    if parsed is None or parsed[0] != company_id:
+        return None
+    role = parsed[1]
+    now = now or dt.datetime.now(MSK)
+    exposure = company_exposure(repo, company_id)
+    if exposure is None:
+        return None
+    events = week_events(news, now)
+    feed = persona_feed(repo, news, persona, limit=WEEK_EVENTS, now=now, events=events)
+    items = feed.items if feed else []
+    days = week_days(now)
+    aliases = default_ranking().aliases
+    bank_fragments = getattr(news, "bank_fragments", None)
+    factors = [
+        risk_factor(f, items, events, days, exposure, aliases, bank_fragments)
+        for f in order(exposure, role, default_ranking())
+    ]
+    profile = company_profile(repo, company_id)
+    coverage = profile.payments.revenue_coverage if profile and profile.payments else None
+    return RiskMap(
+        company_id=company_id, role=role, week=days, factors=factors, limits=limits(exposure, coverage)
+    )

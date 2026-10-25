@@ -687,6 +687,54 @@ class SourceConnection(BaseModel):
     message: str = Field(description="что произошло и что сделать дальше")
 
 
+class BankView(BaseModel):
+    """Позиция Альфа-Банка по теме для недели и карты рисков: фраза из материала, сам материал и дата."""
+
+    text: str = Field(description="фраза из материала банка, с числом, если оно есть")
+    source_id: str = Field(description="src:alfa:… — фрагмент аналитики")
+    material: str | None = Field(default=None, description="название материала")
+    publisher: str | None = Field(default=None, examples=["Аналитики Альфа-Банка"])
+    date: dt.date | None = None
+    outdated: bool = Field(
+        default=False, description="прогноз банка разошёлся с фактом из новостей недели — «прогноз устарел»"
+    )
+    outdated_note: str | None = Field(default=None, examples=["банк ждал Urals $63, в новостях — $72"])
+
+
+class MainAction(BaseModel):
+    """Главное действие — обсудить тему с менеджером банка."""
+
+    code: str = Field(description="фактор темы")
+    topic: str = Field(examples=["структуру долга"])
+    label: str = Field(examples=["Обсудить структуру долга с менеджером"])
+    event_id: str | None = None
+
+
+class Peak(BaseModel):
+    date: dt.date
+    what: str = Field(description="главное событие дня пика")
+    event_id: str
+
+
+class Story(BaseModel):
+    """Сюжет недели: события одной темы (фактора) за 7 дней — не склейка дней."""
+
+    code: str = Field(description="тема: код фактора или «industry:<ОКВЭД>» для своей отрасли и цепочки")
+    title: str = Field(description="заголовок сюжета — суть главного события")
+    level: Literal["act", "watch", "info"]
+    dynamics: Literal["appeared", "grew", "faded", "steady"] = Field(
+        description="по среднему в день, первые 4 дня против последних 3: appeared — раньше новостей не было,"
+        " grew — к концу недели на четверть больше, faded — на четверть меньше, steady — ровный поток"
+    )
+    daily_counts: list[int] = Field(
+        min_length=7, max_length=7, description="новостей по теме по дням: от 6 дней назад до сегодня"
+    )
+    news_count: int
+    peak: Peak | None = None
+    takeaway: Takeaway | None = Field(default=None, description="вывод главного события сюжета, с охватом")
+    event_ids: list[str] = Field(description="события сюжета, задевающие компанию, — главное первым")
+
+
 class Feed(BaseModel):
     persona_id: str
     company_id: str
@@ -697,6 +745,46 @@ class Feed(BaseModel):
     summary: list[Statement] = Field(
         default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
     )
+    period: Literal["day", "week"] = "day"
+    week: list[dt.date] = Field(default_factory=list, description="дни недели для daily_counts — только week")
+    stories: list[Story] = Field(default_factory=list, description="3–5 сюжетов недели — только period=week")
+    bank: BankView | None = Field(default=None, description="позиция банка по главной теме — только week")
+    action: MainAction | None = Field(default=None, description="главное действие — только week")
+
+
+class RiskNow(BaseModel):
+    """Что происходит с фактором на этой неделе — последнее событие."""
+
+    event_id: str
+    title: str
+    direction: str = Field(examples=["Дорожает", "Держится", "Рубль крепнет", "Новое"])
+    publisher: str | None = None
+    date: dt.date | None = None
+
+
+class RiskFactor(BaseModel):
+    code: str
+    label: str
+    strength: Literal["strong", "notable", "weak"] = Field(
+        description="strong — прямо меняет выручку, издержки или стоимость денег; notable — через группу,"
+        " лизинг, часть оборота или оценку по отрасли; weak — малая доля оборота или общий фон"
+    )
+    why: str = Field(description="почему компания уязвима — фраза с числом из данных банка")
+    is_estimate: bool = Field(description="оценка по отрасли, а не факт из данных компании")
+    now: RiskNow | None = None
+    bank: BankView | None = None
+    week_counts: list[int] = Field(min_length=7, max_length=7)
+    news_count: int
+
+
+class RiskMap(BaseModel):
+    """К чему уязвима компания — 5–7 факторов в порядке, важном для роли."""
+
+    company_id: str
+    role: Role
+    week: list[dt.date] = Field(description="дни для week_counts: от 6 дней назад до сегодня")
+    factors: list[RiskFactor]
+    limits: list[str] = Field(description="чего не оцениваем и почему — с числом покрытия данных")
 
 
 # --- Трасса ---------------------------------------------------------------------------------------
