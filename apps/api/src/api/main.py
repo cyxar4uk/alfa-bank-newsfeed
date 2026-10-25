@@ -31,6 +31,7 @@ from api.db import connect, ensure_schema
 from api.images import ImageError, proxied
 from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
+from api.levels import LEVELS
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import parse_persona_id, personas_for
@@ -365,8 +366,8 @@ def get_feed(
         )
     agent = getattr(request.app.state, "agent", None)
     _mark_ready(agent, feed)
+    exposure = company_exposure(repo, feed.company_id)
     if llm and settings.feed_llm_top and agent is not None and agent.llm is not None:
-        exposure = company_exposure(repo, feed.company_id)
         if exposure is not None:
             feed = rerank(
                 feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""), top_n=settings.feed_llm_top
@@ -375,6 +376,8 @@ def get_feed(
             feed = demote_unrelated(feed)
             takeaways(feed.items, feed.role, exposure)
             feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
+    # уровень, однажды показанный, — тот же в дне, неделе и карточке (api.levels); сюжеты недели берут его же
+    feed = LEVELS.pin(feed, exposure)
     if events is not None:
         feed = finish_week(feed, events, news, now, limit)
     return feed
@@ -435,7 +438,7 @@ def search_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     _mark_ready(getattr(request.app.state, "agent", None), feed)
-    return feed
+    return LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])

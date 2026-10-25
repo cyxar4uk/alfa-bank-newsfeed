@@ -233,16 +233,18 @@ def takeaway(
     exposure: ExposureMap | None = None,
     avoid: set[str] | None = None,
     used_facts: set[str] | None = None,
+    level: str | None = None,
 ) -> Takeaway:
     """Вывод по правилам: что меняется для компании — число из её данных — что делать.
 
     `avoid` — уже выданные тексты ленты: тот же текст второй раз не повторяется; `used_facts` — уже названные
-    числа: следующее событие с той же причиной берёт другое число, если оно есть.
+    числа: следующее событие с той же причиной берёт другое число, если оно есть; `level` — уровень, уже
+    показанный пользователю по этому событию (api.levels): текст пишется под него, а не под новую оценку.
     """
     if not item.relevance.breakdown:  # найдено поиском, но компанию не задевает
         return Takeaway(level="info", text=f"Напрямую вас не касается. {NOTHING}")
     key, strength = main_reason(item)
-    level = level_of(item, strength)
+    level = level or level_of(item, strength)
     action = action_for(item, role, exposure)
     quick = short_action(item, role, exposure)
     what = gist(item)
