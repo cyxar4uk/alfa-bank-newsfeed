@@ -35,10 +35,16 @@ def list_news(
     ] = 0.0,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     offset: Annotated[int, Query(ge=0, le=10_000)] = 0,
+    include_non_business: Annotated[
+        bool,
+        Query(
+            description="вернуть и не деловые: спорт, происшествия, культура, погода (по умолчанию отсеяны)"
+        ),
+    ] = False,
 ) -> NewsPage:
     """Лента материалов с разметкой: свежие первыми, с запросом `q` — лучшие совпадения первыми."""
     try:
-        return search.list_news(q, factor, sector, since, limit, offset, min_strength)
+        return search.list_news(q, factor, sector, since, limit, offset, min_strength, include_non_business)
     except UnknownFilter as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

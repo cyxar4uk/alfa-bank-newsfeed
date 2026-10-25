@@ -206,4 +206,6 @@ def merge_tags(base: Tags, extra: Tags) -> Tags:
         regions=_union(base.regions, extra.regions),
         countries=_union(base.countries, extra.countries),
         tagged_by=_union(base.tagged_by, extra.tagged_by),
+        business=base.business,
+        business_reason=base.business_reason,
     )

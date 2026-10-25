@@ -6,7 +6,7 @@
 
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib import resources
 
@@ -47,6 +47,12 @@ class Dictionaries:
     foreign_factors: tuple[str, ...] = ()
     foreign_cap: float = 1.0
     foreign_trade: re.Pattern[str] | None = None
+    # регион — фактор, только если рядом слова об экономике региона
+    region_economy: re.Pattern[str] | None = None
+    # не деловые категории (спорт, происшествия…) и те из них, что сильнее делового признака
+    offtopic: tuple[Entry, ...] = ()
+    offtopic_strict: dict[str, str] = field(default_factory=dict)  # категория → "True" | "always"
+    business_words: re.Pattern[str] | None = None
 
     def sector_name(self, okved: str) -> str:
         return next((e.name for e in self.sectors if okved in e.okved), okved)
@@ -93,6 +99,10 @@ def load_dictionaries(path: str | None = None) -> Dictionaries:
         foreign_factors=tuple(data.get("foreign", {}).get("factors", ())),
         foreign_cap=float(data.get("foreign", {}).get("sector_cap", 1.0)),
         foreign_trade=_pattern(data.get("foreign", {}).get("trade")),
+        region_economy=_pattern(data.get("region_economy", {}).get("patterns")),
+        offtopic=_entries(data.get("offtopic", [])),
+        offtopic_strict={e["name"]: str(e["strict"]) for e in data.get("offtopic", []) if e.get("strict")},
+        business_words=_pattern(data.get("business_words", {}).get("patterns")),
     )
 
 
@@ -178,6 +188,61 @@ def _capped(link: SectorLink, cap: float) -> SectorLink:
     return link.model_copy(update={"strength": cap, "evidence": [*link.evidence, FOREIGN_NOTE]})
 
 
+def _region_economy(parts: dict[str, str], dicts: Dictionaries) -> list[tuple[str, str, str]]:
+    """Слова об экономике региона (налоги, бюджет, аренда, ограничения для транспорта, поддержка бизнеса)."""
+    if dicts.region_economy is None:
+        return []
+    return _hits(Entry(name="region_economy", strong=dicts.region_economy), parts)
+
+
+def business_verdict(
+    raw: dict[str, str], signals: dict[str, list[tuple[str, str, str]]], dicts: Dictionaries
+) -> tuple[bool | None, str]:
+    """Деловая ли новость для руководителя компании: True, False или None — сомнительная, решает модель.
+
+    Сильный деловой признак в заголовке (фактор или отрасль из словаря) — деловая; не деловая категория (спорт,
+    происшествие, культура…) без делового следа — нет, а со следом (слабый признак, слово о бизнесе) — сомнительная.
+    Строгие категории сильнее признака: поздравление таможенников — не новость о таможне. Сильный признак только в
+    тексте — деловая, если нигде нет не деловой категории.
+    """
+    if not dicts.offtopic:
+        return True, "отсев не настроен"
+
+    def offtopic(text: str) -> Entry | None:
+        return next((e for e in dicts.offtopic if e.strong and e.strong.search(text)), None)
+
+    def strong(place: str) -> list[str]:
+        return [word for hits in signals.values() for p, kind, word in hits if p == place and kind == "strong"]
+
+    off_title, off_lead = offtopic(raw["title"]), offtopic(raw["lead"])
+    title_strong, lead_strong = strong("title"), strong("lead")
+    # хоть какой-то деловой след: слабый признак фактора или слово о бизнесе — такое отсеивать без модели не будем
+    trace = any(signals.values()) or bool(
+        dicts.business_words and dicts.business_words.search(f"{raw['title']}\n{raw['lead']}")
+    )
+    if off_title and off_title.name in dicts.offtopic_strict:
+        # строгая категория сильнее отрасли («Локомотив» проиграл), "always" — и фактора («поздравил таможенников»);
+        # слова о бизнесе в заголовке сильнее любой: «футболист купил завод» решит модель
+        if dicts.business_words and dicts.business_words.search(raw["title"]):
+            return None, f"{off_title.name}, но в заголовке слова о бизнесе"
+        factor_strong = [w for k, hits in signals.items() if not k.startswith("sector:") for p, kind, w in hits
+                         if p == "title" and kind == "strong"]  # fmt: skip
+        if factor_strong and dicts.offtopic_strict[off_title.name] != "always":
+            return None, f"{off_title.name}, но в заголовке «{factor_strong[0]}»"
+        return False, off_title.name
+    if title_strong:
+        return True, f"деловые слова в заголовке: «{title_strong[0]}»"
+    if off_title and not trace:
+        return False, off_title.name
+    if lead_strong and not (off_title or off_lead):
+        return True, f"деловые слова в тексте: «{lead_strong[0]}»"
+    if off_lead and not trace:
+        return False, off_lead.name
+    if off_title or off_lead:
+        return None, f"{(off_title or off_lead).name}, но есть деловые слова"
+    return None, "только слабые деловые признаки" if trace else "нет деловых признаков"
+
+
 def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
     dicts = dicts or load_dictionaries()
     raw = {"title": prepare(title), "lead": prepare(lead)}
@@ -186,10 +251,12 @@ def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
 
     factors: list[FactorLink] = []
     implied: list[SectorLink] = []
+    signals: dict[str, list[tuple[str, str, str]]] = {}  # код фактора или «sector:<название>» → совпадения
     for entry in dicts.factors:
         hits = _hits(entry, parts)
         if not hits:
             continue
+        signals[entry.code] = hits
         link = FactorLink(code=entry.code, name=entry.name, strength=strength_of(hits), evidence=_evidence(hits))
         factors.append(link)
         for okved, weight in entry.implies:
@@ -205,8 +272,10 @@ def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
 
     regions = [(e, _hits(e, parts)) for e in dicts.regions]
     regions = [(e, h) for e, h in regions if h]
-    if regions:
-        all_hits = [hit for _, h in regions for hit in h]
+    economy = _region_economy(parts, dicts)
+    if regions and economy:
+        signals["region"] = economy  # аренда, налоги, бюджет региона — деловой признак
+        all_hits = [hit for _, h in regions for hit in h] + economy
         code, name = REGION_FACTOR
         factors.append(FactorLink(code=code, name=name, strength=strength_of(all_hits), evidence=_evidence(all_hits)))
 
@@ -215,6 +284,7 @@ def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
         hits = _hits(entry, parts)
         if not hits:
             continue
+        signals[f"sector:{entry.name}"] = hits
         sector_names.append(entry.name)
         for okved in entry.okved:
             direct.append(
@@ -229,6 +299,7 @@ def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
         # до выбора сильнейшей связи: у отрасли, названной в тексте и выведенной из сырьевого фактора, останется вторая
         dropped = {f.code for f in factors if f.code in dicts.foreign_factors}
         factors = [f for f in factors if f.code not in dropped]
+        signals = {k: v for k, v in signals.items() if k not in dropped}
         implied = [s for s in implied if s.via.removeprefix("factor:") not in dropped]
         direct = [_capped(s, dicts.foreign_cap) for s in direct]
 
@@ -238,7 +309,10 @@ def tag(title: str, lead: str = "", dicts: Dictionaries | None = None) -> Tags:
             best[link.okved] = link
     sector_links = sorted(best.values(), key=lambda s: (-s.strength, s.okved))
     factors.sort(key=lambda f: -f.strength)
+    business, reason = business_verdict(raw, signals, dicts)
     return Tags(
+        business=business,
+        business_reason=reason,
         topics=[f.name for f in factors],
         factors=factors,
         sectors=sector_names,
