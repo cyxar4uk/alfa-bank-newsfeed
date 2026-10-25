@@ -64,6 +64,10 @@ def test_happy_path_builds_insight_by_contract():
         "not_retelling",
         "verdict",
         "plain_language",
+        "on_topic",
+        "fresh_dates",
+        "fits_profile",
+        "action_owner",
     ]
     assert insight.unresolved_refs() == set()
     assert all(s.origin == "bank" for s in insight.bank_view)

@@ -415,9 +415,16 @@ class Consequences(BaseModel):
     factors: list[Statement] = Field(default_factory=list)
 
 
+Due = Literal["сегодня", "на неделе", "к кварталу"]
+
+
 class Action(BaseModel):
     text: str
     kind: Literal["question", "scenario", "product"]
+    owner: str | None = Field(
+        default=None, description="кому поручить: «финансовой службе», «закупкам», «вы сами»"
+    )
+    due: Due | None = Field(default=None, description="когда: сегодня, на неделе, к кварталу")
     product: BankProduct | None = Field(
         default=None, description="продукт банка, если предложение обосновано"
     )
@@ -425,6 +432,14 @@ class Action(BaseModel):
 
 
 VerdictLevel = Literal["act", "watch", "info"]
+
+
+class VerdictStep(BaseModel):
+    """Шаг «что делать»: что, кому поручить и когда."""
+
+    text: str = Field(min_length=1)
+    owner: str | None = Field(default=None, description="кому поручить")
+    due: Due | None = Field(default=None, description="сегодня, на неделе, к кварталу")
 
 
 class Verdict(BaseModel):
@@ -437,6 +452,9 @@ class Verdict(BaseModel):
     why: str = Field(min_length=1, description="почему — с числом из данных о компании или из источника")
     actions: list[str] = Field(
         default_factory=list, description="что делать, 0–3 шага; у info может быть пусто"
+    )
+    steps: list[VerdictStep] = Field(
+        default_factory=list, description="те же шаги с адресатом и сроком (actions — их тексты)"
     )
     refs: list[str] = Field(default_factory=list, description="на чём основан итог: src:… и feat:…")
 
@@ -851,9 +869,21 @@ class TraceStep(BaseModel):
     verdict: Literal["pass", "fail"] | None = None
 
 
+class TraceSummary(BaseModel):
+    """Резюме трассы простыми словами — сверху экрана; шаги (`steps`) — техника для проверяющих."""
+
+    checked: list[str] = Field(default_factory=list, description="что проверено и что нашлось")
+    not_found: list[str] = Field(default_factory=list, description="чего не нашли и почему")
+    problems: list[str] = Field(
+        default_factory=list, description="какие проверки не пройдены — человеческим языком"
+    )
+    verdict: str = Field(default="", description="итог самопроверки одной фразой")
+
+
 class Trace(BaseModel):
     id: str = Field(pattern=r"^tr:")
     insight_id: str | None = None
+    summary: TraceSummary | None = None
     steps: list[TraceStep] = Field(default_factory=list)
 
 

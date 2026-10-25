@@ -7,7 +7,7 @@
 import re
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, field_validator
 
 from api.agent.plain import ru_decimals
 from api.contract import BankConflict, Confidence, HypothesisCheck, Statement
@@ -99,6 +99,18 @@ def cited(s: DraftStatement) -> list[str]:
     return [*s.refs, *conflict]
 
 
+DUE = Literal["сегодня", "на неделе", "к кварталу"]
+
+
+class DraftStep(BaseModel):
+    text: str = Field(min_length=1, description="что сделать — конкретно для этой компании")
+    owner: str | None = Field(
+        default=None,
+        description="кому поручить (не себе по роли): «финансовой службе», «закупкам», «юристам», «вы сами»",
+    )
+    due: DUE | None = Field(default=None, description="сегодня, на неделе или к кварталу")
+
+
 class DraftVerdict(BaseModel):
     level: Literal["act", "watch", "info"] = Field(
         description="act — компании стоит действовать, watch — следить, info — к сведению: почти не влияет"
@@ -111,10 +123,17 @@ class DraftVerdict(BaseModel):
     why: str = Field(
         min_length=1, description="почему — одно предложение с числом из данных о компании или из новости"
     )
-    actions: list[str] = Field(
-        default_factory=list, description="что делать: 1–3 коротких шага для роли; у info — пусто"
+    actions: list[DraftStep] = Field(
+        default_factory=list,
+        description="что делать: 1–3 шага для роли — что, кому поручить, когда; у info — пусто",
     )
     refs: Refs = Field(default_factory=list, description="на чём основан итог: feat:… и src:…")
+
+    @field_validator("actions", mode="before")
+    @classmethod
+    def _plain_steps(cls, value):
+        # шаг строкой (старые черновики, короткий ответ модели) — без адресата и срока
+        return [{"text": v} if isinstance(v, str) else v for v in value or []]
 
 
 class DraftBankPosition(BaseModel):
@@ -128,7 +147,9 @@ class DraftBankPosition(BaseModel):
 
 class DraftAction(BaseModel):
     text: str = Field(min_length=1)
-    kind: Literal["question", "scenario"]
+    kind: Literal["question", "scenario"] = "question"
+    owner: str | None = Field(default=None, description="кому поручить")
+    due: DUE | None = Field(default=None, description="сегодня, на неделе или к кварталу")
     refs: Refs = Field(default_factory=list)
 
 

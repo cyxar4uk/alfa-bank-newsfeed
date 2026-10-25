@@ -117,7 +117,9 @@ def test_card_texts_get_russian_decimals():
         level="act",
         headline="Для вас важно: ставка 14.0 % до конца года",
         why="Ставка осталась 14% — процентные расходы по вашему кредиту не снизятся.",
-        actions=["Проверьте долг по плавающей ставке"],
+        actions=[
+            {"text": "Проверьте долг по плавающей ставке", "owner": "финансовой службе", "due": "на неделе"}
+        ],
         refs=["feat:CL_PRODUCT_LOA_MARK"],
     )
     agent, _ = make_agent(reply(GOOD_PLAN), reply(good_draft(verdict=verdict)))
