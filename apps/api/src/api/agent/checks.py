@@ -24,6 +24,14 @@ from api.agent.drafts import Draft, DraftStatement
 from api.agent.forecasts import superseded
 from api.agent.numbers import NumberBank, money_in, numbers_in
 from api.agent.plain import technical
+from api.agent.topics import (
+    TOPIC_LABELS,
+    contradicts_ved,
+    event_topics,
+    on_topic,
+    past_as_future,
+    ved_direction,
+)
 
 CHECKS = (
     "refs",
@@ -37,7 +45,62 @@ CHECKS = (
     "not_retelling",
     "verdict",
     "plain_language",
+    "on_topic",
+    "fresh_dates",
+    "fits_profile",
+    "action_owner",
 )
+
+# «уточните у казначейства» казначею — себе не поручают; кому поручить — не своей же службе
+SELF_DEPT = {
+    # служба, а не «казначейские счета»
+    "treasury": re.compile(r"казначейств\w*|казначе[яюей]\b|казначею", re.IGNORECASE),
+    "cfo": re.compile(r"финансов\w+\s+директор\w*|финдиректор\w*", re.IGNORECASE),
+    "chief_accountant": re.compile(r"бухгалтери\w*|главн\w+\s+бухгалтер\w*|главбух\w*", re.IGNORECASE),
+    "ceo": re.compile(r"генеральн\w+\s+директор\w*|гендиректор\w*", re.IGNORECASE),
+    "owner": re.compile(r"собственник\w*", re.IGNORECASE),
+}
+_ASK_DEPT = re.compile(r"(?:\bу|\bс|поручит\w*)\s+((?:\S+\s+){0,2}\S+)", re.IGNORECASE)
+_SUPPLIERS_OF = re.compile(r"поставщик\w*\s+(?:\w+\s+)?([а-яё]{5,})", re.IGNORECASE)
+_GENERIC_ACTIVITY = {
+    "торго",
+    "оптов",
+    "розни",
+    "деяте",
+    "произ",
+    "прочи",
+    "кроме",
+    "включ",
+    "специ",
+    "магаз",
+    "агент",
+    "подоб",
+    "проду",
+    "тверд",
+    "жидки",
+    "газоо",
+    "услуг",
+    "издел",
+    "прина",
+    "автом",
+    "узлам",
+    "детал",
+    "сырье",
+}
+# казначею по ставке — и долг, и доходность размещения
+_DEBT = re.compile(r"долг|кредит|займ|заимств|процент\w* расход", re.IGNORECASE)
+_PLACEMENT = re.compile(r"депозит|размещ|доходност|свободн\w* ден|остатк", re.IGNORECASE)
+# вывод о самой компании, а не пересказ рынка: «ваш», «вы», «компания»
+_ABOUT_US = re.compile(r"\bваш\w*|\bвы\b|\bвам\b|\bвас\b|компани\w*", re.IGNORECASE)
+
+
+def own_goods(display_name: str) -> set[str]:
+    """Чем торгует или что производит компания — основы слов вида деятельности: «топлив», «зерно»."""
+    # «Компания №N · торговля … топливом» или уже без номера — «Торговля … топливом»
+    activity = display_name.split("·", 1)[-1]
+    stems = {w.lower()[:5] for w in re.findall(r"[а-яё]{5,}", activity, re.IGNORECASE)}
+    return {s for s in stems if s[:5] not in _GENERIC_ACTIVITY}
+
 
 # «N компаний … с выручкой X млрд ₽» и «касается/задевает N компаний» — охват группы: одно число, из фактов
 _COVERAGE_REVENUE = re.compile(
@@ -174,6 +237,58 @@ class Checker:
         self.company_numbers = ctx.company_numbers()
         self.all_numbers = ctx.all_numbers()
         self.counterparties = ctx.counterparty_ids()
+        self.topics = event_topics(ctx.event)
+        self.ved = ved_direction(ctx.exposure)
+        self.self_dept = SELF_DEPT.get(ctx.persona.role)
+        self.own_goods = own_goods(ctx.profile.display_name)
+
+    # --- тема, даты, профиль, адресат ------------------------------------------------------------
+
+    def topic_labels(self) -> str:
+        return ", ".join(TOPIC_LABELS[t] for t in sorted(self.topics)) or "нет"
+
+    def off_topic(self, text: str) -> str | None:
+        """Позиция банка не по теме события — текст проблемы; по теме — None."""
+        if on_topic(text, self.topics):
+            return None
+        return (
+            f"позиция банка не по теме события (тема: {self.topic_labels()}): цитата про другое"
+            " не отвечает на вопрос; нет цитаты по теме — позиции банка нет"
+            " (bank_view пустой, bank_position null)"
+        )
+
+    def profile_problems(self, text: str) -> list[tuple[str, str]]:
+        """Даты и данные компании: (проверка, текст проблемы)."""
+        out = []
+        past = past_as_future(text, self.ctx.today)
+        if past:
+            out.append(
+                (
+                    "fresh_dates",
+                    f"дата уже прошла (сегодня {self.ctx.today:%d.%m.%Y}): {', '.join(past[:2])}"
+                    " — не пиши о ней как о будущем, следить можно только за предстоящим",
+                )
+            )
+        clash = contradicts_ved(text, self.ved) if _ABOUT_US.search(text) else None
+        if clash:
+            out.append(("fits_profile", f"противоречит данным о компании: {clash}"))
+        return out
+
+    def step_problem(self, text: str, owner: str | None) -> str | None:
+        """Шаг поручен «себе» по роли или спрашивает поставщиков того, чем компания торгует сама."""
+        dept = self.self_dept
+        if dept and (dept.search(owner or "") or any(dept.search(m[0]) for m in _ASK_DEPT.finditer(text))):
+            return (
+                f"шаг адресован вашей же роли ({self.ctx.persona.role_label}): поручите другой службе или"
+                " напишите, что сделать самому"
+            )
+        for m in _SUPPLIERS_OF.finditer(text):
+            if m[1].lower()[:5] in self.own_goods:
+                return (
+                    f"компания сама продаёт «{m[1]}» — спросить об этом поставщиков нельзя: речь о закупке у"
+                    " производителей или о покупателях"
+                )
+        return None
 
     # --- ссылки ---------------------------------------------------------------------------------
 
@@ -236,6 +351,9 @@ class Checker:
                 stale = [h.source.id for h in self.ctx.analytics if h.stale and h.source.id in s.refs]
                 if stale:
                     bad("bank_quotes", "ссылка на устаревший материал — это не позиция банка")
+                topic = self.off_topic(f"{s.text} {s.quote or ''}")
+                if topic:
+                    bad("on_topic", topic)
                 # фраза, цитата и подпись — из одного материала: по ним карточка подписывает позицию банка
                 materials = {r.split("#", 1)[0] for r in src_refs if self.ctx.page_ref_of(r)}
                 if len(materials) > 1:
@@ -305,6 +423,10 @@ class Checker:
                             f"«раньше банк ждал…»",
                         )
                         break
+        # даты и профиль — в выводах; факт и позиция банка пересказывают источник со своими датами
+        if s.origin not in ("fact", "bank") and block != "what_happened":
+            for check, problem in self.profile_problems(s.text):
+                bad(check, problem)
         wrong = self.coverage_claims(s.text) if s.origin != "fact" else []
         if wrong:
             bad("numbers_from_tools", "охват группы не совпадает с фактами: " + "; ".join(wrong[:2]))
@@ -353,7 +475,15 @@ class Checker:
         unresolved = [r for r in v.refs if not self.resolves(r)]
         if unresolved:
             bad("refs", f"ссылки не из контекста: {', '.join(unresolved[:4])}")
-        text = " ".join([v.headline, v.why, *v.actions])
+        text = " ".join([v.headline, v.why, *(a.text for a in v.actions)])
+        for check, problem in self.profile_problems(text):
+            bad(check, problem)
+        for step in v.actions:
+            problem = self.step_problem(step.text, step.owner)
+            if problem:
+                bad("action_owner", problem)
+        if v.level != "info" and any(step.due is None or not step.owner for step in v.actions):
+            bad("action_owner", "у каждого шага — кому поручить (owner) и срок (due)", hard=False)
         # суммы в рублях — только из расчётного инструмента: они есть в его утверждениях
         allowed = self.ctx.all_numbers()
         for e in self.ctx.estimates:
@@ -429,6 +559,9 @@ class Checker:
                         "fresh_forecast", f"прогноз банк пересмотрел {newer.date:%d.%m.%Y}: возьми актуальный"
                     )
                     break
+        topic = self.off_topic(f"{bp.statement} {bp.quote}")
+        if topic:
+            bad("on_topic", topic)
         words = technical(bp.statement, quoting=True)
         if words:
             bad("plain_language", f"служебные слова в позиции банка ({', '.join(words)})")
@@ -523,6 +656,11 @@ class Checker:
                         True,
                     )
                 )
+            for check, problem in self.profile_problems(a.text):
+                report.issues.append(Issue(check, problem, "actions", i, True))
+            problem = self.step_problem(a.text, a.owner)
+            if problem:
+                report.issues.append(Issue("action_owner", problem, "actions", i, True))
             money = money_in(a.text)
             if money:
                 report.issues.append(
@@ -575,9 +713,28 @@ class Checker:
         if not draft.actions:
             report.issues.append(Issue("role", "нет действий"))
 
-        usable = [h for h in self.ctx.analytics if not h.stale]
+        # позиции банка нет — это честно, если по теме события банк ничего не писал
+        usable = [
+            h for h in self.ctx.analytics if not h.stale and on_topic(h.source.fragment or "", self.topics)
+        ]
+        if (
+            self.ctx.persona.role == "treasury"
+            and self.topics & {"rate", "deposit"}
+            and (draft.actions or (draft.verdict and draft.verdict.actions))
+        ):
+            steps = " ".join(
+                [a.text for a in draft.actions]
+                + [s.text for s in (draft.verdict.actions if draft.verdict else [])]
+            )
+            if not (_DEBT.search(steps) and _PLACEMENT.search(steps)):
+                report.issues.append(
+                    Issue(
+                        "role",
+                        "казначею по ставке — и стоимость долга, и доходность размещения свободных денег",
+                    )
+                )
         if usable and not draft.bank_view and not draft.bank_position:
             report.issues.append(
-                Issue("bank_quotes", "в контексте есть аналитика банка, а позиции банка в карточке нет")
+                Issue("bank_quotes", "в контексте есть аналитика банка по теме события, а позиции банка нет")
             )
         return report

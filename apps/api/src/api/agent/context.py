@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from api.agent.numbers import NumberBank
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, Chain, Event, ExposureFactor, GroupImpact
+from api.agent.topics import TOPIC_LABELS, event_topics, today, ved_direction
 from api.contract import CompanyProfile, Persona, Source, Statement
 from api.contract import GroupImpact as Coverage
 from api.numbers import fmt_rub
@@ -156,6 +157,7 @@ class AgentContext:
     offer: Offer | None = None
     page_texts: dict[str, str] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
+    today: dt.date = field(default_factory=today)  # от какой даты «прошло» и «предстоит»
 
     # --- что можно цитировать и на что ссылаться ------------------------------------------------
 
@@ -297,6 +299,12 @@ class AgentContext:
         for f in sorted(self.exposure, key=lambda f: -LEVEL_RANK.get(f.level, 0)):
             cov = f" · покрытие {_short(f.coverage)}" if f.coverage is not None else ""
             lines.append(f"- {f.code} · {f.label} · {f.level} · {f.channel_text}{cov} · {', '.join(f.refs)}")
+        direction = ved_direction(self.exposure)
+        if direction:
+            word = "экспорт" if direction == "export" else "импорт"
+            lines.append(
+                f"Направление ВЭД по данным банка: {word} — противоположного компании не приписывай."
+            )
         return "\n".join(lines)
 
     def render_chain(self) -> str:
@@ -344,6 +352,9 @@ class AgentContext:
         tags = ", ".join(f"{clean(f.code)} ({f.strength:.1f})" for f in self.event.factors) or "нет"
         sectors = ", ".join(f"{clean(t.okved)} {clean(t.name)}" for t in self.event.sectors) or "нет"
         parts = [
+            f"СЕГОДНЯ: {self.today:%d.%m.%Y}. Всё, что раньше этой даты, — уже прошло.",
+            "Тема события для позиции банка: "
+            + (", ".join(TOPIC_LABELS[t] for t in sorted(event_topics(self.event))) or "не определена"),
             "Событие (новость):",
             as_data(s.id, self.event.text, meta),
             f"Разметка парсера: факторы — {tags}; отрасли ОКВЭД — {sectors}",

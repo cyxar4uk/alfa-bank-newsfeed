@@ -12,18 +12,19 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from api.agent.checks import Checker, Report, quote_in
-from api.agent.context import AgentContext
+from api.agent.checks import CHECKS, Checker, Report, quote_in
+from api.agent.context import AgentContext, coverage_fact
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
 from api.agent.numbers import numbers_in
 from api.agent.plain import humanize_note, is_plain, ru_decimals
-from api.agent.ports import CompanyData, Event, Library
+from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
 from api.agent.prompts import draft_messages, plan_messages, revise_messages
 from api.agent.relevance import combine as relevance_combine
 from api.agent.relevance import formula as relevance_formula
 from api.agent.relevance import terms_for as relevance_terms
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
+from api.agent.topics import TOPIC_LABELS, TOPIC_QUERIES, event_topics, on_topic
 from api.agent.trace import TOOL_STAGES, ProgressStep, TraceRecorder
 from api.contract import (
     Action,
@@ -37,7 +38,9 @@ from api.contract import (
     Relevance,
     Source,
     Trace,
+    TraceSummary,
     Verdict,
+    VerdictStep,
 )
 from api.llm import BudgetExceeded, LlmClient, LlmError
 
@@ -134,6 +137,10 @@ class Agent:
         for forecast in FORECASTS:
             if forecast.topic in topics:
                 tools.search_alfa_analytics(ctx, forecast.query, None, material=forecast.material)
+        # позиция банка — по теме события: по курсу, нефти, налогу ищем отдельно, а не только по ставке
+        for topic in sorted(event_topics(ctx.event)):
+            if topic in TOPIC_QUERIES:
+                tools.search_alfa_analytics(ctx, TOPIC_QUERIES[topic], None)
         for query in plan.news_queries[:2]:
             tools.search_news(ctx, query, factor_codes)
         if plan.need_estimates or set(event_factor_codes(ctx.event)) & {"rate", "deposit_yield", "fx"}:
@@ -288,7 +295,10 @@ class Agent:
                 if ref.startswith("src:alfa:") and ref not in used_sources:
                     used_sources[ref] = _page_source(ref, ctx.page_texts.get(ref, ""))
 
-        actions = [Action(text=ru_decimals(a.text), kind=a.kind, refs=a.refs) for a in clean.actions]
+        actions = [
+            Action(text=ru_decimals(a.text), kind=a.kind, refs=a.refs, owner=a.owner, due=a.due)
+            for a in clean.actions
+        ]
         if ctx.offer:
             actions.append(
                 Action(text=ctx.offer.text, kind="product", product=ctx.offer.product, refs=ctx.offer.refs)
@@ -312,7 +322,10 @@ class Agent:
         features_used = sorted(r for r in refs if r.startswith("feat:") and r in known)
 
         raw = list(dict.fromkeys([*ctx.warnings, *clean.warnings, *report.warnings]))
-        if not clean.bank_view and not clean.bank_position and not any(not h.stale for h in ctx.analytics):
+        topical = any(
+            not h.stale and on_topic(h.source.fragment or "", event_topics(ctx.event)) for h in ctx.analytics
+        )
+        if not clean.bank_view and not clean.bank_position and not topical:
             raw.append("позиции Альфа-Банка по теме нет")
         if dropped:
             raw.append(f"убрано утверждений, которые не подтвердились источниками: {dropped}")
@@ -354,6 +367,7 @@ class Agent:
             bank_position=_bank_position(ctx, clean),
             quotes=_quotes(ctx, clean),
         )
+        trace.trace.summary = _trace_summary(ctx, final, dropped)
         missing = insight.unresolved_refs()
         if missing:
             # не должно случаться после самопроверки; если случилось — не отдаём битые ссылки молча
@@ -379,11 +393,13 @@ def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> 
     """Итог из черновика; если модель его не дала или он не прошёл проверку — по оценке и выводам карточки."""
     v = draft.verdict
     if v is not None:
+        steps = [VerdictStep(text=ru_decimals(a.text), owner=a.owner, due=a.due) for a in v.actions[:3]]
         return Verdict(
             level=v.level,
             headline=ru_decimals(v.headline),
             why=ru_decimals(v.why),
-            actions=[ru_decimals(a) for a in v.actions[:3]],
+            actions=[s.text for s in steps],
+            steps=steps,
             refs=list(dict.fromkeys(v.refs)),
         )
     level = "act" if score >= 0.5 else "watch" if score >= 0.2 else "info"
@@ -395,9 +411,15 @@ def _verdict(draft: Draft, score: float, reason: str, actions: list[Action]) -> 
     plain = [s.text for s in draft.why_it_matters if s.origin == "data" and is_plain(s.text)]
     why = next((t for t in plain if numbers_in(t)), plain[0] if plain else reason)
     steps = (
-        [a.text for a in actions if a.kind != "product" and is_plain(a.text)][:3] if level != "info" else []
+        [
+            VerdictStep(text=a.text, owner=a.owner, due=a.due)
+            for a in actions
+            if a.kind != "product" and is_plain(a.text)
+        ][:3]
+        if level != "info"
+        else []
     )
-    return Verdict(level=level, headline=headline, why=why, actions=steps)
+    return Verdict(level=level, headline=headline, why=why, actions=[s.text for s in steps], steps=steps)
 
 
 def _cited_hit(ctx: AgentContext, refs: list[str], quote: str | None):
@@ -425,7 +447,9 @@ def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
     elif draft.bank_view:
         first = draft.bank_view[0]
         statement, refs, quote = first.text, first.refs, first.quote
-    elif any(not h.stale for h in ctx.analytics):
+    elif any(
+        not h.stale and on_topic(h.source.fragment or "", event_topics(ctx.event)) for h in ctx.analytics
+    ):
         # материал банка был, но позиция не подтвердилась самопроверкой — это не «банк не публиковал»
         return BankPosition(found=False, statement=UNCONFIRMED_BANK_POSITION)
     else:
@@ -455,6 +479,71 @@ def _quotes(ctx: AgentContext, draft: Draft) -> list[Quote]:
     return out
 
 
+# не пройденная проверка — что это значит для пользователя
+CHECK_LABELS = {
+    "refs": "у части утверждений не нашлось источника",
+    "facts_in_source": "часть фактов не нашлась в тексте новости",
+    "bank_quotes": "цитата Альфа-Банка не нашлась в материале",
+    "numbers_from_tools": "часть чисел не подтверждена данными банка",
+    "counterparties_in_chain": "упомянута компания не из ваших покупателей, поставщиков или группы",
+    "fresh_forecast": "прогноз банка из старого материала — есть новее",
+    "multi_factor": "событие затрагивает компанию только с одной стороны",
+    "role": "вывод не полностью привязан к задачам вашей роли",
+    "not_retelling": "местами — пересказ новости вместо вывода",
+    "verdict": "в итоге не хватает числа или шагов",
+    "plain_language": "в тексте остались служебные слова",
+    "on_topic": "позиция банка была не по теме события",
+    "fresh_dates": "упоминалась уже прошедшая дата",
+    "fits_profile": "вывод противоречил данным о компании",
+    "action_owner": "у шагов не хватает адресата или срока",
+}
+
+
+def _trace_summary(ctx: AgentContext, final: Report, dropped: int) -> TraceSummary:
+    """Что проверено, чего не нашли и что не прошло — простыми словами, без кодов и имён функций."""
+    checked, not_found = [], []
+    checked.append(f"Данные банка о компании: {len(ctx.profile.features)} показателей")
+    strong = [f.label for f in ctx.exposure if LEVEL_RANK.get(f.level, 0) >= 2][:3]
+    if strong:
+        checked.append("От чего сильнее всего зависит бизнес: " + "; ".join(strong))
+    if ctx.chain.channels:
+        checked.append(f"Связи через покупателей и поставщиков: {len(ctx.chain.channels)}")
+    else:
+        not_found.append("Влияние через покупателей и поставщиков оценить не удалось: данных мало")
+    if ctx.coverage:
+        checked.append("Группа: " + coverage_fact(ctx.coverage))
+    topics = event_topics(ctx.event)
+    materials = {h.source.id.split("#", 1)[0] for h in ctx.analytics}
+    topical = {
+        h.source.id.split("#", 1)[0] for h in ctx.analytics if on_topic(h.source.fragment or "", topics)
+    }
+    if materials:
+        checked.append(f"Материалы Альфа-Банка: {len(materials)}, по теме события — {len(topical)}")
+    if not topical:
+        labels = ", ".join(TOPIC_LABELS[t] for t in sorted(topics)) or "тема не определена"
+        not_found.append(f"Позиции Альфа-Банка по теме события ({labels}) в материалах нет")
+    if ctx.news:
+        checked.append(f"Связанные новости: {len(ctx.news)}")
+    if ctx.estimates:
+        checked.append(f"Расчёты в рублях: {len(ctx.estimates)}")
+    else:
+        not_found.append("Расчёта в рублях нет: для этого события нет честной формулы на данных банка")
+    problems = list(dict.fromkeys(CHECK_LABELS[i.check] for i in final.issues if i.check in CHECK_LABELS))
+    if dropped:
+        problems.append(f"убрано утверждений, которые не подтвердились: {dropped}")
+    total = len(CHECKS)
+    passed = len(final.passed)
+    if passed == total:
+        verdict = f"Самопроверка: все {total} проверок пройдены"
+        if dropped:
+            verdict += f", неподтверждённое убрано ({dropped})"
+    else:
+        verdict = f"Самопроверка: пройдено {passed} из {total}" + (
+            " — " + "; ".join(problems[:3]) if problems else ""
+        )
+    return TraceSummary(checked=checked, not_found=not_found, problems=problems, verdict=verdict)
+
+
 def _check_found(report: Report) -> str:
     hard = sum(1 for i in report.issues if i.hard)
     if not report.issues:
@@ -465,7 +554,13 @@ def _check_found(report: Report) -> str:
 
 
 def _badness(report: Report) -> tuple[int, int]:
-    return (sum(1 for i in report.issues if i.hard), len(report.issues))
+    """Чем хуже черновик: неподтверждённые утверждения и пробелы карточки целиком (нет фактов, шагов, данных).
+
+    Пробелы считаются наравне: иначе почти пустой черновик — без утверждений, а значит без их проблем —
+    «лучше» полной доработки с одной неточностью.
+    """
+    card_gaps = sum(1 for i in report.issues if i.block is None or (i.block == "verdict" and not i.hard))
+    return (sum(1 for i in report.issues if i.hard) + card_gaps, len(report.issues))
 
 
 def _worth_revising(ctx: AgentContext, report: Report, round_no: int) -> bool:
