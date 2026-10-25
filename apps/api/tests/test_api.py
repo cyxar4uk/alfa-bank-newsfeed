@@ -598,3 +598,27 @@ def test_coverage_takes_weak_links_only_through_group():
 def test_group_impact_endpoint_zero_block(client):
     body = client.get("/api/companies/U_1/group-impact", params={"okved": "35"}).json()
     assert body["affected_count"] == 0 and body["text"] == "событие не касается других компаний группы"
+
+
+def test_search_news_search_is_not_shadowed():
+    """У SearchNews метод search() не перекрыт хранилищем: на стенде любой поиск давал 500."""
+    from api.news import FallbackNews, SearchNews
+
+    class Page:
+        def __init__(self, items):
+            self.items, self.total = items, len(items)
+
+    class Repo:
+        def list_news(self, query="", since=None, limit=20, offset=0):
+            hits = [
+                {
+                    "id": "src:news:p",
+                    "title": "Пошлина на пшеницу",
+                    "published_at": "2026-10-24T10:00:00+03:00",
+                }
+            ]
+            return Page(hits if query else hits + hits)
+
+    news = FallbackNews(SearchNews(Repo()), None)
+    assert [e.id for e in news.search("пошлина на пшеницу", 10)] == ["src:news:p"]
+    assert news.search("", 10) == []
