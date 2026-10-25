@@ -9,7 +9,7 @@ import re
 
 from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
-from api.profile import companies, format_rub
+from api.coverage import coverage_phrase
 from api.short import clean_channel
 
 TEXT_MAX = 160
@@ -139,10 +139,10 @@ def _depend(n: int, key: str) -> str:
 def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     """Числа из данных компании человеческими фразами: группа, строка «для вас», признаки компании."""
     found = []
-    gi = item.group_impact
+    gi = item.coverage or item.group_impact  # охват в группе — одно число с агентом (api.coverage)
     if gi and gi.affected_count:
         n = gi.affected_count
-        found.append(f"{companies(n)} группы с выручкой {format_rub(gi.affected_revenue)}{_depend(n, key)}")
+        found.append(coverage_phrase(gi) + _depend(n, key))
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
     factor = next((f for f in exposure.factors if f.code == key), None) if exposure else None
@@ -151,10 +151,11 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
         if not _DIGIT.search(value) or _CODE_VALUE.match(value):
             continue
         label = _OKVED_LIST.sub("", e.label).strip().lower()
-        if m := _GROUP_LINE.match(value):  # «48 компаний, 116,8 млрд ₽ — 59 % выручки группы»
-            n = int(m.group(1))
-            found.append(f"{companies(n)} группы с выручкой {m.group(2)}{_depend(n, key)}")
-        elif (m := _SHARE_OF.match(value)) and "кредит" in label:  # «11 из 28»
+        if _GROUP_LINE.match(value):
+            # «48 компаний, 116,8 млрд ₽» — компании отрасли в группе, а не задетые событием: второе число
+            # о том же «сколько компаний» спорило бы с охватом события
+            continue
+        if (m := _SHARE_OF.match(value)) and "кредит" in label:  # «11 из 28»
             found.append(f"кредиты у {m.group(1)} из {m.group(2)} компаний группы")
         elif not label.startswith("компании группы"):
             found.append(f"{label}: {value}")
@@ -292,7 +293,7 @@ def takeaway(
 
 
 def _brief(why: str) -> str:
-    """Короткая форма причины с числом: «178 компаний группы с выручкой 149,0 млрд ₽ зависят от кредитов»."""
+    """Короткая форма причины с числом: «178 компаний группы с выручкой 149 млрд ₽ зависят от кредитов»."""
     if len(why) <= 70:
         return why
     for sep in (" — ", ": ", ", "):

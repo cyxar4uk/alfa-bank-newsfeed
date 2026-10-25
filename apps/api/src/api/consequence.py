@@ -10,6 +10,7 @@
 import re
 
 from api.contract import ExposureMap, FeedItem
+from api.numbers import fmt_rate
 
 W = r"(?:\s+\S+){0,3}?\s+"  # до трёх слов между глаголом и предметом
 _NOT = re.compile(
@@ -55,9 +56,9 @@ _TAX_DOWN = re.compile(r"(?<!\w)(?:сниз|сниж|отмен|обнул|ум�
 _DEMAND = re.compile(r"(?<!\w)(?:спрос|продаж|потребител)")
 
 
-def _number(value: str) -> str:
-    """«14,00» → «14», «16,5» — как есть."""
-    return re.sub(r"[.,]0+$", "", value)
+def _rate_text(value: str) -> str:
+    """Ставка из заголовка — «14,00» → «14,0 %», «16,5» → «16,5 %» (api.numbers.fmt_rate)."""
+    return fmt_rate(float(value.replace(",", ".")))
 
 
 def _title(item: FeedItem) -> str:
@@ -96,7 +97,7 @@ def _direction(text: str, up: re.Pattern, down: re.Pattern) -> str | None:
 def _rate(title: str, group: bool) -> str | None:
     debt = "долг группы" if group else "долг"
     m = _RATE_PERCENT.search(title)
-    rate = f"Ставка {_number(m.group(1))} %" if m else "Ставка"
+    rate = f"Ставка {_rate_text(m.group(1))}" if m else "Ставка"
     if _NOT.search(title):
         return f"{rate} не меняется — {debt} остаётся дорогим" if "ставк" in title else None
     if _PAUSE.search(title):  # «пауза в снижении ставки» — ставка держится, а не снижается
@@ -157,7 +158,8 @@ def _fx(title: str, channel: str) -> str | None:
 def consequence(item: FeedItem, key: str, exposure: ExposureMap | None) -> str | None:
     """Последствие для компании или None, если направление честно не определить."""
     title = _title(item)
-    group = bool(item.group_impact and item.group_impact.affected_count)
+    cover = item.coverage or item.group_impact  # тот же охват, что в числе вывода (api.coverage)
+    group = bool(cover and cover.affected_count)
     if key == "rate":
         return _rate(title, group)
     if key == "deposit_yield":

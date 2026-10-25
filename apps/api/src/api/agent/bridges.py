@@ -19,12 +19,36 @@ from api.agent.ports import (
     Expectation,
     ExposureFactor,
     FactorTag,
+    GroupImpact,
+    GroupMember,
     ParseError,
     SectorTag,
 )
+from api.contract import GroupImpact as Coverage
 from api.contract import Source
 
 _CHANNEL_FACTOR = {"buyers": "demand", "suppliers": "supply"}
+
+
+def group_from_coverage(cov: Coverage) -> GroupImpact:
+    """Группа в модели агента из охвата ленты: те же участники и то же число."""
+    return GroupImpact(
+        group_id=cov.group_id,
+        size=cov.companies_total,
+        members=[
+            GroupMember(
+                id=m.id,
+                display_name=m.display_name,
+                sector=m.sector,
+                revenue=m.revenue,
+                factors=[f.code for f in m.factors] or (["direct"] if m.direct else []),
+            )
+            for m in cov.affected
+        ],
+        revenue_total=None,
+        text=cov.text,
+        refs=list(cov.refs),
+    )
 
 
 def optional(module: str, name: str):
@@ -38,11 +62,32 @@ def optional(module: str, name: str):
 class ServiceCompanyData(ProfileCompanyData):
     """Профиль, карта и цепочка — функциями api-core; группа и персоны — как во временной реализации."""
 
-    def __init__(self, repo, exposure_fn=None, chain_fn=None, profile_fn=None) -> None:
+    def __init__(self, repo, exposure_fn=None, chain_fn=None, profile_fn=None, coverage_fn=None) -> None:
         super().__init__(repo)
         self._exposure_fn = exposure_fn
         self._chain_fn = chain_fn
         self._profile_fn = profile_fn
+        self._coverage_fn = coverage_fn
+
+    def coverage(self, company_id: str, event: Event) -> Coverage | None:
+        """Охват группы событием — тот же, что в ленте: «127 компаний группы с выручкой 127,1 млрд ₽».
+
+        Одно число на ленту и карточку: считает его общая функция `api.coverage.event_coverage` по факторам
+        и отраслям события с силами разметки.
+        """
+        fn = self._coverage_fn or optional("api.coverage", "event_coverage")
+        if fn is None:
+            return None
+        return fn(
+            self.repo,
+            company_id,
+            [(f.code, f.strength) for f in event.factors],
+            [(sec.okved, sec.strength) for sec in event.sectors],
+        )
+
+    def group_impact(self, company_id, event):
+        """Группа для агента — из охвата ленты, а не из временной оценки по признакам участников."""
+        return None  # Tools берут группу из coverage(); старый путь остаётся у временной реализации
 
     def profile(self, company_id):
         if self._profile_fn is None:

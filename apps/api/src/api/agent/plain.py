@@ -71,3 +71,22 @@ def technical(text: str, quoting: bool = False) -> list[str]:
 
 def is_plain(text: str) -> bool:
     return not technical(text)
+
+
+# десятичное число с точкой перед единицей или процентом: «127.1 млрд ₽», «14.0 %», «$72.5»; даты
+# («11.09.2026») и коды отраслей («46.71 Торговля») не задеваем — за ними нет единицы
+_DOT_DECIMAL = re.compile(
+    r"(?<![\d.])(\d+)\.(\d+)(?![\d.])(?=\s*(?:%|п\.\s?п|трлн|млрд|млн|тыс|₽|руб|долл|\$|€|раз\w*))"
+    r"|(?<=\$)(\d+)\.(\d+)(?![\d.])"
+)
+
+
+def ru_decimals(text: str) -> str:
+    """Десятичные — по-русски, через запятую: «127.1 млрд ₽» → «127,1 млрд ₽», «$72.5» → «$72,5».
+
+    Дальше — общее правило API (`api.numbers.russian_numbers`): у сумм «149,0 млрд ₽» → «149 млрд ₽», как в
+    ленте; ставки и проценты остаются с одним знаком («14,0 %»), как у банка.
+    """
+    from api.numbers import russian_numbers
+
+    return russian_numbers(_DOT_DECIMAL.sub(lambda m: f"{m[1] or m[3]},{m[2] or m[4]}", text))

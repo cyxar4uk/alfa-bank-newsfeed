@@ -19,7 +19,7 @@ import datetime as dt
 import re
 from dataclasses import dataclass, field
 
-from api.agent.context import ROLE_STEMS, AgentContext
+from api.agent.context import ROLE_STEMS, AgentContext, coverage_fact
 from api.agent.drafts import Draft, DraftStatement
 from api.agent.forecasts import superseded
 from api.agent.numbers import NumberBank, money_in, numbers_in
@@ -38,6 +38,20 @@ CHECKS = (
     "verdict",
     "plain_language",
 )
+
+# «N компаний … с выручкой X млрд ₽» и «касается/задевает N компаний» — охват группы: одно число, из фактов
+_COVERAGE_REVENUE = re.compile(
+    r"(\d+)\s+компани\w*[^.;:]{0,60}?\bс\s+(?:общей\s+|суммарной\s+)?выручкой\s+(?:около\s+)?"
+    r"(\d+(?:[,.]\d+)?)\s*(трлн|млрд|млн)",
+    re.IGNORECASE,
+)
+_COVERAGE_HIT = re.compile(
+    r"(?:задева\w*|задет\w*|затрон\w*|затрагива\w*|касает\w*|касаются|коснётся|коснется|под\s+ударом)"
+    r"\s+(?:\S+\s+){0,3}?(\d+)\s+компани\w*"
+    r"|(\d+)\s+компани\w*\s+(?:вашей\s+)?групп\w*[^.;:]{0,30}?(?:задет\w*|затрон\w*|касает\w*|под\s+ударом)",
+    re.IGNORECASE,
+)
+_SCALE = {"трлн": 1e12, "млрд": 1e9, "млн": 1e6}
 
 # позиция банка — от лица банка: «Альфа-Банк ожидает …», «Аналитики Альфа-Банка считают …»
 _BANK_VOICE = re.compile(
@@ -291,6 +305,9 @@ class Checker:
                             f"«раньше банк ждал…»",
                         )
                         break
+        wrong = self.coverage_claims(s.text) if s.origin != "fact" else []
+        if wrong:
+            bad("numbers_from_tools", "охват группы не совпадает с фактами: " + "; ".join(wrong[:2]))
         unknown = self.unknown_companies(s.text, s.refs)
         if unknown:
             bad("counterparties_in_chain", f"контрагентов нет в цепочке и группе: {', '.join(unknown[:3])}")
@@ -301,6 +318,24 @@ class Checker:
                 f"служебные слова для пользователя ({', '.join(words)}) — скажи по-человечески",
             )
         return out
+
+    def coverage_claims(self, text: str) -> list[str]:
+        """Числа охвата группы в тексте, которые расходятся с фактами (с тем, что показывает лента)."""
+        cov = self.ctx.coverage
+        wrong = []
+        for m in _COVERAGE_REVENUE.finditer(text):
+            n, value = int(m[1]), float(m[2].replace(",", ".")) * _SCALE[m[3].lower()]
+            if cov is None:
+                wrong.append(f"«{m[0][:60]}» — охвата группы в данных нет")
+            elif n != cov.affected_count or abs(value - cov.affected_revenue) > max(
+                0.06 * _SCALE[m[3].lower()], 1
+            ):
+                wrong.append(f"«{m[0][:60]}» — по данным {coverage_fact(cov)}")
+        for m in _COVERAGE_HIT.finditer(text):
+            n = int(m[1] or m[2])
+            if cov is not None and n != cov.affected_count and n != cov.companies_total:
+                wrong.append(f"«{m[0][:60]}» — событие касается {cov.affected_count} компаний группы")
+        return list(dict.fromkeys(wrong))
 
     # --- итог и позиция банка ----------------------------------------------------------------------
 
@@ -326,6 +361,9 @@ class Checker:
         missing = allowed.unsupported(text)
         if missing:
             bad("numbers_from_tools", f"чисел нет ни в данных, ни в источниках: {', '.join(missing[:4])}")
+        wrong = self.coverage_claims(text)
+        if wrong:
+            bad("numbers_from_tools", "охват группы не совпадает с фактами: " + "; ".join(wrong[:2]))
         unknown = self.unknown_companies(text, v.refs)
         if unknown:
             bad("counterparties_in_chain", f"контрагентов нет в цепочке и группе: {', '.join(unknown[:3])}")

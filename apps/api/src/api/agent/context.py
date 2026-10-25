@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 from api.agent.numbers import NumberBank
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, Chain, Event, ExposureFactor, GroupImpact
 from api.contract import CompanyProfile, Persona, Source, Statement
+from api.contract import GroupImpact as Coverage
+from api.numbers import fmt_rub
+from api.profile import format_share
 
 DATA_OPEN = "<<<ДАННЫЕ"
 DATA_CLOSE = "<<<КОНЕЦ ДАННЫХ>>>"
@@ -98,6 +101,13 @@ def as_data(source_id: str, text: str | None, meta: str = "") -> str:
     return f"{head}\n{body}\n{DATA_CLOSE}"
 
 
+def coverage_fact(c: Coverage) -> str:
+    """«127 компаний группы с выручкой 127,1 млрд ₽» — та же фраза, что в выводе ленты (`api.coverage`)."""
+    from api.coverage import coverage_phrase
+
+    return coverage_phrase(c)
+
+
 _COMPANY_ID = re.compile(r"\bU_(\d+)\b")
 
 
@@ -139,6 +149,7 @@ class AgentContext:
     exposure: list[ExposureFactor] = field(default_factory=list)
     chain: Chain = field(default_factory=Chain)
     group: GroupImpact | None = None
+    coverage: Coverage | None = None  # охват группы — тот же объект, что у ленты
     analytics: list[AnalyticsHit] = field(default_factory=list)
     news: list[Event] = field(default_factory=list)
     estimates: list[Estimate] = field(default_factory=list)
@@ -192,6 +203,8 @@ class AgentContext:
             ids.update(c.id for c in ch.counterparties)
         if self.group:
             ids.update(m.id for m in self.group.members)
+        if self.coverage:
+            ids.update(m.id for m in self.coverage.affected)
         return ids
 
     def ref_factors(self) -> dict[str, set[str]]:
@@ -223,6 +236,10 @@ class AgentContext:
                     bank.add_text(s.okved)
         if self.profile.group:
             bank.add_value(self.profile.group.size)
+        if self.coverage:
+            c = self.coverage
+            bank.add_value([c.affected_count, c.companies_total, c.affected_revenue, c.affected_share])
+            bank.add_text(coverage_fact(c))
         if self.profile.industry:
             i = self.profile.industry
             bank.add_value([i.rank, i.total, i.class_rank, i.class_total, i.percentile])
@@ -307,8 +324,15 @@ class AgentContext:
             return "Группа компаний: нет или не нужна для этого события."
         g = self.group
         lines = [f"Группа {g.group_id}: {g.size} компаний. {g.text} · {', '.join(g.refs)}"]
+        if self.coverage:
+            lines.insert(
+                0,
+                "ОХВАТ ГРУППЫ (единственное число «сколько компаний группы и какая выручка задеты» — бери его"
+                f" дословно, другого не считай): {coverage_fact(self.coverage)}"
+                f" ({format_share(self.coverage.affected_share)} выручки группы без вас)",
+            )
         for m in g.members[:10]:
-            rev = f", выручка {m.revenue / 1e9:.1f} млрд ₽" if m.revenue else ""
+            rev = f", выручка {fmt_rub(m.revenue)}" if m.revenue else ""
             lines.append(f"- {m.display_name}{rev} · факторы: {', '.join(m.factors)}")
         return "\n".join(lines)
 
@@ -393,6 +417,7 @@ class AgentContext:
             "exposure": [f.model_dump(mode="json") for f in self.exposure],
             "chain": self.chain.model_dump(mode="json"),
             "group": self.group.model_dump(mode="json") if self.group else None,
+            "coverage": self.coverage.model_dump(mode="json") if self.coverage else None,
             "analytics": [h.model_dump(mode="json") for h in self.analytics],
             "news": [e.model_dump(mode="json") for e in self.news],
             "event": self.event.model_dump(mode="json"),
@@ -408,6 +433,7 @@ def from_snapshot(snapshot: dict) -> AgentContext:
         exposure=[ExposureFactor.model_validate(f) for f in snapshot.get("exposure", [])],
         chain=Chain.model_validate(snapshot.get("chain") or {}),
         group=GroupImpact.model_validate(snapshot["group"]) if snapshot.get("group") else None,
+        coverage=Coverage.model_validate(snapshot["coverage"]) if snapshot.get("coverage") else None,
         analytics=[AnalyticsHit.model_validate(h) for h in snapshot.get("analytics", [])],
         news=[Event.model_validate(e) for e in snapshot.get("news", [])],
         page_texts=dict(snapshot.get("page_texts", {})),
