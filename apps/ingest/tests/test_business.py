@@ -157,3 +157,49 @@ def test_region_economy_words_are_specific():
     assert "region" not in codes("Хоккеист из Москвы погиб в ДТП на парковке")
     assert "region" not in codes("Московский театр получил грант")
     assert "region" in codes("В Москве введут платные парковки для грузовиков")
+
+
+def okveds(title: str) -> dict[str, float]:
+    return {s.okved: s.strength for s in tag(title).sector_links}
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Правительство повысило экспортную пошлину на пшеницу",
+        "Квота на экспорт зерна составит 20 млн тонн",
+        "Цены FOB на пшеницу в Новороссийске выросли до $230",
+        "Урожай зерна в 2026 году составит 135 млн тонн",
+    ],
+)
+def test_grain_trader_topics(title):
+    tags = tag(title)
+    assert tags.business is True and "commodity_agro" in codes(title) and okveds(title)["01"] == 1.0
+
+
+def test_potato_harvest_is_not_the_grain_market():
+    assert "commodity_agro" not in codes("Урожай картофеля в России снизился на 8,7%")
+
+
+@pytest.mark.parametrize(
+    "title, okved",
+    [
+        ("Цены на овощи в октябре выросли на 5%", "10"),
+        ("Подорожание яиц и сахара ускорилось", "10"),
+        ("Рестораторы сообщили о снижении спроса в общепите", "56"),
+        ("Роспотребнадзор ужесточил санитарные правила для кафе и ресторанов", "56"),
+    ],
+)
+def test_food_service_topics(title, okved):
+    assert tag(title).business is True and okveds(title)[okved] == 1.0
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "Круизный лайнер столкнулся с контейнеровозом в порту Бремерхафена",
+        "Что делать, если вы купили подделку на маркетплейсе? Советы юристов",
+    ],
+)
+def test_incident_or_advice_with_an_industry_word_goes_to_the_model(title):
+    assert tag(title).business is None
