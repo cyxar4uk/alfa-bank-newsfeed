@@ -11,7 +11,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.agent.context import AgentContext, Estimate, Offer
+from api.agent.bridges import group_from_coverage
+from api.agent.context import AgentContext, Estimate, Offer, coverage_fact
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, CompanyData, Event, Library
 from api.agent.trace import TOOL_STAGES, TraceRecorder
 from api.contract import Statement
@@ -149,6 +150,20 @@ class Tools:
 
     def group_impact(self, ctx: AgentContext) -> None:
         cid = ctx.profile.id
+        coverage = getattr(self.company, "coverage", None)
+        if coverage is not None:
+            # охват — тот же объект, что у ленты: одно число «сколько компаний и какая выручка задеты»
+            cov = self._call(
+                "get_group_impact",
+                {"company_id": cid, "event_id": ctx.event.id},
+                lambda: coverage(cid, ctx.event),
+                lambda r: [] if r is None else [*r.refs, *(m.id for m in r.affected)],
+                lambda r: "группу не задевает" if r is None else r.text or coverage_fact(r),
+                lambda r: [coverage_fact(r)[:1].upper() + coverage_fact(r)[1:]] if r else [],
+            )
+            ctx.coverage = cov
+            ctx.group = group_from_coverage(cov) if cov else None
+            return
         result = self._call(
             "get_group_impact",
             {"company_id": cid, "event_id": ctx.event.id},

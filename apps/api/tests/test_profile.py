@@ -44,7 +44,7 @@ def test_full_profile():
     assert v["feat:MAINOKVED_CODE"] == "46.71 Торговля оптовая твердым, жидким и газообразным топливом"
     assert v["feat:sector"] == "оптовая торговля"
     assert v["feat:REVENUE_COMPANY"] == 20e9
-    assert profile.feature("feat:REVENUE_COMPANY").display == "20,0 млрд ₽"
+    assert profile.feature("feat:REVENUE_COMPANY").display == "20 млрд ₽"
     assert v["feat:scale"] == "крупный бизнес"
     assert v["feat:CL_TYPE"] == "действующий клиент"
     assert v["feat:CL_PRODUCT_LOA_MARK"] is True
@@ -266,9 +266,9 @@ def test_scale_by_group_revenue():
     profile = build_profile(make_company(revenue=5e9), flows=[], group_size=3, group_revenue=20e9)
     scale = profile.feature("feat:scale")
     assert scale.value == "крупный бизнес"
-    assert scale.display == "крупный бизнес по выручке группы (20,0 млрд ₽); своя выручка — 5,0 млрд ₽"
+    assert scale.display == "крупный бизнес по выручке группы (20 млрд ₽); своя выручка — 5 млрд ₽"
     assert scale.derived_from == ["feat:group_revenue", "feat:REVENUE_COMPANY"]
-    assert profile.feature("feat:group_revenue").display == "20,0 млрд ₽ — 3 компании"
+    assert profile.feature("feat:group_revenue").display == "20 млрд ₽ — 3 компании"
     assert profile.feature("feat:group_revenue_share").value == 0.25
     assert profile.group.revenue == 20e9
 
@@ -303,5 +303,5 @@ def test_scale(revenue, scale):
 
 def test_format_rub():
     assert format_rub(16461799989.0) == "16,5 млрд ₽"
-    assert format_rub(2.5e8) == "250,0 млн ₽"
+    assert format_rub(2.5e8) == "250 млн ₽"
     assert format_rub(512) == "512 ₽"
