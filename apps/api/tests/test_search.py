@@ -55,6 +55,9 @@ NEWS = [
     news("vat", "Минфин предложил повысить ставку НДС для торговли", days=30),
     news("tree", "Ёлочные игрушки подорожали перед праздниками", days=3),
     news("cars", "Продажи автомобилей и автозапчастей выросли в сентябре", days=4),
+    # не деловые: матч — по словарям, сомнительную встречу лидеров отсеет ответ модели (news_business)
+    news("match", "ЦСКА обыграл «Спартак» в матче РПЛ, ставки букмекеров не сыграли", days=1),
+    news("summit", "Ушаков сообщил о подготовке встречи лидеров", days=1),
 ]
 
 MATERIAL = "src:alfa:keyrate-test"
@@ -97,8 +100,11 @@ def repo():
 
     with psycopg.connect(URL, autocommit=True) as conn:
         ensure_schema(conn)
-        conn.execute("TRUNCATE news, alfa_materials, alfa_pages, alfa_fragments, search_loads")
+        conn.execute("TRUNCATE news, news_business, alfa_materials, alfa_pages, alfa_fragments, search_loads")
         load_news(conn, NEWS)
+        conn.execute(
+            "INSERT INTO news_business (id, business, model) VALUES ('src:news:summit', false, 'test')"
+        )
         save_user_news(conn, news("user", "Присланная новость про ключевую ставку"), body="полный текст")
         pages = [
             alfa(f"{MATERIAL}#p1", PAGE1, 1),
@@ -166,6 +172,29 @@ def test_user_news_is_not_in_search_by_default(repo):
     assert "user" not in ids(repo.search_news("ключевая ставка", limit=20))
     assert "user" in ids(repo.search_news("ключевая ставка", limit=20, include_user=True))
     assert repo.get_source("src:news:user").title.startswith("Присланная")
+
+
+def test_not_business_news_is_filtered_out(repo, client):
+    assert repo.get_source("src:news:match").tags  # в базе есть
+    for found in (
+        repo.search_news("", limit=50),
+        repo.list_news(limit=50).items,
+        repo.search_news("ставки", limit=50),
+    ):
+        assert not {"match", "summit"} & set(ids(found))
+    # без ключа business (размечено моделью или ещё не переразмечено) — не отсев: новость в ленте
+    import psycopg
+
+    with psycopg.connect(URL, autocommit=True) as conn:
+        conn.execute("UPDATE news SET tags = tags - 'business' WHERE id = 'src:news:mortgage'")
+    assert "mortgage" in ids(repo.list_news(limit=50).items)
+    everything = repo.list_news(limit=50, include_non_business=True).items
+    assert {"match", "summit"} <= set(ids(everything))
+    page = client.get("/api/news", params={"limit": 50, "include_non_business": True}).json()
+    assert "src:news:match" in [i["id"] for i in page["items"]]
+    assert "src:news:match" not in [
+        i["id"] for i in client.get("/api/news", params={"limit": 50}).json()["items"]
+    ]
 
 
 def test_news_is_contract_source(repo):
@@ -266,7 +295,7 @@ def test_news_endpoint(client):
     assert body["total"] == 1 and body["items"][0]["id"] == "src:news:usd"
     assert body["items"][0]["factors"][0]["code"] == "fx"
     page = client.get("/api/news", params={"limit": 2, "offset": 1}).json()
-    assert len(page["items"]) == 2 and page["total"] >= len(NEWS)
+    assert len(page["items"]) == 2 and page["total"] >= len(NEWS) - 2  # матч и встреча лидеров отсеяны
     assert all(
         i["id"] != "src:news:user" for i in client.get("/api/news", params={"limit": 50}).json()["items"]
     )
@@ -347,7 +376,7 @@ def test_min_strength_without_factor(repo):
     from ingest.db.load import load_news
 
     with psycopg.connect(URL, autocommit=True) as conn:
-        load_news(conn, [news("plain", "Футбольный матч перенесли на воскресенье", days=1)])
+        load_news(conn, [news("plain", "Собрание перенесли на воскресенье", days=1)])
     assert "plain" in ids(repo.search_news(limit=50))
     strong = repo.search_news(min_strength=0.3, limit=50)
     assert strong and "plain" not in ids(strong)

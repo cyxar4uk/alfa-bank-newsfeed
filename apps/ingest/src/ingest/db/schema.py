@@ -12,7 +12,7 @@ import psycopg
 # менять при любой правке таблиц: таблицы пересоздаются, загрузчик заново читает файлы
 SCHEMA_VERSION = 1
 META_KEY = "search_version"
-TABLES = ("news", "news_image_stubs", "alfa_fragments", "alfa_pages", "alfa_materials", "search_loads")
+TABLES = ("news", "news_image_stubs", "news_business", "alfa_fragments", "alfa_pages", "alfa_materials", "search_loads")
 
 # конфигурация полнотекстового поиска; запросы в api.search строятся с ней же
 TS_CONFIG = "russian"
@@ -50,6 +50,14 @@ ALTER TABLE news ADD COLUMN IF NOT EXISTS image_url text;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS source_icon_url text;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS media_checked_at timestamptz;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS media_attempts integer NOT NULL DEFAULT 0;
+-- деловая ли новость — ответ модели для тех, что словари не решили (tags.business = null); он же кэш: второй раз
+-- не спрашиваем. Переразметка словарями таблицу не трогает
+CREATE TABLE IF NOT EXISTS news_business (
+    id         text PRIMARY KEY,
+    business   boolean NOT NULL,
+    model      text NOT NULL,
+    checked_at timestamptz NOT NULL DEFAULT now()
+);
 -- картинки, которые сайт ставит ко многим материалам (логотип, «картинка для соцсетей») — не иллюстрации
 CREATE TABLE IF NOT EXISTS news_image_stubs (
     publisher text NOT NULL,
