@@ -22,9 +22,9 @@ export function Spark({ days, weekdays = false }: { days: Day[]; weekdays?: bool
   );
 }
 
-/** Динамика сюжета: «Усилился», «Появился» — тёплая метка, «Утих» — серая. */
+/** Динамика сюжета: «Усилился», «Появился» — тёплая метка, «Утих» и «Держится» — серая. */
 export function DynamicsTag({ dynamics }: { dynamics: Dynamics }) {
-  return <span className={`tag tag--${dynamics === 'faded' ? 'calm' : 'warm'}`}>{DYNAMICS_LABEL[dynamics]}</span>;
+  return <span className={`tag tag--${dynamics === 'appeared' || dynamics === 'grew' ? 'warm' : 'calm'}`}>{DYNAMICS_LABEL[dynamics]}</span>;
 }
 
 /** Метка «Сейчас» на карте: тон по смыслу слова — рост и новое тёплые, укрепление рубля синее, прочее серое. */

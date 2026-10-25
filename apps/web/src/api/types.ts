@@ -395,8 +395,8 @@ export interface FeedItem {
   source_icon_url?: string | null;
 }
 
-/** Динамика сюжета за неделю: появился · усилился · утих. */
-export type Dynamics = 'appeared' | 'grew' | 'faded';
+/** Динамика сюжета за неделю: появился · усилился · утих · держится (ровный поток). */
+export type Dynamics = 'appeared' | 'grew' | 'faded' | 'steady';
 
 /** Сюжет недели: события одной темы за 7 дней (GET /api/briefing?period=week). */
 export interface Story {

@@ -4,7 +4,7 @@ import type { BankView, Briefing, Dynamics, RiskFactor, RiskMap, RiskStrength, S
 import { plain, type Level } from './news.ts';
 import { plural, shortDate } from './screens.ts';
 
-export const DYNAMICS_LABEL: Record<Dynamics, string> = { appeared: 'Появился', grew: 'Усилился', faded: 'Утих' };
+export const DYNAMICS_LABEL: Record<Dynamics, string> = { appeared: 'Появился', grew: 'Усилился', faded: 'Утих', steady: 'Держится' };
 
 const WEEKDAY_LETTER = ['В', 'П', 'В', 'С', 'Ч', 'П', 'С'];
 const WEEKDAY_NAME = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота'];
