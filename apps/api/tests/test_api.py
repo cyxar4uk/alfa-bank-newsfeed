@@ -288,7 +288,7 @@ def test_group_impact_by_event_counts_factor_events(client):
     member = body["affected"][0]
     assert (member["id"], member["direct"]) == ("U_2", False)
     assert [f["code"] for f in member["factors"]] == ["rate"]
-    assert "событие касается 1 компании группы" in body["text"]
+    assert body["text"].startswith("затронуто 1 из 1 других компаний группы")
     # золото участника группы не задевает
     gold = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:gold"}).json()
     assert gold["affected_count"] == 0
@@ -598,3 +598,116 @@ def test_coverage_takes_weak_links_only_through_group():
 def test_group_impact_endpoint_zero_block(client):
     body = client.get("/api/companies/U_1/group-impact", params={"okved": "35"}).json()
     assert body["affected_count"] == 0 and body["text"] == "событие не касается других компаний группы"
+
+
+def test_search_news_search_is_not_shadowed():
+    """У SearchNews метод search() не перекрыт хранилищем: на стенде любой поиск давал 500."""
+    from api.news import FallbackNews, SearchNews
+
+    class Page:
+        def __init__(self, items):
+            self.items, self.total = items, len(items)
+
+    class Repo:
+        def list_news(self, query="", since=None, limit=20, offset=0):
+            hits = [
+                {
+                    "id": "src:news:p",
+                    "title": "Пошлина на пшеницу",
+                    "published_at": "2026-10-24T10:00:00+03:00",
+                }
+            ]
+            return Page(hits if query else hits + hits)
+
+    news = FallbackNews(SearchNews(Repo()), None)
+    assert [e.id for e in news.search("пошлина на пшеницу", 10)] == ["src:news:p"]
+    assert news.search("", 10) == []
+
+
+def test_user_inputs_roundtrip(client):
+    assert client.get("/api/personas/p-u1-cfo/inputs").json() is None
+    body = {
+        "debt_rub": 2e9,
+        "rate_type": "floating",
+        "fx_purchases_month_rub": 5e7,
+        "fuel_purchase_month_t": None,
+    }
+    saved = client.put("/api/personas/p-u1-cfo/inputs", json=body).json()
+    assert saved["debt_rub"] == 2e9 and saved["rate_type"] == "floating" and saved["updated_at"]
+    assert client.get("/api/personas/p-u1-cfo/inputs").json()["fx_purchases_month_rub"] == 5e7
+    assert client.put("/api/personas/p-u1-cfo/inputs", json={"debt_rub": -1}).status_code == 422
+    assert client.put("/api/personas/p-u1-cfo/inputs", json={"рост": 1}).status_code == 422
+    assert client.put("/api/personas/p-u404-cfo/inputs", json={}).status_code == 404
+
+
+def test_source_disconnect_and_texts_for_executive(client):
+    import api.main as main
+    from api.sources import MemoryConnections
+
+    connections = MemoryConnections()
+    app.dependency_overrides[main.get_connections] = lambda: connections
+    cbr = next(
+        s
+        for s in client.get("/api/sources/catalog", params={"persona": "p-u1-cfo"}).json()
+        if s["id"] == "cbr"
+    )
+    assert cbr["about"] and cbr["benefit"] and cbr["access"]
+    assert (cbr["connected_by"], cbr["can_disconnect"]) == ("service", True)
+    off = client.post("/api/sources/cbr/disconnect", params={"persona": "p-u1-cfo"}).json()
+    assert off["source"]["connected"] is False and off["source"]["can_disconnect"] is False
+    assert "больше не попадут" in off["message"]
+    # у другого пользователя источник по-прежнему подключён
+    other = client.get("/api/sources/catalog", params={"persona": "p-u2-cfo"}).json()
+    assert next(s for s in other if s["id"] == "cbr")["connected"] is True
+    back = client.post("/api/sources/cbr/connect", params={"persona": "p-u1-cfo"}).json()
+    assert back["source"]["connected_by"] == "service"
+    assert client.post("/api/sources/нет/disconnect", params={"persona": "p-u1-cfo"}).status_code == 404
+
+
+def test_disconnected_publisher_leaves_the_news():
+    import datetime as dt
+
+    from api.ranking import NewsEvent
+    from api.sources import WithoutPublishers, publishers_of
+
+    class News:
+        name = "test"
+
+        def events(self, since, limit):
+            now = dt.datetime(2026, 10, 25, tzinfo=dt.UTC)
+            return [
+                NewsEvent("a", "ЦБ", now, publisher="Банк России"),
+                NewsEvent("b", "Нефть", now, "Интерфакс"),
+            ]
+
+        def search(self, query, limit):
+            return self.events(None, limit)
+
+        def has_bank_view(self, factors):
+            return True
+
+    assert publishers_of({"cbr"}) == {"Банк России"}
+    news = WithoutPublishers(News(), publishers_of({"cbr"}))
+    assert [e.id for e in news.events(None, 10)] == ["b"] and [e.id for e in news.search("", 10)] == ["b"]
+    assert news.has_bank_view([]) is True and news.name == "test"
+
+
+def test_for_your_industry_by_company_and_key_counterparties():
+    from types import SimpleNamespace
+
+    from api.records import Flow
+    from api.sources import company_industries, for_industry
+
+    def company(okved):
+        return SimpleNamespace(okved_code=okved)
+
+    wholesaler = company("46.90")
+    flows = [
+        Flow("U_2", "in", 900.0, 10, company("56.10")),  # рестораны — основные покупатели
+        Flow("U_3", "in", 50.0, 1, company("45.31")),  # мелкий покупатель — не в счёт
+        Flow("U_4", "out", 100.0, 3, company("10.89")),
+    ]
+    codes = company_industries(wholesaler, flows)
+    assert codes == {"46.90", "56.10", "10.89"}
+    assert for_industry({"industries": ["56"]}, codes) and not for_industry({"industries": ["46.21"]}, codes)
+    assert not for_industry({"industries": []}, codes)

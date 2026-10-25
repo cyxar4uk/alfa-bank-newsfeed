@@ -8,6 +8,7 @@ from api.agent.context import from_snapshot
 from api.agent.jobs import Jobs, JobStatus
 from api.agent.loop import Agent, AgentError, CompanyNotFound, insight_id
 from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
+from api.agent.scenarios import inputs_stamp
 from api.agent.store import AgentStore, StoredInsight
 from api.agent.tools import Tools
 from api.agent.trace import TraceRecorder
@@ -85,10 +86,22 @@ class AgentService:
         group = self.company.group_impact(persona.company_id, event.source)
         return bool(group and any(set(m.factors) & (codes | {"direct"}) for m in group.members))
 
-    def cached(self, key: str) -> StoredInsight | None:
-        """Готовая карточка той же версии логики агента; собранная старыми промптами или моделями — нет."""
+    def version_for(self, persona_id: str) -> str:
+        """Версия карточки: логика агента и когда сохранены «мои числа» (рубли считаются на них)."""
+        stamp = inputs_stamp(persona_id)
+        return f"{self.version}:{stamp}" if stamp else self.version
+
+    def cached(self, key: str, persona_id: str | None = None) -> StoredInsight | None:
+        """Готовая карточка той же версии; собранная старой логикой или до новых «моих чисел» — нет.
+
+        Без `persona_id` (вопрос и пересчёт по уже открытой карточке) сверяется только логика агента.
+        """
         stored = self.store.get_insight(key)
-        return stored if stored is not None and stored.version == self.version else None
+        if stored is None or not stored.version:
+            return None
+        if persona_id is None:
+            return stored if stored.version.split(":", 1)[0] == self.version else None
+        return stored if stored.version == self.version_for(persona_id) else None
 
     def _ready(self) -> Agent:
         """Агент, которому хватит бюджета на карточку; иначе понятная ошибка до постановки в очередь."""
@@ -123,7 +136,7 @@ class AgentService:
                 insight=result.insight,
                 context=result.context.snapshot(),
                 cost_rub=result.cost,
-                version=self.version,
+                version=self.version_for(persona.id),
             ),
         )
         return result.insight
@@ -147,7 +160,7 @@ class AgentService:
             return job
         job = self.jobs.wait(job.insight_id, JOB_WAIT_SECONDS) or job
         if job.status == "done":
-            stored = self.cached(job.insight_id)
+            stored = self.cached(job.insight_id, job.persona_id)
             if stored is not None:
                 return stored.insight
         if job.status == "failed":
@@ -163,7 +176,7 @@ class AgentService:
         with self._lock(key):
             active = self.jobs.get(key)
             if active is None or active.status not in ("queued", "running"):
-                stored = None if refresh else self.cached(key)
+                stored = None if refresh else self.cached(key, persona.id)
                 if stored is not None:
                     return stored.insight
                 event = self.library.get_event(event_id)
@@ -187,7 +200,7 @@ class AgentService:
         with self._lock(key):
             active = self.jobs.get(key)
             if active is None or active.status not in ("queued", "running"):
-                stored = self.cached(key)
+                stored = self.cached(key, persona.id)
                 if stored is not None:
                     return stored.insight
                 return self._run(persona, event) if wait else self._submit(persona, event)
@@ -195,7 +208,8 @@ class AgentService:
 
     def ready(self, event_id: str, persona_id: str) -> Insight | None:
         """Готовая карточка из кэша или None — без сборки и вызовов моделей."""
-        stored = self.cached(insight_id(event_id, self._persona(persona_id).id))
+        persona = self._persona(persona_id)
+        stored = self.cached(insight_id(event_id, persona.id), persona.id)
         return stored.insight if stored is not None else None
 
     def ready_events(self, event_ids: list[str], persona_id: str) -> set[str]:
@@ -204,7 +218,7 @@ class AgentService:
             persona = self._persona(persona_id)
         except NotFound:
             return set()  # пользователя нет у агента — карточку для него не собрать
-        return {e for e in event_ids if self.cached(insight_id(e, persona.id)) is not None}
+        return {e for e in event_ids if self.cached(insight_id(e, persona.id), persona.id) is not None}
 
     def status(self, event_id: str, persona_id: str) -> JobStatus:
         """Как идёт сборка карточки; готовая карточка без задачи (из кэша) — status=done."""
@@ -213,7 +227,7 @@ class AgentService:
         job = self.jobs.get(key)
         if job is not None:
             return job
-        stored = self.cached(key)
+        stored = self.cached(key, persona.id)
         if stored is not None:
             return JobStatus(
                 insight_id=key,
@@ -223,6 +237,18 @@ class AgentService:
                 trace_id=stored.insight.trace_id,
             )
         raise NotFound(f"сборка карточки {event_id} для {persona_id} не запускалась")
+
+    def scenarios(self, insight_id_: str, inputs) -> list:
+        """Сценарии карточки на числах пользователя (долг, валютные расчёты, закупки) — без модели."""
+        from api.agent.scenarios import for_context, saved_inputs
+
+        stored = self.cached(insight_id_)
+        if stored is None:
+            raise NotFound(f"инсайт {insight_id_} не найден — откройте карточку события заново")
+        ctx = from_snapshot(stored.context)
+        # числа не переданы — «мои числа», сохранённые сейчас (карточка могла собраться раньше)
+        ctx.user_inputs = saved_inputs(ctx.persona.id)
+        return [statement for _, statement, _, _ in for_context(ctx, inputs)]
 
     def ask(self, insight_id_: str, question: str) -> AskOut:
         stored = self.cached(insight_id_)

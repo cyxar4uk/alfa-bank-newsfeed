@@ -109,7 +109,9 @@ class TraceRecorder:
         self._add(kind="plan", summary=summary)
 
     def tool(self, tool: str, args: dict, output_refs: list[str], summary: str) -> None:
-        self._add(kind="tool", tool=tool, input=args, output_refs=output_refs[:50], summary=summary[:500])
+        # в ссылках — только то, что можно открыть: источники и признаки; id компаний — служебное
+        refs = [r for r in output_refs if r.startswith(("src:", "feat:"))]
+        self._add(kind="tool", tool=tool, input=args, output_refs=refs[:50], summary=summary[:500])
 
     def llm(self, purpose: str, calls: list[CallRecord]) -> None:
         for call in calls:

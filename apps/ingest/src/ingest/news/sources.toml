@@ -11,7 +11,7 @@
 # hosts — домены ссылок ленты: запись с другого домена (спорт-сайт, журнал партнёра) не берём, чтобы в карточке
 #   был верный издатель.
 # enabled = false — источник выключен из-за условий использования или недоступности, причина в terms.
-# Условия проверены 24.10.2026 по страницам, указанным в terms.
+# Условия проверены 24–26.10.2026 по страницам, указанным в terms.
 
 # --- официальные ---
 
@@ -103,8 +103,19 @@ publisher = "ФАС России"
 url = "https://fas.gov.ru/news.rss"
 priority = 0
 reliability = "official"
-enabled = false
-terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+icon = "https://fas.gov.ru/favicon.ico"
+hosts = ["fas.gov.ru"]
+terms = "fas.gov.ru (подвал сайта): при полном или частичном использовании материалов ссылка на ФАС России обязательна; из сети разработки сайт не отвечает, с сервера — отвечает (проверено 26.10.2026)"
+
+[[feed]]
+id = "fsvps"
+publisher = "Россельхознадзор"
+url = "https://fsvps.gov.ru/news-cat/glavnoe/rssnews"
+priority = 0
+reliability = "official"
+icon = "https://fsvps.gov.ru/favicon.ico"
+hosts = ["fsvps.gov.ru"]
+terms = "официальные сообщения федерального органа власти (ст. 1259 ГК РФ — не объект авторского права), показываем заголовок, лид и ссылку; из сети разработки сайт не отвечает, с сервера — отвечает (проверено 26.10.2026)"
 
 [[feed]]
 id = "mcx"
@@ -113,7 +124,7 @@ url = "https://mcx.gov.ru/press-service/news/rss/"
 priority = 0
 reliability = "official"
 enabled = false
-terms = "из сети разработки сайт не отвечает (таймаут); условия не проверены"
+terms = "с сервера сайт отвечает, но ленты новостей (RSS) на нём нет — проверено 26.10.2026"
 
 [[feed]]
 id = "minenergo"
@@ -215,6 +226,26 @@ icon = "https://www.forbes.ru/favicon/apple-touch-icon.png"
 full_text = "rss"
 hosts = ["www.forbes.ru"]
 terms = "forbes.ru: в информационных целях с автором, датой и активной ссылкой"
+
+[[feed]]
+id = "retail-ru"
+publisher = "Retail.ru"
+url = "https://www.retail.ru/rss/news/"
+priority = 4
+reliability = "business_media"
+icon = "https://www.retail.ru/favicon.ico"
+hosts = ["www.retail.ru"]
+terms = "retail.ru/lk/law/agreement: использование материалов — только с гиперссылкой на страницу материала; полный текст из ленты (yandex:full-text) не храним"
+
+[[feed]]
+id = "new-retail"
+publisher = "New Retail"
+url = "https://new-retail.ru/rss/"
+priority = 4
+reliability = "business_media"
+icon = "https://new-retail.ru/favicon.ico"
+hosts = ["new-retail.ru"]
+terms = "new-retail.ru/o_nas: использование материалов разрешено только при наличии активной ссылки на источник"
 
 [[feed]]
 id = "rbc"

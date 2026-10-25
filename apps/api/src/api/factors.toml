@@ -87,7 +87,7 @@ signal = [
   { kind = "flag", field = "factoring", strength = 0.4, text = "факторинг в банке" },
   { kind = "own_okved", codes = ["41", "42", "43", "68", "35", "49", "50", "51", "52"], strength = 0.35, text = "капиталоёмкая отрасль: {activity}" },
   { kind = "group_okved", codes = ["41", "42", "35"], min_revenue_share = 0.3, strength = 0.4, channel = "group", text = "капиталоёмкие компании группы (стройка, генерация) — {share} выручки группы" },
-  { kind = "group_flag", field = "credit", min_count = 3, strength = 0.35, channel = "group", text = "кредиты у {count} компаний группы" },
+  { kind = "group_flag", field = "credit", min_count = 3, strength = 0.35, channel = "group", text = "кредиты у {count} из {total} других компаний группы" },
 ]
 
 [[factor]]
@@ -198,6 +198,7 @@ signal = [
 code = "inflation"
 label = "Инфляция издержек"
 signal = [
+  { kind = "own_okved", codes = ["46.3", "46.71", "47.1", "47.2", "47.3", "56"], strength = 0.65, text = "торговля продуктами и топливом: рост цен закупки сразу бьёт по марже" },
   { kind = "own_okved", codes = ["45", "46", "47"], strength = 0.35, text = "торговля: цены закупки быстро переходят в издержки" },
   { kind = "own_okved", codes = ["10", "11", "12", "13", "14", "15", "16", "17", "18", "20", "22", "23", "25", "26", "27", "28", "29", "30", "31", "32", "33"], strength = 0.35, text = "производство с длинной цепочкой поставок" },
   { kind = "always", strength = 0.15, text = "инфляция издержек касается любой компании: зарплаты, аренда, услуги" },

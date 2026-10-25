@@ -90,7 +90,8 @@ def test_stories_group_by_topic_with_peak_and_limits():
     assert rate.event_ids == ["src:news:r1", "src:news:r2"]  # главное — первым
     assert rate.daily_counts == [0, 0, 1, 0, 2, 0, 0] and rate.news_count == 3
     assert rate.peak.date == DAYS[4] and rate.peak.event_id == "src:news:r1"
-    assert rate.title == "ЦБ сохранил ставку 14 %" and rate.takeaway.text.startswith("Ставка 14,0 %")
+    # свой заголовок — последствие для компании, а не заголовок издания
+    assert rate.title.startswith("Ставка 14,0 %") and rate.takeaway.text.startswith("Ставка 14,0 %")
     # меньше трёх важных — добираем «к сведению», но не больше пяти всего
     assert len(stories) == 3 and stories[2].level == "info"
     action = main_action(stories)
@@ -178,3 +179,14 @@ def test_statement_needs_a_measure_not_a_year():
     assert statement("Наш прогноз по курсу — 87 руб./$ на конец года.", ("курс",)) == (
         "Наш прогноз по курсу — 87 руб./$ на конец года."
     )
+
+
+def test_story_keeps_only_news_where_topic_is_main():
+    from api.takeaway import takeaways
+
+    main = dated(item(0.6, code="labor", title="Мигрантам ужесточат правила найма"), 4, "m1")
+    side = dated(item(0.5, code="labor", title="Skoda уходит с рынка"), 3, "s1")
+    main.relevance.breakdown[0].event_strength, side.relevance.breakdown[0].event_strength = 0.9, 0.3
+    takeaways([main, side], "cfo")
+    stories = build_stories([main, side], [], DAYS, {})
+    assert [s.event_ids for s in stories if s.code == "labor"] == [["src:news:m1"]]

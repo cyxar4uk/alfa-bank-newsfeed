@@ -17,7 +17,7 @@ from api.contract import ExposureMap, FactorExposure, FeedItem, RiskFactor, Risk
 from api.numbers import fmt_percent
 from api.ranking import MSK, NewsEvent, RankingConfig
 from api.short import _CODE, _EMPTY_PARENS, _SERVICE
-from api.takeaway import WATCH
+from api.takeaway import WATCH, about
 from api.week import TAG_MIN, story_key, topic_counts
 
 FACTORS_MIN, FACTORS_MAX = 5, 7
@@ -43,14 +43,16 @@ def _when(item: FeedItem) -> dt.datetime:
 
 def latest(items: list[FeedItem], code: str) -> FeedItem | None:
     """Последняя новость недели о факторе: где он главная тема (`api.week.story_key`); таких нет — где у
-    фактора сильная метка (от 0,5), а не побочное упоминание. Из заметных событий (оценка от 0,3 — те,
-    что лента не сворачивает); заметных нет — из всех."""
-    visible = [i for i in items if i.relevance.score >= WATCH] or items
+    фактора сильная метка (от 0,5), а не побочное упоминание, и заголовок не спорит с меткой. Только из
+    событий, которые лента показывает как «важно» или «следить», — других нет, значит и «сейчас» нет."""
+    # только то, что лента показывает: «к сведению» и «не касается вас» в ленте — не «сейчас» у фактора
+    visible = [i for i in items if (i.takeaway.level != "info" if i.takeaway else i.relevance.score >= WATCH)]
     main = [i for i in visible if story_key(i) == code]
     strong = main or [
         i
         for i in visible
-        if any(
+        if about(i, code)
+        and any(
             t.kind == "factor" and t.code == code and (t.event_strength or 0) >= TAG_MIN
             for t in i.relevance.breakdown
         )
