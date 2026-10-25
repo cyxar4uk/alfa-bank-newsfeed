@@ -593,7 +593,11 @@ class GroupImpact(BaseModel):
 
     group_id: str
     companies_total: int = Field(description="компаний в группе, включая компанию пользователя")
-    affected_count: int = Field(description="сколько компаний группы затрагивает событие")
+    others_total: int = Field(
+        default=0, description="других компаний группы, без компании пользователя, — K в «затронуто N из K»"
+    )
+    affected_count: int = Field(description="сколько других компаний группы затрагивает событие — N")
+    affected_with_credit: int = Field(default=0, description="из затронутых — с кредитом в Альфа-Банке, M")
     major_count: int = Field(default=0, description="из них с выручкой от 1 млрд ₽")
     affected_revenue: float = Field(description="суммарная выручка задетых компаний, ₽")
     affected_revenue_bn: float

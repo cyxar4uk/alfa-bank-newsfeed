@@ -126,6 +126,7 @@ def group_impact(
             event_factors[code] = max(event_factors.get(code, 0.0), min(strength, 1.0))
 
     affected: list[AffectedMember] = []
+    records: dict[str, CompanyRecord] = {}
     total_revenue = 0.0
     for member, exposure in ctx.members:
         total_revenue += member.revenue or 0
@@ -152,6 +153,7 @@ def group_impact(
             channel = f"{top.label}: {top.channel.text}" if top.channel else top.label
         pair = ctx.flows.pairs.get(member.id)
         paid = pair.in_amount + pair.out_amount if pair else None
+        records[member.id] = member
         affected.append(
             AffectedMember(
                 id=member.id,
@@ -176,12 +178,16 @@ def group_impact(
     intra = sum(m.intra_payments or 0 for m in affected)
     turnover = ctx.flows.turnover
     share = revenue / total_revenue if total_revenue else 0.0
+    others = ctx.size - 1
+    credit = sum(1 for m in affected if records[m.id].credit)
     if affected:
         n = len(affected)
-        text = f"событие касается {companies_genitive(n)} группы из {ctx.size - 1}"
+        # одно определение на все экраны: «затронуто N из K других компаний группы», с кредитом в банке — M
+        text = f"затронуто {n} из {others} других компаний группы"
         if major:
             text += f", из них {len(major)} с выручкой от 1 млрд ₽"
         text += f"; их выручка — {format_rub(revenue)}, {format_share(share)} выручки группы без вас"
+        text += f"; из них с кредитом в банке — {credit}"
         # отрасли затронутых — по убыванию их выручки
         by_sector: dict[str, float] = {}
         for m in affected:
@@ -198,7 +204,9 @@ def group_impact(
     return GroupImpact(
         group_id=ctx.company.group_id,
         companies_total=ctx.size,
+        others_total=others,
         affected_count=len(affected),
+        affected_with_credit=credit,
         major_count=len(major),
         affected_revenue=round(revenue, 2),
         affected_revenue_bn=round(revenue / 1e9, 3),

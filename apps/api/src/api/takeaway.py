@@ -9,7 +9,7 @@ import re
 
 from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
-from api.coverage import coverage_phrase
+from api.coverage import coverage_phrase, credit_phrase
 from api.short import clean_channel
 
 TEXT_MAX = 160
@@ -75,8 +75,13 @@ SHORT_ACTIONS = {
     "consumer": "сверьте прогноз продаж",
     "inflation": "проверьте цены и издержки",
     "tax_regulation": "проверьте сроки изменений",
+    "chain:group": "обсудите это с компаниями группы",
+    "chain:buyers": "проверьте спрос покупателей",
+    "chain:suppliers": "проверьте условия поставщиков",
+    "chain:direct": "оцените условия в отрасли",
 }
 NOTHING = "Действий не нужно."
+CREDIT_KEYS = {"rate", "deposit_yield"}  # причины, где к охвату добавляется число компаний с кредитом
 GIST_MAX = 55
 
 # оценка модели из слагаемого llm: «оценка модели: не задевает — …» (api.agent.rerank.IMPACT_LABEL)
@@ -148,8 +153,10 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     found = []
     gi = item.coverage or item.group_impact  # охват в группе — одно число с агентом (api.coverage)
     if gi and gi.affected_count:
-        n = gi.affected_count
-        found.append(coverage_phrase(gi) + _depend(n, key))
+        phrase = coverage_phrase(gi)
+        if key in CREDIT_KEYS:  # для долга — и сколько из них с кредитом в банке
+            phrase += f", {credit_phrase(gi)}"
+        found.append(phrase)
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
     factor = next((f for f in exposure.factors if f.code == key), None) if exposure else None
@@ -303,8 +310,11 @@ def _brief(why: str) -> str:
     """Короткая форма причины с числом: «178 компаний группы с выручкой 149 млрд ₽ зависят от кредитов»."""
     if len(why) <= 70:
         return why
+    if ", из них с кредитом" in why:  # охват без второй части — «N из K других компаний группы с выручкой X»
+        return why.split(", из них с кредитом")[0]
     for sep in (" — ", ": ", ", "):
-        numbered = [part for part in why.split(sep) if _DIGIT.search(part)]
+        # часть с числом и словами, а не голое «0» после тире
+        numbered = [p for p in why.split(sep) if _DIGIT.search(p) and re.search(r"[а-яё]{3}", p)]
         if numbered and len(min(numbered, key=len)) < len(why):
             return min(numbered, key=len)
     return why

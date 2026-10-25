@@ -36,7 +36,8 @@ def test_event_in_member_industry():
     assert impact.affected_revenue == 30e9
     assert impact.affected_share == round(30 / 51, 4)
     assert impact.companies_total == 4
-    assert impact.text.startswith("событие касается 1 компании группы из 3, из них 1 с выручкой от 1 млрд ₽")
+    assert impact.text.startswith("затронуто 1 из 3 других компаний группы, из них 1 с выручкой от 1 млрд ₽")
+    assert (impact.others_total, impact.affected_with_credit) == (3, 0)
 
 
 def test_event_through_member_factor():

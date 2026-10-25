@@ -87,7 +87,7 @@ signal = [
   { kind = "flag", field = "factoring", strength = 0.4, text = "факторинг в банке" },
   { kind = "own_okved", codes = ["41", "42", "43", "68", "35", "49", "50", "51", "52"], strength = 0.35, text = "капиталоёмкая отрасль: {activity}" },
   { kind = "group_okved", codes = ["41", "42", "35"], min_revenue_share = 0.3, strength = 0.4, channel = "group", text = "капиталоёмкие компании группы (стройка, генерация) — {share} выручки группы" },
-  { kind = "group_flag", field = "credit", min_count = 3, strength = 0.35, channel = "group", text = "кредиты у {count} компаний группы" },
+  { kind = "group_flag", field = "credit", min_count = 3, strength = 0.35, channel = "group", text = "кредиты у {count} из {total} других компаний группы" },
 ]
 
 [[factor]]

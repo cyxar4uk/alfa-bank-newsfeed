@@ -288,7 +288,7 @@ def test_group_impact_by_event_counts_factor_events(client):
     member = body["affected"][0]
     assert (member["id"], member["direct"]) == ("U_2", False)
     assert [f["code"] for f in member["factors"]] == ["rate"]
-    assert "событие касается 1 компании группы" in body["text"]
+    assert body["text"].startswith("затронуто 1 из 1 других компаний группы")
     # золото участника группы не задевает
     gold = client.get("/api/companies/U_1/group-impact", params={"event_id": "src:news:gold"}).json()
     assert gold["affected_count"] == 0

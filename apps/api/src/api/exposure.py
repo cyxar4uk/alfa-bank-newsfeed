@@ -49,6 +49,7 @@ PLACEHOLDERS = {
     "sector",
     "share",
     "count",
+    "total",  # всего других компаний группы — «кредиты у 11 из 28 других компаний группы»
     "countries",
     "direction",
     "region",
@@ -520,7 +521,7 @@ def _group_flag(ctx: Context, s: SignalConfig) -> Hit | None:
     ]
     return Hit(
         s.strength,
-        ExposureChannel(kind=s.channel, text=_fmt(s.text, count=len(matched))),
+        ExposureChannel(kind=s.channel, text=_fmt(s.text, count=len(matched), total=len(ctx.group))),
         evidence,
         s.estimate,
     )

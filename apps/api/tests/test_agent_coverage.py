@@ -33,7 +33,9 @@ def test_coverage_fact_is_the_feed_phrase():
     from api.coverage import coverage_phrase
 
     assert (
-        coverage_fact(COVERAGE) == coverage_phrase(COVERAGE) == "127 компаний группы с выручкой 127,1 млрд ₽"
+        coverage_fact(COVERAGE)
+        == coverage_phrase(COVERAGE)
+        == "127 из 369 других компаний группы с выручкой 127,1 млрд ₽"
     )
 
 
