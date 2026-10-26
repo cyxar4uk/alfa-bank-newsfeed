@@ -42,6 +42,7 @@ def news(event_id, factors=(), sectors=(), days=1, publisher="Интерфакс
 
 
 RATE = news("src:news:rate", factors=[("rate", 1.0)])
+TOPIC_RATE = news("src:news:topic", factors=[("rate", 1.0)], title="ЦБ сохранил ключевую ставку")
 DEPOSIT = news("src:news:deposit", factors=[("deposit_yield", 1.0)])
 CAFES = news("src:news:cafes", sectors=[("56", 1.0)])
 UNRELATED = news("src:news:gold", factors=[("commodity_gold", 1.0)])
@@ -106,7 +107,7 @@ def test_freshness_and_source_quality():
 
 
 def test_bank_view_bonus_is_a_term():
-    item = feed([RATE], "cfo", bank_view=lambda codes: True)[0]
+    item = feed([TOPIC_RATE], "cfo", bank_view=lambda codes: True)[0]
     bank = item.relevance.breakdown[-1]
     assert (bank.kind, bank.value) == ("bank", 0.05)
     assert item.has_bank_view is True
@@ -192,7 +193,7 @@ def test_bank_bonus_does_not_lift_irrelevant_event():
     # слабое совпадение ниже порога не становится релевантным из-за аналитики банка
     weak = news("weak", factors=[("labor", 0.01)])
     assert feed([weak], "cfo", bank_view=lambda codes: True) == []
-    item = feed([RATE], "cfo", bank_view=lambda codes: codes == ["rate"])[0]
+    item = feed([TOPIC_RATE], "cfo", bank_view=lambda codes: codes == ["rate"])[0]
     assert (
         item.relevance.breakdown[-1].label == "есть аналитика Альфа-Банка по фактору: стоимость заёмных денег"
     )
@@ -327,3 +328,12 @@ def test_foreign_event_only_about_industries_is_weaker():
     assert direct.event_strength == pytest.approx(0.3)
     assert direct.label.endswith("(событие за рубежом: Венгрия)")
     assert items["src:news:hu"].relevance.score < items["src:news:ru"].relevance.score
+
+
+def test_bank_view_only_for_the_events_own_topic():
+    # «Дайджест ритейла»: слабая метка спроса и заголовок не о теме — плашки «Позиция банка» нет
+    digest = news("digest", factors=[("consumer", 0.3), ("rate", 0.9)], title="Дайджест ритейла за неделю")
+    item = feed([digest], "cfo", bank_view=lambda codes: True)[0]
+    assert item.has_bank_view is False
+    topical = news("topical", factors=[("consumer", 0.9)], title="Потребительский спрос в России вырос")
+    assert feed([topical], "cfo", bank_view=lambda codes: True)[0].has_bank_view is True
