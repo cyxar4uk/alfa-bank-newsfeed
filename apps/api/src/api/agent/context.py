@@ -169,6 +169,8 @@ class AgentContext:
     today: dt.date = field(default_factory=today)  # от какой даты «прошло» и «предстоит»
     # уровень события в ленте пользователя (act/watch/info), если лента открывалась
     feed_level: str | None = None
+    market: list[str] = field(default_factory=list)  # официальные ряды: курс, ставка, нефть (api.market)
+    indicators: list[str] = field(default_factory=list)  # показатели компании из платежей (api.indicators)
     user_inputs: object | None = None  # «мои числа» пользователя (api.contract.UserInputs) — для рублей
 
     # --- что можно цитировать и на что ссылаться ------------------------------------------------
@@ -254,6 +256,8 @@ class AgentContext:
             c = self.coverage
             bank.add_value([c.affected_count, c.companies_total, c.affected_revenue, c.affected_share])
             bank.add_text(coverage_fact(c))
+        for line in self.indicators:
+            bank.add_text(line)
         if self.profile.industry:
             i = self.profile.industry
             bank.add_value([i.rank, i.total, i.class_rank, i.class_total, i.percentile])
@@ -281,6 +285,8 @@ class AgentContext:
             bank.add_text(src.fragment)
         for text in self.page_texts.values():
             bank.add_text(text)
+        for line in [*self.market, *self.indicators]:
+            bank.add_text(line)
         return bank
 
     # --- как показать модели --------------------------------------------------------------------
@@ -293,6 +299,7 @@ class AgentContext:
             f"{ROLE_FOCUS.get(self.persona.role, '')}",
             "Признаки компании (id · название · значение):",
         ]
+        lines.insert(2, self.render_rate_type())
         for f in p.features:
             value = f.display if f.display is not None else f.value
             if isinstance(value, list):
@@ -302,6 +309,28 @@ class AgentContext:
             lines.append("Нет в данных: " + "; ".join(f"{m.label} ({m.reason})" for m in p.missing))
         if p.data_notes:
             lines.append("Замечания к данным: " + "; ".join(p.data_notes))
+        return "\n".join(lines)
+
+    def render_rate_type(self) -> str:
+        """Тип ставки по кредиту: из «моих чисел»; нет — оговорка «если ставка идёт за ключевой»."""
+        kind = getattr(self.user_inputs, "rate_type", None)
+        if kind == "floating":
+            return "Тип ставки: плавающая (указал пользователь) — идёт за ключевой."
+        if kind == "fixed":
+            return "Тип ставки: фиксированная (указал пользователь) — до пересмотра договора не меняется."
+        return "Тип ставки: неизвестен — пиши «если ставка по кредиту идёт за ключевой»."
+
+    def render_market(self) -> str:
+        """Рыночные цифры из официальных рядов и показатели компании — числа, которым можно доверять."""
+        lines = []
+        if self.market:
+            lines.append(
+                "РЫНОК (официальные ряды; курс, ставку и нефть бери отсюда, а не из текста новости):"
+            )
+            lines += [f"- {m}" for m in self.market]
+        if self.indicators:
+            lines.append("Показатели компании из платежей (оценка так и называется оценкой):")
+            lines += [f"- {i}" for i in self.indicators]
         return "\n".join(lines)
 
     def render_exposure(self) -> str:
@@ -439,6 +468,7 @@ class AgentContext:
     def render(self) -> str:
         blocks = [
             self.render_company(),
+            self.render_market(),
             self.render_exposure(),
             self.render_chain(),
             self.render_group(),
@@ -459,6 +489,8 @@ class AgentContext:
             "group": self.group.model_dump(mode="json") if self.group else None,
             "coverage": self.coverage.model_dump(mode="json") if self.coverage else None,
             "user_inputs": self.user_inputs.model_dump(mode="json") if self.user_inputs else None,
+            "market": self.market,
+            "indicators": self.indicators,
             "analytics": [h.model_dump(mode="json") for h in self.analytics],
             "news": [e.model_dump(mode="json") for e in self.news],
             "event": self.event.model_dump(mode="json"),
@@ -475,6 +507,8 @@ def from_snapshot(snapshot: dict) -> AgentContext:
         chain=Chain.model_validate(snapshot.get("chain") or {}),
         group=GroupImpact.model_validate(snapshot["group"]) if snapshot.get("group") else None,
         coverage=Coverage.model_validate(snapshot["coverage"]) if snapshot.get("coverage") else None,
+        market=list(snapshot.get("market") or []),
+        indicators=list(snapshot.get("indicators") or []),
         analytics=[AnalyticsHit.model_validate(h) for h in snapshot.get("analytics", [])],
         news=[Event.model_validate(e) for e in snapshot.get("news", [])],
         page_texts=dict(snapshot.get("page_texts", {})),

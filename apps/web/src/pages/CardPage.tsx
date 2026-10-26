@@ -24,6 +24,10 @@ import { markRead } from '../state/read';
 import { progressOf, stepsOf } from '../state/steps';
 import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
+import { capitalize, claimsOf, managerLabel } from '../state/trust';
+import { ClaimsCheck } from '../components/TrustParts';
+import { RelatedNews } from '../components/RelatedNews';
+import { topicOf } from '../state/topic';
 
 const ROW_ICON: Record<CardRow['id'], IconName> = {
   chain: 'group',
@@ -150,6 +154,14 @@ function Card({
     .slice(0, 3)
     .map(plain);
   const bank = bankOf(insight);
+  const claims = claimsOf(insight);
+  // Один главный риск и одна возможность — на основном экране, а не за раскрытиями.
+  const firstPlain = (list: { text: string; origin: string; confidence?: string | null }[]) => {
+    const s = list.find((x) => x.text && x.origin !== 'estimate' && !isHypothesis(x as never));
+    return s ? plain(s.text) : null;
+  };
+  const risk = firstPlain(insight.consequences.risks);
+  const chance = firstPlain(insight.consequences.opportunities);
   // Цифры из данных компании (подписи уже без кодов ОКВЭД и без дублей — cardScreen).
   const numbers = screen.forYou.numbers.map((n) => ({ value: n.value, label: plain(n.label) }));
   const topic = screen.target?.topic ?? 'последствия для компании';
@@ -178,7 +190,7 @@ function Card({
   }
 
   return (
-    <div className="article-page">
+    <div className="article-page article-page--ready">
       <aside className="verdict side-col appear" aria-label="Что это значит для компании" ref={verdictRef} tabIndex={-1}>
         <section className="card verdict__card">
           <p className={`verdict__level verdict__level--${level}`}>
@@ -204,9 +216,16 @@ function Card({
               ))}
             </dl>
           )}
+          {claims && <ClaimsCheck view={claims} />}
           {bank ? (
             <div className="verdict__bank">
-              <p>{bank.statement}</p>
+              <p>
+                {bank.statement}
+                {insight.bank_position?.outdated && <b className="verdict__outdated"> — есть более свежий материал банка</b>}
+              </p>
+              {insight.bank_position?.outdated && insight.bank_position.outdated_note && (
+                <p className="verdict__outdated-note">{capitalize(insight.bank_position.outdated_note)}</p>
+              )}
               <span>{bank.caption}</span>
             </div>
           ) : (
@@ -220,6 +239,26 @@ function Card({
               <p className="caps">Почему</p>
               <p className="verdict__text">{why}</p>
             </>
+          )}
+          {(risk || chance) && (
+            <ul className="verdict__rc">
+              {risk && (
+                <li className="verdict__rc-item verdict__rc-item--risk">
+                  <Icon name="warning" size={16} />
+                  <span>
+                    <b>Риск:</b> {risk}
+                  </span>
+                </li>
+              )}
+              {chance && (
+                <li className="verdict__rc-item verdict__rc-item--chance">
+                  <Icon name="check" size={16} />
+                  <span>
+                    <b>Возможность:</b> {chance}
+                  </span>
+                </li>
+              )}
+            </ul>
           )}
           {todo.length > 0 && (
             <section className="verdict__todo-box" aria-labelledby="todo-title">
@@ -263,7 +302,7 @@ function Card({
             aria-expanded={request === 'manager'}
             aria-controls={request === 'manager' ? 'request-form' : undefined}
           >
-            <span>Оставить заявку менеджеру</span>
+            <span>{managerLabel(item?.products)}</span>
             <span className="verdict__manager-hint">Менеджер получит разбор и тему: {topic}</span>
           </button>
           {request && (
@@ -287,7 +326,7 @@ function Card({
               />
             </div>
           )}
-          <AskBox insight={insight} personaId={personaId} index={index} />
+          <AskBox insight={insight} personaId={personaId} index={index} topic={topicOf(insight, item)} />
           {steps.length > 0 && (
             <details className="howgot">
               <summary>
@@ -365,6 +404,7 @@ function Card({
           image={imageOf(detail, item)}
         />
         <FullText detail={detail} quotes={quotes} lead={leadNews} />
+        <RelatedNews eventId={eventId} personaId={personaId} />
       </article>
 
     </div>

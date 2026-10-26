@@ -66,7 +66,11 @@ def test_unknown_full_text_mode_is_rejected(tmp_path):
 
 def test_full_text_only_for_feeds_whose_terms_allow_it():
     feeds = load_feeds()
-    assert {f.id for f in feeds if f.full_text} == {"cbr-press", "cbr-events", "government", "nalog", "forbes"}
+    assert {f.id for f in feeds if f.full_text} == {
+        "cbr-press", "cbr-events", "government", "nalog", "minfin", "fas", "fsvps", "forbes",
+    }  # fmt: skip
+    # остальные условия разрешают только цитирование: у них полного текста нет
+    assert not {f.id for f in feeds if f.full_text} & {"interfax", "ria", "kommersant-economics", "rg", "izvestia"}
     assert all(f.icon.startswith(("https://", "http://")) for f in feeds if f.enabled)
 
 
@@ -174,3 +178,10 @@ def test_busy_site_is_retried_and_relative_image_follows_real_address(monkeypatc
     got = fetch_pages([media.PageJob("gov", "https://government.ru/news/1", False),
                        media.PageJob("busy", "https://x.ru/busy", False)])  # fmt: skip
     assert set(got) == {"gov"} and got["gov"].image == "http://government.ru/img/photo.jpg"
+
+
+def test_promo_lines_are_dropped_from_body():
+    from ingest.news.article import clean_body
+
+    text = "Первый абзац.\nБольше новостей в наших каналах в Telegram.\nИ подписывайтесь на рассылку."
+    assert clean_body(text) == "Первый абзац."

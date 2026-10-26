@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
     database_url: str = "postgresql://newsfeed:newsfeed@127.0.0.1:5433/newsfeed"
     # каталог с данными кейса; CSV компаний ищутся в DATA_DIR/companies и в самом DATA_DIR
@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     llm_step_params: dict[str, dict] = {}
     # запасная модель, если основная недоступна у провайдера, JSON: {"google/gemma-4-26b-a4b-it": "..."}
     llm_fallbacks: dict[str, str] = {}
+    # принимать любые id моделей провайдера, а не только шесть моделей кейса
+    llm_allow_any_model: bool = False
     # свой суточный лимит сервиса, ₽ (у организаторов 500 ₽ на ключ всей команды, сброс в 03:00 МСК)
     llm_daily_budget_rub: float = 150.0
     # кэш ответов моделей и журнал вызовов

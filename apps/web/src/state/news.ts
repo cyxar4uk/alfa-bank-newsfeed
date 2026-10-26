@@ -16,6 +16,7 @@ import {
   shortDate,
   topicOf,
 } from './screens.ts';
+import { readinessOf, type Readiness } from './trust.ts';
 
 export type Level = Takeaway['level'];
 
@@ -32,6 +33,8 @@ export interface DayRow {
   why: string;
   /** что делать — только когда это есть в разборе */
   todo: string | null;
+  /** разбор собран заранее или готовится */
+  ready: Readiness | null;
 }
 
 export interface EventRow {
@@ -46,6 +49,7 @@ export interface EventRow {
   why: string;
   /** позиция банка одной строкой — только из собранного разбора */
   bank: string | null;
+  ready: Readiness | null;
 }
 
 export interface NewsScreen {
@@ -107,6 +111,8 @@ const MAP_CASES: [RegExp, string][] = [
 ];
 
 export function plain(text: string): string {
+  // «направление пока неясно» руководителю ничего не говорит
+  text = text.replace(/направление пока неясно/gi, (m) => (m[0] === 'Н' ? 'Влияние неоднозначно' : 'влияние неоднозначно'));
   let out = text
     .replace(/^по карте чувствительности,?\s*/i, '')
     .replace(/\s*по карте чувствительности,?\s*/gi, ' ');
@@ -174,10 +180,15 @@ function sourceLineOf(group: FeedItem[]): string {
     .join(' · ');
 }
 
+const UNCONFIRMED = /не\s+удалось\s+подтвердить|подтвердить\s+не\s+удалось|нет\s+позиции/i;
+
 /** Позиция банка из разбора: «Альфа-Банк ожидает …» и подпись аналитиков с материалом и датой. */
 export function bankOf(ins: Insight): { statement: string; caption: string } | null {
   const b = ins.bank_view[0];
-  const statement = ins.bank_position?.statement ?? b?.text ?? null;
+  // «Позицию Альфа-Банка подтвердить не удалось» — это не позиция банка: ни красной цитаты, ни подписи аналитиков;
+  // есть настоящая цитата в bank_view — берём её.
+  const own = ins.bank_position?.statement ?? null;
+  const statement = own && !UNCONFIRMED.test(own) ? own : b?.text && !UNCONFIRMED.test(b.text) ? b.text : null;
   if (!statement) return null;
   const src = b ? b.refs.map((r) => bankSourceOf(ins, r)).find((x) => x !== undefined)?.source : undefined;
   return { statement: plain(statement), caption: bankCaption(src) };
@@ -215,6 +226,7 @@ export function newsScreen(s: NewsState): NewsScreen {
         fromModel: model !== null,
         why: split.why ?? whyOf(top),
         todo: todo ? plain(todo) : split.todo,
+        ready: readinessOf(top),
       };
     });
 
@@ -262,6 +274,7 @@ export function newsScreen(s: NewsState): NewsScreen {
       level: levelWith(top, isLead ? ins : null),
       why: whyOf(top),
       bank: isLead && bankLead ? bankLead.statement : null,
+      ready: readinessOf(top),
     };
   });
   // Без фильтра события из «Главного за день» второй раз не показываем — только когда пользователь выбрал тему.

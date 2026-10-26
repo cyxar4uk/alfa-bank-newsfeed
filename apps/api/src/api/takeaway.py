@@ -174,8 +174,11 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     )
     if gi and gi.affected_count:
         phrase = coverage_phrase(gi)
-        if credit:  # для долга — и сколько из них с кредитом в банке
-            phrase += f", {credit_phrase(gi)}"
+        if key in CREDIT_KEYS:
+            # N — чувствительные к ставке по отрасли, а кредит в банке — у M из них: не «долг у N»
+            phrase += " чувствительны к ставке"
+            if credit:
+                phrase += f", {credit_phrase(gi)}"
         found.append(phrase)
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
@@ -225,14 +228,36 @@ def off_topic(item: FeedItem) -> bool:
     )
 
 
-def level_of(item: FeedItem, exposure_strength: float | None) -> str:
-    if off_topic(item):
+PAYMENT_ONLY_SHARE = 0.05  # канал только через контрагентов с долей оборота меньше 5 % — не «важно» для вас
+
+
+def payment_only(item: FeedItem) -> bool:
+    """Связь с компанией только через небольшую долю платежей контрагентам: факторов карты нет, цепочка —
+    не своя отрасль, и доля оборота с такими контрагентами меньше 5 %."""
+    terms = item.relevance.breakdown
+    if any(t.kind == "factor" for t in terms):
+        return False
+    chain = [t for t in terms if t.kind == "chain"]
+    return bool(chain) and all(
+        t.code.startswith(("chain:buyers", "chain:suppliers"))
+        and t.exposure is not None
+        and t.exposure < PAYMENT_ONLY_SHARE
+        for t in chain
+    )
+
+
+def level_of(item: FeedItem, exposure_strength: float | None, known: bool = True) -> str:
+    """Уровень события. `known=False` — направление не определить: самое большее «следить» — «важно» без
+    понятного «что меняется» не бывает. Зарубежное событие и слабая зависимость — тоже не выше «следить»,
+    а зарубежное с неясным направлением — к сведению."""
+    if off_topic(item) or payment_only(item):
         return "info"
     score = item.relevance.score
     level = "act" if score >= ACT else "watch" if score >= WATCH else "info"
-    if (exposure_strength is not None and exposure_strength < WEAK_EXPOSURE) or "событие за рубежом" in (
-        item.relevance.reason
-    ):
+    abroad = "событие за рубежом" in item.relevance.reason
+    if abroad and not known:
+        level = "info"
+    if (exposure_strength is not None and exposure_strength < WEAK_EXPOSURE) or abroad or not known:
         level = "watch" if level == "act" else level
     view, _ = model_view(item)
     if view == "не задевает":
@@ -278,7 +303,17 @@ def takeaway(
     if not item.relevance.breakdown:  # найдено поиском, но компанию не задевает
         return Takeaway(level="info", text=f"Напрямую вас не касается. {NOTHING}")
     key, strength = main_reason(item)
-    level = level or level_of(item, strength)
+    # что меняется для компании; направление не определить — не выше «следить» (level_of)
+    known = consequence(item, key, exposure)
+    level = level or level_of(item, strength, known is not None)
+    if level == "act" and known is None:  # закреплённое лентой «важно» не бывает с неясным направлением
+        level = "watch"
+    if payment_only(item) and level == "info":
+        why = _brief(_why(item))
+        return Takeaway(
+            level="info",
+            text=_fits(f"Прямо вас не касается: {why}. {NOTHING}", f"Прямо вас не касается. {NOTHING}"),
+        )
     action = action_for(item, role, exposure)
     quick = short_action(item, role, exposure)
     what = gist(item)
@@ -288,7 +323,6 @@ def takeaway(
     candidates = fresh + [n for n in numbers if n not in fresh] or [_why(item)]
     view, reason = model_view(item)
     # что меняется для компании → число из её данных; направление не определить — так и говорим
-    known = consequence(item, key, exposure)
     tail = known.split(" — ", 1)[-1] if known else "направление пока неясно"  # «долг группы дороже»
 
     def lead(fact: str, short: bool = False) -> str:
@@ -346,7 +380,9 @@ def _brief(why: str) -> str:
     """Короткая форма причины с числом: «178 компаний группы с выручкой 149 млрд ₽ зависят от кредитов»."""
     if len(why) <= 70:
         return why
-    if ", из них с кредитом" in why:  # охват без второй части — «N из K других компаний группы с выручкой X»
+    if (
+        ", из них с кредитом" in why
+    ):  # охват без второй части — «N из K … с выручкой X чувствительны к ставке»
         return why.split(", из них с кредитом")[0]
     for sep in (" — ", ": ", ", "):
         # часть с числом и словами, а не голое «0» после тире

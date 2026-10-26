@@ -634,6 +634,40 @@ def clear_disallowed_text(conn: psycopg.Connection) -> int:
         ).rowcount
 
 
+def recheck_new_text_sources(conn: psycopg.Connection) -> int:
+    """Новостям лент, которым разрешили полный текст со страницы (`full_text = "page"`), вернуть очередь дозаполнения.
+    Отпечаток — по каждому издателю (условия и контейнер текста): сбрасываем только тех, у кого он поменялся, и не
+    трогаем попытки остальных. Возвращает, сколько новостей вернули в очередь."""
+    from ingest.news.fetch import load_feeds
+
+    page = {
+        f.publisher: f"{f.full_text}:{f.text_container}" for f in load_feeds() if f.full_text == "page" and f.enabled
+    }
+    prints = {p: hashlib.sha256(v.encode("utf-8")).hexdigest() for p, v in page.items()}
+    with conn.transaction():
+        conn.execute("SELECT pg_advisory_xact_lock(hashtext('newsfeed_news_load'))")
+        stored = dict(conn.execute("SELECT name, signature FROM search_loads WHERE name LIKE 'page_text:%'").fetchall())
+        changed_publishers = [p for p, digest in prints.items() if stored.get(f"page_text:{p}") != digest]
+        if not changed_publishers:
+            return 0
+        changed = conn.execute(
+            """
+            UPDATE news SET media_checked_at = NULL, media_attempts = 0
+            WHERE origin = 'feed' AND body IS NULL AND media_checked_at IS NOT NULL AND publisher = ANY(%s)
+            """,
+            (changed_publishers,),
+        ).rowcount
+        for publisher, digest in prints.items():
+            conn.execute(
+                """
+                INSERT INTO search_loads (name, signature, rows) VALUES (%s, %s, 0)
+                ON CONFLICT (name) DO UPDATE SET signature = EXCLUDED.signature, loaded_at = now()
+                """,
+                (f"page_text:{publisher}", digest),
+            )
+    return changed
+
+
 def load_all(conn: psycopg.Connection, data: Path, media_limit: int = 0) -> dict:
     """Снимок новостей, свежий сбор (raw/derived/news.jsonl) и аналитика — в таком порядке; затем новости в базе
     размечаются заново, если словари или правила поменялись. media_limit > 0 — дозаполнить картинки и полный
@@ -649,6 +683,7 @@ def load_all(conn: psycopg.Connection, data: Path, media_limit: int = 0) -> dict
     result["reliability"] = backfill_reliability(conn)
     result["icons"] = backfill_icons(conn)
     result["text_cleared"] = clear_disallowed_text(conn)
+    result["text_recheck"] = recheck_new_text_sources(conn)
     result["retagged"] = retag_news(conn)
     if media_limit > 0:
         result["media"] = asdict(enrich_news(conn, media_limit))

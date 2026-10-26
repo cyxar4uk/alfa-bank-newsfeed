@@ -471,6 +471,8 @@ class BankPosition(BaseModel):
     date: dt.date | None = Field(default=None, description="дата материала")
     source_id: str | None = Field(default=None, description="фрагмент материала (src:alfa:…)")
     url: str | None = None
+    outdated: bool = Field(default=False, description="по теме есть материал банка свежее этого")
+    outdated_note: str | None = Field(default=None, description="чем устарела: «есть материал от 11.09»")
 
 
 class Quote(BaseModel):
@@ -678,6 +680,18 @@ class Takeaway(BaseModel):
     text: str = Field(max_length=160)
 
 
+class BankProduct(BaseModel):
+    """Продукт банка под событие: что обсудить с менеджером, почему и где прочитать."""
+
+    code: str = Field(examples=["fx_forward_revenue"])
+    name: str = Field(
+        examples=["Форвард на валютную выручку"], description="для кнопки «Обсудить с менеджером: …»"
+    )
+    why: str = Field(description="почему это продукт под событие — одной фразой, без ставок и лимитов")
+    link: str = Field(description="страница продукта на сайте банка")
+    owned: bool = Field(default=False, description="продукт у компании уже подключён — «проверьте условия»")
+
+
 class FeedItem(BaseModel):
     """Событие в ленте пользователя: почему оно здесь — без полного инсайта."""
 
@@ -709,6 +723,9 @@ class FeedItem(BaseModel):
         " api.precompute, или по запросу); none — не собиралась",
     )
     takeaway: Takeaway | None = Field(default=None, description="вывод: важно ли, почему, что делать")
+    products: list[BankProduct] = Field(
+        default_factory=list, description="продукты банка под событие; у «к сведению» и главбуха пусто"
+    )
     image_url: str | None = Field(default=None, description="картинка новости (og:image источника)")
     source_icon_url: str | None = Field(default=None, description="значок издания")
     # охват в группе для вывода у любой роли (api.coverage); наружу не отдаётся — блок только в group_impact
@@ -753,6 +770,9 @@ class SourceEntry(BaseModel):
     about: str | None = Field(default=None, description="что это за источник — для руководителя")
     benefit: str | None = Field(default=None, description="что даст подключение — одной фразой")
     access: str | None = Field(default=None, description="бесплатно или по подписке, человеческим языком")
+    full_text: str | None = Field(
+        default=None, description="показываем ли полный текст новостей источника и почему (по его условиям)"
+    )
     for_your_industry: bool = Field(
         default=False,
         description="особенно полезен отрасли пользователя: его компании или её ключевых контрагентов",
@@ -781,6 +801,9 @@ class UserInputsIn(BaseModel):
 
     debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
     rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
+    fx_revenue_month_rub: float | None = Field(
+        default=None, ge=0, description="валютная выручка, ₽/мес (экспортёру)"
+    )
     fx_purchases_month_rub: float | None = Field(
         default=None, ge=0, description="валютные закупки в месяц, ₽"
     )
