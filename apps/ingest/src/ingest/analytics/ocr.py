@@ -258,9 +258,9 @@ class VisionLlmEngine:
 class ApiVisionClient:
     """Мультимодальная модель через API организаторов: картинка уходит data-URL в сообщении."""
 
-    def __init__(self, llm, model: str = "qwen/qwen3-vl-30b-a3b-instruct", max_tokens: int = 4000):
+    def __init__(self, llm, model: str | None = None, max_tokens: int = 4000):
         self.llm = llm
-        self.model = model
+        self.model = model or os.environ.get("LLM_OCR_MODEL") or "qwen/qwen3-vl-30b-a3b-instruct"
         self.max_tokens = max_tokens
 
     def complete(self, image_png: bytes, prompt: str) -> str:

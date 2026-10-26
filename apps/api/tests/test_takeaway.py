@@ -85,14 +85,20 @@ def test_group_number_for_owner():
         text="",
         refs=[],
     )
-    # в заголовке «ЦБ не спешит» направления нет — так и сказано, число и действие на месте
-    assert takeaway(it, "owner", exposure_map()).text == (
-        "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽."
-        " Что делать: учтите стоимость долга в планах инвестиций группы."
+    # в заголовке «ЦБ не спешит» направления нет: так и сказано, число на месте, но «важно» это не бывает —
+    # неясное направление — «следить» (жюри: «направление пока неясно» в «Важно»)
+    unclear = takeaway(it, "owner", exposure_map())
+    assert unclear.level == "watch"
+    assert unclear.text == (
+        "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽"
+        " чувствительны к ставке. Следите за продолжением."
     )
     it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
-    assert takeaway(it, "owner", exposure_map()).text.startswith(
-        "Ставка продержится дольше — долг группы дороже: 178 из 368 других компаний группы"
+    held = takeaway(it, "owner", exposure_map())
+    assert held.level == "act"  # направление ясно (пауза в снижении) — «важно»
+    assert (
+        "долг группы дороже: 178 из 368 других компаний группы" in held.text
+        and "чувствительны к ставке" in held.text
     )
 
 
@@ -249,4 +255,77 @@ def test_off_topic_news_is_info_and_not_a_story():
         "Банки снизили ставки по ипотеке вслед за ЦБ",
         "Ставки по ипотеке и кредитам МСП растут",
     ):
-        assert takeaway(item(0.6, title=title), "cfo").level == "act"
+        assert (
+            takeaway(item(0.6, title=title), "cfo").level != "info"
+        )  # по смыслу о ставке, не ипотечная метка
+
+
+def test_unclear_direction_never_act_and_delay_means_rate_holds():
+    from api.consequence import consequence
+
+    unclear = item(0.9, title="Президент Румынии заявил о солидном оборонном бюджете")
+    assert takeaway(unclear, "owner", exposure_map()).level != "act"
+    clear = item(0.9, title="ЦБ сохранил ключевую ставку 14 %")
+    assert takeaway(clear, "owner", exposure_map()).level == "act"
+    # «снижение не раньше 2027» — ставка держится, а не снижается
+    for title in (
+        "Шохин спрогнозировал снижение ключевой ставки не раньше 2027 года",
+        "ЦБ отложил снижение ключевой ставки",
+        "Снижение ставки пока не ожидается: ЦБ перенес решение",
+    ):
+        text = consequence(item(0.6, title=title), "rate", exposure_map()) or ""
+        assert "подешевеет" not in text, title
+    assert "подешевеет" in consequence(item(0.6, title="ЦБ снизил ключевую ставку до 13 %"), "rate", None)
+
+
+def test_payment_share_only_is_not_important():
+    only = item(0.9, code="chain:buyers:56", kind="chain", exposure=0.02, title="Закупки кафе упали")
+    assert takeaway(only, "cfo", exposure_map()).level == "info"
+    assert takeaway(only, "cfo", exposure_map()).text.startswith("Прямо вас не касается")
+
+
+def test_products_named_for_the_event():
+    from factories import make_company
+
+    from api.contract import ExposureChannel
+    from api.products import products_for
+
+    expo = exposure_map()
+    fx = expo.factors[0].model_copy(
+        update={
+            "code": "fx",
+            "label": "Курс валют",
+            "level": "high",
+            "channel": ExposureChannel(kind="direct", text="ВЭД: Китай; направление — экспорт"),
+        }  # fmt: skip
+    )
+    expo = expo.model_copy(update={"factors": [fx, *expo.factors]})
+    it = item(0.9, code="fx", title="Рубль крепнет")
+    it.takeaway = takeaway(it, "cfo", expo)
+    found = products_for(it, "cfo", make_company(), expo)
+    assert [p.name for p in found] == ["Форвард на валютную выручку"] and found[0].link.startswith("https://")
+    assert products_for(it, "chief_accountant", make_company(), expo) == []  # главбуху не предлагаем
+    quiet = item(0.05, code="fx", title="Рубль")
+    quiet.takeaway = takeaway(quiet, "cfo", expo)
+    assert quiet.takeaway.level == "info" and products_for(quiet, "cfo", make_company(), expo) == []
+    rate = item(0.9, title="ЦБ сохранил ключевую ставку 14 %")
+    rate.takeaway = takeaway(rate, "cfo", expo)
+    assert (
+        products_for(rate, "cfo", make_company(credit=False), expo) == []
+    )  # кредита нет — нечего реструктурировать
+
+
+def test_delay_words_do_not_flip_a_real_cut_and_group_chain_is_not_payment_only():
+    from api.consequence import consequence
+    from api.takeaway import payment_only
+
+    for title in (
+        "ЦБ снизил ставку до 2030 года по льготной программе",
+        "ЦБ снизил ставку, Минфин перенес выплаты",
+        "ЦБ снизил ставку до 14 % — пока не ясно, что дальше",
+    ):
+        assert "подешевеет" in (consequence(item(0.6, title=title), "rate", None) or ""), title
+    group = item(0.9, code="chain:group:49", kind="chain", exposure=0.01, title="Новость группы")
+    assert not payment_only(group)
+    unknown = item(0.9, code="chain:buyers:56", kind="chain", exposure=None, title="Новость")
+    assert not payment_only(unknown)

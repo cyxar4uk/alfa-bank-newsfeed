@@ -480,6 +480,37 @@ class Quote(BaseModel):
     source_id: str = Field(pattern=r"^src:")
 
 
+class ClaimSupport(BaseModel):
+    """Опора утверждения: фрагмент новости, материала банка или поле данных компании."""
+
+    kind: Literal["news", "bank", "company"]
+    ref: str = Field(description="src:… или feat:…")
+    quote: str = Field(description="предложение источника или «признак: значение»")
+
+
+class Claim(BaseModel):
+    """Утверждение вывода и его проверка перед показом."""
+
+    text: str
+    status: Literal["verified", "partly", "hypothesis"] = Field(
+        description="verified — есть опора и числа сходятся; partly — опора слабая или число не нашлось;"
+        " hypothesis — предположение («Возможно, …»)"
+    )
+    support: list[ClaimSupport] = Field(default_factory=list)
+    unsupported_numbers: list[str] = Field(default_factory=list, description="числа, которых нет в фактах")
+
+
+class ClaimsSummary(BaseModel):
+    """Сводка проверки утверждений: «12 из 12 подтверждены»."""
+
+    total: int = 0
+    verified_count: int = 0
+    partly_count: int = 0
+    hypothesis_count: int = 0
+    rewritten: int = Field(default=0, description="исправлено доработкой")
+    removed: int = Field(default=0, description="убрано: не подтвердилось")
+
+
 class Quality(BaseModel):
     checks_passed: list[str] = Field(
         default_factory=list, examples=[["refs", "facts_in_source", "multi_factor"]]
@@ -510,6 +541,8 @@ class Insight(BaseModel):
     quotes: list[Quote] = Field(
         default_factory=list, description="цитаты из новости, на которых держится вывод"
     )
+    claims: list[Claim] = Field(default_factory=list, description="утверждения вывода с опорой и статусом")
+    claims_summary: ClaimsSummary | None = Field(default=None, description="сколько утверждений подтверждено")
 
     @model_validator(mode="after")
     def _check_bank_view(self) -> Self:
@@ -645,6 +678,18 @@ class Takeaway(BaseModel):
     text: str = Field(max_length=160)
 
 
+class BankProduct(BaseModel):
+    """Продукт банка под событие: что обсудить с менеджером, почему и где прочитать."""
+
+    code: str = Field(examples=["fx_forward_revenue"])
+    name: str = Field(
+        examples=["Форвард на валютную выручку"], description="для кнопки «Обсудить с менеджером: …»"
+    )
+    why: str = Field(description="почему это продукт под событие — одной фразой, без ставок и лимитов")
+    link: str = Field(description="страница продукта на сайте банка")
+    owned: bool = Field(default=False, description="продукт у компании уже подключён — «проверьте условия»")
+
+
 class FeedItem(BaseModel):
     """Событие в ленте пользователя: почему оно здесь — без полного инсайта."""
 
@@ -670,7 +715,15 @@ class FeedItem(BaseModel):
         default=None,
         description="карточка уже собрана — GET /api/insights/{event_id} ответит из кэша; null — агента нет",
     )
+    insight_state: Literal["ready", "queued", "none"] = Field(
+        default="none",
+        description="карточка разбора: ready — готова, откроется мгновенно; queued — собирается (заранее,"
+        " api.precompute, или по запросу); none — не собиралась",
+    )
     takeaway: Takeaway | None = Field(default=None, description="вывод: важно ли, почему, что делать")
+    products: list[BankProduct] = Field(
+        default_factory=list, description="продукты банка под событие; у «к сведению» и главбуха пусто"
+    )
     image_url: str | None = Field(default=None, description="картинка новости (og:image источника)")
     source_icon_url: str | None = Field(default=None, description="значок издания")
     # охват в группе для вывода у любой роли (api.coverage); наружу не отдаётся — блок только в group_impact
@@ -705,6 +758,9 @@ class SourceEntry(BaseModel):
     about: str | None = Field(default=None, description="что это за источник — для руководителя")
     benefit: str | None = Field(default=None, description="что даст подключение — одной фразой")
     access: str | None = Field(default=None, description="бесплатно или по подписке, человеческим языком")
+    full_text: str | None = Field(
+        default=None, description="показываем ли полный текст новостей источника и почему (по его условиям)"
+    )
     for_your_industry: bool = Field(
         default=False,
         description="особенно полезен отрасли пользователя: его компании или её ключевых контрагентов",
@@ -733,6 +789,9 @@ class UserInputsIn(BaseModel):
 
     debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
     rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
+    fx_revenue_month_rub: float | None = Field(
+        default=None, ge=0, description="валютная выручка, ₽/мес (экспортёру)"
+    )
     fx_purchases_month_rub: float | None = Field(
         default=None, ge=0, description="валютные закупки в месяц, ₽"
     )

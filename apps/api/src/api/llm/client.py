@@ -57,6 +57,8 @@ DEFAULT_FALLBACK_MODELS: dict[str, str] = {
     "z-ai/glm-5.3-flash": "deepseek/deepseek-v4.1-flash",
 }
 
+# параметры, понятные любому OpenAI-совместимому провайдеру; остальное при ответе 400 отбрасывается
+STANDARD_PARAMS = frozenset({"model", "messages", "max_tokens", "temperature"})
 RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 MAX_TOKENS_CAP = 16000
 
@@ -161,6 +163,7 @@ class LlmClient:
         models: dict[str, str] | None = None,
         step_params: dict[str, dict] | None = None,
         fallbacks: dict[str, str] | None = None,
+        allow_any_model: bool = False,
         max_attempts: int = 4,
         validation_attempts: int = 2,
         backoff: float = 2.0,
@@ -175,15 +178,22 @@ class LlmClient:
         self.step_params = {**DEFAULT_STEP_PARAMS, **(step_params or {})}
         # None — запасные по умолчанию, {} — без запасных
         self.fallbacks = dict(DEFAULT_FALLBACK_MODELS if fallbacks is None else fallbacks)
-        unknown = {m for m in [*self.models.values(), *self.fallbacks.values()] if m not in ALLOWED_MODELS}
-        if unknown:
-            raise ValueError(f"модели не из списка кейса: {', '.join(sorted(unknown))}")
+        self.allow_any_model = allow_any_model
+        unknown = {m for m in [*self.models.values(), *self.fallbacks.values()] if not self._allowed(m)}
+        if unknown and not allow_any_model:
+            raise ValueError(
+                f"модели не из списка кейса: {', '.join(sorted(unknown))}"
+                " (LLM_ALLOW_ANY_MODEL=true принимает любые id провайдера)"
+            )
         self.max_attempts = max_attempts
         self.validation_attempts = validation_attempts
         self.backoff = backoff
         self._sleep = sleep
         self._now = now
         self._upstream: tuple[float, float | None] = (0.0, None)  # (когда спросили, остаток)
+
+    def _allowed(self, model: str) -> bool:
+        return self.allow_any_model or model in ALLOWED_MODELS
 
     def upstream_remaining(self, ttl: float = 60.0) -> float | None:
         """Остаток суточного бюджета ключа у шлюза, ₽ (общий на всю команду); неизвестен — None.
@@ -226,7 +236,7 @@ class LlmClient:
     ) -> Completion[T]:
         """Вызвать модель шага. Со `schema` — вернуть проверенный объект или поднять LlmBadResponse."""
         model = model or self.model_for(step)
-        if model not in ALLOWED_MODELS:
+        if not self._allowed(model):
             raise ValueError(f"модель {model} не из списка кейса")
         messages = list(messages)
         if schema is not None:
@@ -380,6 +390,11 @@ class LlmClient:
                     )
                 )
                 error = f"модель ответила с кодом {resp.status}"
+                extra = {k for k in body if k not in STANDARD_PARAMS}
+                if resp.status == 400 and extra:
+                    # провайдер не знает нестандартных параметров (reasoning, …) — повтор без них
+                    body = {k: v for k, v in body.items() if k in STANDARD_PARAMS}
+                    continue
                 if resp.status in RETRY_STATUSES or (resp.status == 200 and choice is None):
                     self._pause(n)
                     continue
@@ -461,4 +476,5 @@ def client_from_settings(settings) -> "LlmClient | None":
         models=settings.llm_models,
         step_params=settings.llm_step_params,
         fallbacks={**DEFAULT_FALLBACK_MODELS, **settings.llm_fallbacks},
+        allow_any_model=settings.llm_allow_any_model,
     )

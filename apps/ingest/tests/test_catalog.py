@@ -32,6 +32,14 @@ def test_catalog_is_valid_and_matches_feeds():
     assert by_id["cbr"].icon_url == "https://www.cbr.ru/favicon.ico" and by_id["reuters"].icon_url is None
 
 
+def test_full_text_decision_matches_feeds():
+    # «Полный текст» в каталоге — ровно у источников, чьи ленты его берут (full_text в sources.toml)
+    feeds = {f.id: f for f in load_feeds()}
+    for s in load_catalog():
+        takes = any(feeds[f].full_text and feeds[f].enabled for f in s.feeds)
+        assert s.full_text.startswith("Полный текст") == takes, (s.id, s.full_text)
+
+
 def test_paid_sources_say_where_the_key_goes():
     for s in load_catalog():
         if s.kind == "paid_api" and s.id != "bloomberg":
@@ -43,7 +51,7 @@ def test_paid_sources_say_where_the_key_goes():
 def test_unknown_feed_and_duplicates_are_rejected(tmp_path):
     feeds = [Feed("a", "A", "https://a.ru/rss")]
     entry = 'id = "x"\nname = "X"\ncountry = "ru"\nkind = "free"\nreliability = "other"\nhow_to_connect = ["шаг"]\n'
-    entry += 'about = "Что это"\nbenefit = "Что даст"\naccess = "Бесплатно"\n'
+    entry += 'about = "Что это"\nbenefit = "Что даст"\naccess = "Бесплатно"\nfull_text = "Только начало"\n'
     path = tmp_path / "c.toml"
     path.write_text(f'[[source]]\n{entry}feeds = ["b"]\n', "utf-8")
     with pytest.raises(ValueError, match="нет лент"):
