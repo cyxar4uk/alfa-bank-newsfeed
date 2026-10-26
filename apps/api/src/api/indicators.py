@@ -106,7 +106,7 @@ def _fx(agg: Flows) -> Indicator | None:
     fx_turnover = sum(
         p.out_amount + p.in_amount for p in agg.external() if p.counterparty and p.counterparty.fts_flag
     )
-    now = market_now("usd_rub")
+    now = market_now("fx:USD")
     if not fx_turnover or now is None or not now.value:
         return None
     per_rub = fx_turnover / now.value

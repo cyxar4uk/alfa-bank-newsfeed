@@ -530,11 +530,15 @@ def _client_persona(repo: CompanyRepo, persona: str) -> bool:
 
 def _mark_ready(agent, feed: Feed) -> None:
     """Какие карточки уже собраны — экрану не нужно спрашивать статус по каждому событию."""
+    _mark_items(agent, feed.items, feed.persona_id)
+
+
+def _mark_items(agent, items: list, persona_id: str) -> None:
     if agent is None:
         return
     try:
-        ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
-        for item in feed.items:
+        ready = agent.ready_events([i.event_id for i in items], persona_id)
+        for item in items:
             item.insight_ready = item.event_id in ready
     except Exception:
         logger.warning("не удалось проверить готовые карточки ленты", exc_info=True)
@@ -566,6 +570,7 @@ def search_feed(
 # раньше /api/events/{event_id:path}: путь id с двоеточиями и слэшами иначе поглотил бы «/related»
 @app.get("/api/events/{event_id:path}/related", response_model=Related, tags=["лента"])
 def get_related(
+    request: Request,
     event_id: str,
     repo: Repo,
     news: Annotated[NewsProvider, Depends(news_provider)],
@@ -580,6 +585,8 @@ def get_related(
         if news.event(event_id) is None:
             raise HTTPException(status_code=404, detail=f"событие {event_id} не найдено")
         raise HTTPException(status_code=404, detail=f"пользователь {persona} не найден")
+    items = [i.model_copy(deep=True) for i in items]  # готовность карточек — своя у каждого запроса
+    _mark_items(getattr(request.app.state, "agent", None), items, persona)
     return Related(event_id=event_id, items=items)  # картинки уже через прокси (api.ranking)
 
 

@@ -26,7 +26,7 @@ STRENGTH = {"high": "strong", "medium": "notable", "low": "weak"}
 COVERAGE_LOW = 0.1  # платежи покрывают меньше 10 % выручки — цепочки через контрагентов не оцениваем
 LIMITS_MAX = 4
 # ряд рынка → как найти прогноз банка в его фразе (api.bankview)
-BANK_ANCHORS = {"usd_rub": "доллар по", "key_rate": "ставку", "brent_usd": "Brent"}
+BANK_ANCHORS = {"fx:USD": "доллар по", "key_rate": "ставку", "oil:brent": "Brent"}
 
 
 def why(factor: FactorExposure) -> str:

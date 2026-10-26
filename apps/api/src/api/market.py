@@ -1,6 +1,6 @@
 """Рыночные цифры кодом, а не моделью: официальные ряды из базы (курсы ЦБ, ключевая ставка, нефть).
 
-Ряды кладёт парсер в таблицу `market_series (series, date, value, unit, source)`. Отсюда:
+Ряды кладёт парсер (`ingest.market`) в таблицу `market_series (series, day, value)`. Отсюда:
 - `market_now(series)` — последнее значение;
 - `market_change(series, days)` — изменение к значению на дату не позже сегодня − days;
 - `market_line` — фраза для вывода, карты рисков и фактов агента: «курс доллара 80,6 ₽ (ЦБ РФ на 25.10),
@@ -30,20 +30,21 @@ class Point:
     source: str = "ЦБ РФ"
 
 
-# ряд → (как назвать, единица, за сколько дней изменение, единица изменения)
+# ряд (код парсера, ingest.market) → (как назвать, единица, за сколько дней изменение, единица изменения)
 SERIES = {
-    "usd_rub": ("курс доллара", "₽", 7, "₽"),
-    "eur_rub": ("курс евро", "₽", 7, "₽"),
-    "cny_rub": ("курс юаня", "₽", 7, "₽"),
+    "fx:USD": ("курс доллара", "₽", 7, "₽"),
+    "fx:EUR": ("курс евро", "₽", 7, "₽"),
+    "fx:CNY": ("курс юаня", "₽", 7, "₽"),
     "key_rate": ("ключевая ставка", "%", 90, "п.п."),
-    "brent_usd": ("нефть Brent", "$/барр.", 7, "$"),
+    "oil:brent": ("нефть Brent", "$/барр.", 7, "$"),
 }
+SOURCES = {"oil:brent": "EIA"}  # остальные — официальные ряды ЦБ РФ
 # фактор карты → ряд, которым он измеряется
 FACTOR_SERIES = {
-    "fx": "usd_rub",
+    "fx": "fx:USD",
     "rate": "key_rate",
     "deposit_yield": "key_rate",
-    "commodity_oil": "brent_usd",
+    "commodity_oil": "oil:brent",
 }
 PERIOD_WORDS = {7: "за неделю", 30: "за месяц", 90: "за три месяца"}
 
@@ -83,14 +84,13 @@ class PgMarket:
         try:
             with self.pool.connection() as conn:
                 rows = conn.execute(
-                    "SELECT date, value, coalesce(source, 'ЦБ РФ') FROM market_series"
-                    " WHERE series = %s AND date >= %s ORDER BY date",
+                    "SELECT day, value FROM market_series WHERE series = %s AND day >= %s ORDER BY day",
                     (series, since),
                 ).fetchall()
         except Exception:  # таблицы ещё нет (парсер не обновлён) — цифр нет, лента работает
             log.debug("рыночный ряд %s не прочитан", series, exc_info=True)
             rows = []
-        points = [Point(series, r[0], float(r[1]), r[2]) for r in rows]
+        points = [Point(series, r[0], float(r[1]), SOURCES.get(series, "ЦБ РФ")) for r in rows]
         with self._lock:
             self._cache[key] = (time.monotonic(), points)
         return points

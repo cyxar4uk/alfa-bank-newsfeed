@@ -26,7 +26,7 @@ def test_indicators_from_payments(monkeypatch):
         flow("U_6", "out", 2e8, sister),
     ]
     old = market.MARKET
-    market.MARKET = MemoryMarket([Point("usd_rub", dt.date.today(), 80.0)])
+    market.MARKET = MemoryMarket([Point("fx:USD", dt.date.today(), 80.0)])
     try:
         found = {i.code: i for i in company_indicators(company, flows)}
     finally:
