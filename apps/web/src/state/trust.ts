@@ -15,21 +15,24 @@ export function readinessOf(item: Pick<FeedItem, 'insight_state' | 'insight_read
 export const SUPPORT_LABEL: Record<NonNullable<Claim['support']>[number]['kind'], string> = {
   news: 'Новость',
   bank: 'Альфа-Банк',
-  data: 'Данные компании',
+  company: 'Данные банка о компании',
 };
 
 export interface ClaimRow {
   text: string;
   status: Claim['status'];
-  support: { kind: keyof typeof SUPPORT_LABEL; label: string }[];
+  /** опоры: вид и текст («признак: значение», предложение новости) */
+  support: { kind: keyof typeof SUPPORT_LABEL; quote: string | null }[];
+  /** числа без опоры — честно показываем */
+  unsupported: string[];
 }
 
 export interface ClaimsView {
   verified: number;
   total: number;
-  /** «12 из 12 утверждений подтверждены» */
+  /** «12 из 12 утверждений подтверждены», «…, предположений — 2» */
   label: string;
-  /** все подтверждены — зелёная отметка; иначе нейтральная */
+  /** всё подтверждено — зелёная отметка; иначе нейтральная */
   allVerified: boolean;
   rows: ClaimRow[];
 }
@@ -40,17 +43,20 @@ function lowerFirst(text: string): string {
 }
 
 /** Сводка проверки утверждений; null — агент её не прислал. */
-export function claimsOf(insight: Pick<Insight, 'claims' | 'verified_count' | 'claims_total'>): ClaimsView | null {
+export function claimsOf(insight: Pick<Insight, 'claims' | 'claims_summary'>): ClaimsView | null {
   const claims = (insight.claims ?? []).filter((c) => c && c.text);
-  if (claims.length === 0) return null;
-  const total = insight.claims_total ?? claims.length;
+  const sum = insight.claims_summary ?? null;
+  const total = sum?.total ?? claims.length;
   if (total <= 0) return null;
-  const verified = Math.min(insight.verified_count ?? claims.filter((c) => c.status === 'verified').length, total);
+  const verified = Math.min(sum?.verified_count ?? claims.filter((c) => c.status === 'verified').length, total);
+  const hypotheses = sum?.hypothesis_count ?? claims.filter((c) => c.status === 'hypothesis').length;
   const verb = verified === 0 ? 'подтверждено' : plural(verified, ['подтверждено', 'подтверждены', 'подтверждены']);
   return {
     verified,
     total,
-    label: `${verified} из ${total} ${plural(total, ['утверждения', 'утверждений', 'утверждений'])} ${verb}`,
+    label:
+      `${verified} из ${total} ${plural(total, ['утверждения', 'утверждений', 'утверждений'])} ${verb}` +
+      (hypotheses > 0 ? `, ${plural(hypotheses, ['предположение', 'предположения', 'предположений'])} — ${hypotheses}` : ''),
     // «всё подтверждено» — только если и счёт, и сам список это говорят
     allVerified: verified >= total && claims.every((c) => c.status === 'verified'),
     rows: claims.map((c) => ({
@@ -59,11 +65,19 @@ export function claimsOf(insight: Pick<Insight, 'claims' | 'verified_count' | 'c
       status: c.status,
       support: (c.support ?? [])
         .filter((s) => s && s.kind in SUPPORT_LABEL)
-        .map((s) => ({ kind: s.kind, label: s.label || SUPPORT_LABEL[s.kind] }))
-        // один источник — одна подпись: два признака компании не дают «Данные компании, Данные компании»
-        .filter((s, i, all) => all.findIndex((x) => x.kind === s.kind && x.label === s.label) === i),
+        .map((s) => ({ kind: s.kind, quote: s.quote?.trim() || null }))
+        // одна и та же опора дважды не нужна
+        .filter((s, i, all) => all.findIndex((x) => x.kind === s.kind && x.quote === s.quote) === i),
+      unsupported: (c.unsupported_numbers ?? []).filter(Boolean),
     })),
   };
+}
+
+/** Пояснение банка пишется со строчной («банк ждал Urals $63, в новостях — $72») — отдельной строкой с заглавной. */
+export function capitalize(text: unknown): string {
+  if (typeof text !== 'string') return '';
+  const t = text.trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
 export interface OutdatedSignal {

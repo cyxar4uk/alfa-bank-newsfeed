@@ -68,6 +68,8 @@ export interface LiveApi extends Api {
   search(query: string, personaId: string, signal?: AbortSignal): Promise<Briefing | null>;
   /** каталог источников; null — каталога в API пока нет */
   catalog(personaId: string, signal?: AbortSignal): Promise<CatalogSource[] | null>;
+  /** «По этой теме»: события, связанные с этим, в формате ленты; null — метода в API пока нет */
+  related(eventId: string, personaId: string, signal?: AbortSignal): Promise<FeedItem[] | null>;
   /** отметить источник подключённым; ответ — что произошло (null — сервер не объяснил) */
   connectSource(id: string, personaId: string): Promise<SourceConnection | null>;
   /** сохранённые «мои числа»; null — метода в API пока нет или ничего не сохранено */
@@ -341,6 +343,17 @@ function createHttpApi(baseUrl: string): LiveApi {
     riskMap: async (companyId, personaId, role, signal) => {
       const body = await missingAsNull(request<unknown>(`/api/companies/${q(companyId)}/risk-map?persona=${q(personaId)}`, { signal }));
       return body === null ? null : normalizeRiskMap(companyId, role, body);
+    },
+    related: async (eventId, personaId, signal) => {
+      const body = await missingAsNull(request<unknown>(`/api/events/${q(eventId)}/related?persona=${q(personaId)}`, { signal }));
+      if (body === null) return null;
+      // Только полные элементы: без заголовка, источника или оценки карточку не нарисовать — не роняем карточку события.
+      const seen = new Set<string>();
+      return normalizeBriefing(personaId, body).items.filter((i) => {
+        const ok = !!i && !!i.event_id && !!i.event?.title && !!i.source && (!!i.takeaway?.level || !!i.relevance) && !seen.has(i.event_id);
+        if (ok) seen.add(i.event_id);
+        return ok;
+      });
     },
     connectSource: async (id, personaId) => {
       const { body } = await request<SourceConnection>(`/api/sources/${q(id)}/connect?persona=${q(personaId)}`, post({}));

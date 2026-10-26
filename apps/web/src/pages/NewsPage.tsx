@@ -8,7 +8,7 @@ import { ExpandButton, LevelBadge, LevelIcon, NewsThumb } from '../components/Ne
 import { ServiceTabs } from '../components/ServiceTabs';
 import { ChipSwitch, DynamicsTag, Spark } from '../components/WeekParts';
 import { OutdatedBanner, ReadyMark } from '../components/TrustParts';
-import { outdatedSignals } from '../state/trust';
+import { capitalize, outdatedSignals } from '../state/trust';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { useBriefing, useWeekBriefing, type Period } from '../state/briefing';
 import { useHidden } from '../state/hidden';
@@ -282,11 +282,13 @@ export function NewsPage() {
   const plate =
     period === 'week'
       ? {
-          bank: weekScr?.bank ? { statement: weekScr.bank.text, caption: weekScr.bank.caption, outdated: weekScr.bank.outdated } : null,
+          bank: weekScr?.bank
+            ? { statement: weekScr.bank.text, caption: weekScr.bank.caption, outdated: weekScr.bank.outdated, note: weekScr.bank.note }
+            : null,
           action: weekScr?.action ?? null,
         }
       : {
-          bank: screen?.bank ? { ...screen.bank, outdated: false } : null,
+          bank: screen?.bank ? { ...screen.bank, outdated: false, note: null } : null,
           action: screen?.action ?? null,
         };
 
@@ -349,6 +351,7 @@ export function NewsPage() {
                     <p className="day-bank__text">
                       {plate.bank.statement}
                       {plate.bank.outdated && <span className="day-bank__outdated"> — прогноз устарел</span>}
+                      {plate.bank.outdated && plate.bank.note && <span className="day-bank__note">{capitalize(plate.bank.note)}</span>}
                     </p>
                     <span className="day-bank__caption">{plate.bank.caption}</span>
                   </>

@@ -366,11 +366,25 @@ export interface EstimateScenario {
   basis: Statement;
 }
 
-/** Утверждение разбора и чем оно подтверждено: новостью, позицией банка, данными компании. */
+/** Утверждение разбора и чем оно подтверждено: новостью, позицией банка, данными банка о компании. */
 export interface Claim {
   text: string;
   status: 'verified' | 'partly' | 'hypothesis';
-  support?: { kind: 'news' | 'bank' | 'data'; ref?: string | null; label?: string | null }[] | null;
+  /** опоры: quote — предложение источника или «признак: значение»; ref — src:… из sources или feat:… */
+  support?: { kind: 'news' | 'bank' | 'company'; ref?: string | null; quote?: string | null }[] | null;
+  /** числа утверждения, которым не нашлось опоры */
+  unsupported_numbers?: string[] | null;
+}
+
+/** Итог проверки утверждений. */
+export interface ClaimsSummary {
+  total: number;
+  verified_count: number;
+  partly_count?: number | null;
+  hypothesis_count?: number | null;
+  /** сколько утверждений переписано и убрано при проверке */
+  rewritten?: number | null;
+  removed?: number | null;
 }
 
 export interface Insight {
@@ -404,8 +418,7 @@ export interface Insight {
   bank_position?: { statement: string; outdated?: boolean | null; outdated_note?: string | null } | null;
   /** проверка утверждений агентом: что подтверждено и чем */
   claims?: Claim[] | null;
-  verified_count?: number | null;
-  claims_total?: number | null;
+  claims_summary?: ClaimsSummary | null;
   /** цитаты из новости, на которые опирается вывод — подсветка в полном тексте */
   quotes?: { text: string; source_id: string }[] | null;
   group_impact?: GroupImpact | null;

@@ -38,15 +38,19 @@ export function ClaimsCheck({ view }: { view: ClaimsView }) {
             <span className="claims__status">{STATUS_LABEL[r.status]}</span>
             <span className="claims__text">{r.text}</span>
             {r.support.length > 0 && (
-              <span className="claims__support">
+              <ul className="claims__support">
                 {r.support.map((s, j) => (
-                  <span key={j} className={`claims__src claims__src--${s.kind}`} title={SUPPORT_LABEL[s.kind]}>
-                    <Icon name={s.kind === 'bank' ? 'bank' : s.kind === 'data' ? 'data' : 'fact'} size={12} />
-                    {s.label}
-                  </span>
+                  <li key={j} className={`claims__src claims__src--${s.kind}`}>
+                    <Icon name={s.kind === 'bank' ? 'bank' : s.kind === 'company' ? 'data' : 'fact'} size={12} />
+                    <span>
+                      <b>{SUPPORT_LABEL[s.kind]}</b>
+                      {s.quote ? `: ${s.quote}` : ''}
+                    </span>
+                  </li>
                 ))}
-              </span>
+              </ul>
             )}
+            {r.unsupported.length > 0 && <span className="claims__unsupported">Без опоры: {r.unsupported.join(', ')}</span>}
           </li>
         ))}
       </ol>

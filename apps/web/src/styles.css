@@ -6654,16 +6654,30 @@ a:hover .thumb img,
 }
 
 .claims__support {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  display: grid;
+  gap: 3px;
 }
 
 .claims__src {
-  display: inline-flex;
-  gap: 3px;
-  align-items: center;
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
   color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.claims__src svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.claims__src b {
+  font-weight: 500;
+}
+
+.claims__unsupported {
+  color: var(--level-watch);
   font-size: 12px;
 }
 
@@ -6673,6 +6687,12 @@ a:hover .thumb img,
 
 .verdict__outdated {
   font-weight: 600;
+}
+
+.day-bank__note {
+  display: block;
+  color: var(--ink-2);
+  font-size: 13px;
 }
 
 .verdict__outdated-note {
@@ -6703,6 +6723,70 @@ a:hover .thumb img,
 
 .outdated__list b {
   font-weight: 500;
+}
+
+/* «По этой теме» под новостью */
+.related {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.related__title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.related__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.related__card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.related__thumb .thumb {
+  width: 100%;
+  height: 112px;
+}
+
+.related__source {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.related__headline {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.related__headline:hover {
+  color: var(--link);
+}
+
+.related__why {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.related__why svg {
+  flex: none;
+  margin-top: 1px;
 }
 
 @media (prefers-reduced-motion: reduce) {

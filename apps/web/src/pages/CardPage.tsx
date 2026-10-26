@@ -24,8 +24,9 @@ import { markRead } from '../state/read';
 import { progressOf, stepsOf } from '../state/steps';
 import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
-import { claimsOf } from '../state/trust';
+import { capitalize, claimsOf } from '../state/trust';
 import { ClaimsCheck } from '../components/TrustParts';
+import { RelatedNews } from '../components/RelatedNews';
 
 const ROW_ICON: Record<CardRow['id'], IconName> = {
   chain: 'group',
@@ -215,7 +216,7 @@ function Card({
                 {insight.bank_position?.outdated && <b className="verdict__outdated"> — прогноз устарел</b>}
               </p>
               {insight.bank_position?.outdated && insight.bank_position.outdated_note && (
-                <p className="verdict__outdated-note">{insight.bank_position.outdated_note}</p>
+                <p className="verdict__outdated-note">{capitalize(insight.bank_position.outdated_note)}</p>
               )}
               <span>{bank.caption}</span>
             </div>
@@ -375,6 +376,7 @@ function Card({
           image={imageOf(detail, item)}
         />
         <FullText detail={detail} quotes={quotes} lead={leadNews} />
+        <RelatedNews eventId={eventId} personaId={personaId} />
       </article>
 
     </div>

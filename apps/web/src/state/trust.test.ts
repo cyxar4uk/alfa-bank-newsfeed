@@ -13,31 +13,37 @@ test('готовность разбора: insight_state главнее стар
   assert.equal(readinessOf({}), null);
 });
 
-test('проверка утверждений: счёт из API или по статусам, предположение — «Возможно»', () => {
+test('проверка утверждений: счёт из claims_summary или по статусам, предположение — «Возможно»', () => {
   assert.equal(claimsOf({}), null);
   const v = claimsOf({
     claims: [
-      { text: 'Ставка 14 % сохранена', status: 'verified', support: [{ kind: 'news', label: 'Банк России, 23.10' }] },
-      { text: 'Долг дороже', status: 'partly', support: [{ kind: 'data', label: null }, { kind: 'data' }, { kind: 'bank' }] },
+      { text: 'Ставка 14 % сохранена', status: 'verified', support: [{ kind: 'news', ref: 'src:news:1', quote: 'Банк России сохранил ставку 14 %' }] },
+      {
+        text: 'Долг дороже',
+        status: 'partly',
+        support: [{ kind: 'company', ref: 'feat:LOAN', quote: 'Кредиты в банке: есть' }, { kind: 'company', ref: 'feat:LOAN', quote: 'Кредиты в банке: есть' }, { kind: 'bank' }],
+        unsupported_numbers: ['39 %'],
+      },
       { text: 'Поставщики поднимут цены', status: 'hypothesis' },
     ],
   });
-  assert.equal(v?.label, '1 из 3 утверждений подтверждено');
+  assert.equal(v?.label, '1 из 3 утверждений подтверждено, предположение — 1');
   assert.equal(v?.allVerified, false);
   assert.equal(v?.rows[2].text, 'Возможно, поставщики поднимут цены');
   assert.deepEqual(v?.rows[1].support, [
-    { kind: 'data', label: 'Данные компании' },
-    { kind: 'bank', label: 'Альфа-Банк' },
+    { kind: 'company', quote: 'Кредиты в банке: есть' },
+    { kind: 'bank', quote: null },
   ]);
-  const all = claimsOf({ claims: [{ text: 'a', status: 'verified' }], verified_count: 12, claims_total: 12 });
+  assert.deepEqual(v?.rows[1].unsupported, ['39 %']);
+  const all = claimsOf({ claims: [{ text: 'a', status: 'verified' }], claims_summary: { total: 12, verified_count: 12 } });
   assert.equal(all?.label, '12 из 12 утверждений подтверждены');
-  // счёт из API говорит «все», но в списке не только подтверждённые — зелёной отметки нет
   assert.equal(all?.allVerified, true);
-  const odd = claimsOf({ claims: [{ text: 'ЦБ повысит ставку', status: 'hypothesis' }], verified_count: 5, claims_total: 3 });
-  assert.equal(odd?.label, '3 из 3 утверждений подтверждены');
+  // счёт говорит «все», а в списке предположение — зелёной отметки нет; счёт больше всего — обрезаем
+  const odd = claimsOf({ claims: [{ text: 'ЦБ повысит ставку', status: 'hypothesis' }], claims_summary: { total: 3, verified_count: 5, hypothesis_count: 2 } });
+  assert.equal(odd?.label, '3 из 3 утверждений подтверждены, предположения — 2');
   assert.equal(odd?.allVerified, false);
   assert.equal(odd?.rows[0].text, 'Возможно, ЦБ повысит ставку');
-  assert.equal(claimsOf({ claims: [{ text: 'a', status: 'partly' }], claims_total: 21, verified_count: 21 })?.label, '21 из 21 утверждения подтверждено');
+  assert.equal(claimsOf({ claims: [{ text: 'a', status: 'partly' }], claims_summary: { total: 21, verified_count: 21 } })?.label, '21 из 21 утверждения подтверждено');
   assert.equal(claimsOf({ claims: [{ text: 'a', status: 'partly' }] })?.label, '0 из 1 утверждения подтверждено');
 });
 
@@ -48,11 +54,11 @@ test('прогноз банка разошёлся: факторы карты и
     week: [],
     limits: [],
     factors: [
-      { code: 'fx', label: 'Курс рубля', strength: 'strong', why: '', is_estimate: false, week_counts: [], news_count: 0, bank: { text: 'Банк ждёт 87 ₽/$', outdated: true, outdated_note: 'Банк ждёт 87 ₽/$, сейчас 80,6' } },
+      { code: 'fx', label: 'Курс рубля', strength: 'strong', why: '', is_estimate: false, week_counts: [], news_count: 0, bank: { text: 'Банк ждёт 87 ₽/$', outdated: true, outdated_note: 'банк ждал 87 ₽/$, в новостях — 80,6' } },
       { code: 'rate', label: 'Ставка', strength: 'strong', why: '', is_estimate: false, week_counts: [], news_count: 0, bank: { text: '14 %', outdated: false } },
     ],
   } as RiskMap;
-  assert.deepEqual(outdatedSignals(map, null), [{ topic: 'Курс рубля', text: 'Банк ждёт 87 ₽/$, сейчас 80,6' }]);
+  assert.deepEqual(outdatedSignals(map, null), [{ topic: 'Курс рубля', text: 'банк ждал 87 ₽/$, в новостях — 80,6' }]);
   const lead = { event: { title: 'Нефть дорожает' }, bank_position: { statement: 'Банк ждал Urals $63', outdated: true } } as Insight;
   assert.deepEqual(outdatedSignals(null, lead), [{ topic: 'Нефть дорожает', text: 'Банк ждал Urals $63 — прогноз устарел' }]);
   assert.deepEqual(outdatedSignals(null, null), []);
