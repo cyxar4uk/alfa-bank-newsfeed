@@ -126,9 +126,10 @@ def products_for(
     if not chosen:
         return []
     offer = chosen[0]
-    has = bool(offer.feature and company and getattr(company, offer.feature, None))
-    if offer.feature == "credit" and not has:
-        return []  # кредита в банке нет — «структуру долга» обсуждать не с чем
+    flag = getattr(company, offer.feature, None) if offer.feature and company else None
+    has = flag is True
+    if offer.feature == "credit" and flag is False:
+        return []  # кредита в банке точно нет — «структуру долга» обсуждать не с чем
     why = offer.has_why if has else offer.why
     return [BankProduct(code=offer.code, name=offer.name, why=why, link=offer.link, owned=has)]
 

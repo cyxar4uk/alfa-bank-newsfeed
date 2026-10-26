@@ -525,9 +525,8 @@ def bank_topics(title: str, strong: list[str]) -> list[str]:
     и заголовок о ней же («ставк» — у ставки). «Дайджест ритейла» со слабой меткой спроса — не тема банка."""
     from api.bankview import TOPICS  # bankview импортирует ranking — здесь, а не наверху
 
-    low = title.split(" // ")[
-        0
-    ].casefold()  # после « // » идёт лид: слова из него не делают новость темой банка
+    # после « // » идёт лид: слова из него не делают новость темой банка
+    low = title.split(" // ")[0].casefold().replace("ё", "е")
     return [c for c in dict.fromkeys(strong) if c in TOPICS and any(s in low for s in TOPICS[c][1])]
 
 

@@ -31,9 +31,15 @@ _RATE_HOLD = re.compile(
 _PAUSE = re.compile(r"пауз\w* в снижении\s+(?:ключев\w*\s+)?ставк")
 # снижение отложено («не раньше 2027 года», «пока не», «отложил», «до конца 2026») — ставка держится
 _DELAY = re.compile(
-    r"не\s+раньше|не\s+ранее|пока\s+не|отлож|отсроч|перенес\w*|не\s+в\s+этом\s+году"
-    r"|(?<!\w)до\s+(?:конца\s+)?20\d\d"
+    r"не\s+раньше|не\s+ранее|пока\s+не\s+(?:снижа|ожида|будет)|отлож|отсроч|не\s+в\s+этом\s+году"
 )
+_CUT_DONE = re.compile(r"(?<!\w)(?:снизил|понизил|уменьшил)\w*")  # снижение уже случилось — не отложено
+
+
+def _delayed(title: str) -> bool:
+    return bool(_DELAY.search(title)) and not _CUT_DONE.search(title)
+
+
 _RATE_PERCENT = re.compile(r"ставк\w*[^%\d]{0,30}?(\d+(?:[.,]\d+)?)\s?%")
 
 _OIL = re.compile(r"нефт|brent|urals|баррел|бензин|дизел|топлив")
@@ -105,7 +111,7 @@ def _rate(title: str, group: bool) -> str | None:
     rate = f"Ставка {_rate_text(m.group(1))}" if m else "Ставка"
     if _NOT.search(title):
         return f"{rate} не меняется — {debt} остаётся дорогим" if "ставк" in title else None
-    if _PAUSE.search(title) or (_DELAY.search(title) and _RATE_DOWN.search(title)):
+    if _PAUSE.search(title) or (_delayed(title) and _RATE_DOWN.search(title)):
         # «пауза в снижении», «снижение не раньше 2027» — ставка держится, а не снижается
         return f"{rate} продержится дольше — {debt} дороже"
     down, up = bool(_RATE_DOWN.search(title)), bool(_RATE_UP.search(title))
@@ -125,7 +131,7 @@ def _deposit(title: str) -> str | None:
         _PAUSE.search(title)
         or _RATE_HOLD.search(title)
         or _RATE_UP.search(title)
-        or (_DELAY.search(title) and _RATE_DOWN.search(title))
+        or (_delayed(title) and _RATE_DOWN.search(title))
     ):
         return "Высокая ставка держится — депозиты приносят больше"
     if _RATE_DOWN.search(title):

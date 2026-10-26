@@ -90,12 +90,15 @@ def test_group_number_for_owner():
     unclear = takeaway(it, "owner", exposure_map())
     assert unclear.level == "watch"
     assert unclear.text == (
-        "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽."
-        " Следите; если подтвердится — сверьте сроки пересмотра ставок."
+        "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽"
+        " чувствительны к ставке. Следите за продолжением."
     )
     it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
-    assert takeaway(it, "owner", exposure_map()).text.startswith(
-        "Ставка продержится дольше — долг группы дороже: 178 из 368 других компаний группы"
+    held = takeaway(it, "owner", exposure_map())
+    assert held.level == "act"  # направление ясно (пауза в снижении) — «важно»
+    assert (
+        "долг группы дороже: 178 из 368 других компаний группы" in held.text
+        and "чувствительны к ставке" in held.text
     )
 
 
@@ -310,3 +313,19 @@ def test_products_named_for_the_event():
     assert (
         products_for(rate, "cfo", make_company(credit=False), expo) == []
     )  # кредита нет — нечего реструктурировать
+
+
+def test_delay_words_do_not_flip_a_real_cut_and_group_chain_is_not_payment_only():
+    from api.consequence import consequence
+    from api.takeaway import payment_only
+
+    for title in (
+        "ЦБ снизил ставку до 2030 года по льготной программе",
+        "ЦБ снизил ставку, Минфин перенес выплаты",
+        "ЦБ снизил ставку до 14 % — пока не ясно, что дальше",
+    ):
+        assert "подешевеет" in (consequence(item(0.6, title=title), "rate", None) or ""), title
+    group = item(0.9, code="chain:group:49", kind="chain", exposure=0.01, title="Новость группы")
+    assert not payment_only(group)
+    unknown = item(0.9, code="chain:buyers:56", kind="chain", exposure=None, title="Новость")
+    assert not payment_only(unknown)

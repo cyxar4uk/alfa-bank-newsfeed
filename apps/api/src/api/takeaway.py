@@ -174,8 +174,11 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
     )
     if gi and gi.affected_count:
         phrase = coverage_phrase(gi)
-        if credit:  # для долга — и сколько из них с кредитом в банке
-            phrase += f", {credit_phrase(gi)}"
+        if key in CREDIT_KEYS:
+            # N — чувствительные к ставке по отрасли, а кредит в банке — у M из них: не «долг у N»
+            phrase += " чувствительны к ставке"
+            if credit:
+                phrase += f", {credit_phrase(gi)}"
         found.append(phrase)
     if item.short and _DIGIT.search(item.short):
         found.append(_why(item))
@@ -236,7 +239,10 @@ def payment_only(item: FeedItem) -> bool:
         return False
     chain = [t for t in terms if t.kind == "chain"]
     return bool(chain) and all(
-        not t.code.startswith("chain:direct") and (t.exposure or 0) < PAYMENT_ONLY_SHARE for t in chain
+        t.code.startswith(("chain:buyers", "chain:suppliers"))
+        and t.exposure is not None
+        and t.exposure < PAYMENT_ONLY_SHARE
+        for t in chain
     )
 
 
@@ -300,6 +306,8 @@ def takeaway(
     # что меняется для компании; направление не определить — не выше «следить» (level_of)
     known = consequence(item, key, exposure)
     level = level or level_of(item, strength, known is not None)
+    if level == "act" and known is None:  # закреплённое лентой «важно» не бывает с неясным направлением
+        level = "watch"
     if payment_only(item) and level == "info":
         why = _brief(_why(item))
         return Takeaway(
@@ -372,7 +380,9 @@ def _brief(why: str) -> str:
     """Короткая форма причины с числом: «178 компаний группы с выручкой 149 млрд ₽ зависят от кредитов»."""
     if len(why) <= 70:
         return why
-    if ", из них с кредитом" in why:  # охват без второй части — «N из K других компаний группы с выручкой X»
+    if (
+        ", из них с кредитом" in why
+    ):  # охват без второй части — «N из K … с выручкой X чувствительны к ставке»
         return why.split(", из них с кредитом")[0]
     for sep in (" — ", ": ", ", "):
         # часть с числом и словами, а не голое «0» после тире
