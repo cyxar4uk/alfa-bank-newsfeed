@@ -85,3 +85,42 @@ def test_whole_sentence_for_highlight():
     )
     assert _whole_sentence(text, "нет такой цитаты") == "нет такой цитаты"
     assert NEWS_ID
+
+
+def test_unconfirmed_warning_names_weak_claims():
+    from api.agent.checks import Issue, Report
+    from api.agent.loop import _unconfirmed
+    from api.contract import Claim
+
+    class Card:
+        claims = [
+            Claim(text="Выручка вырастет на 5 млн ₽.", status="partly"),
+            Claim(text="Ок", status="verified"),
+        ]
+
+    assert _unconfirmed(Card(), Report()) == ["Выручка вырастет на 5 млн ₽"]
+    Card.claims = []
+    assert _unconfirmed(Card(), Report()) == []
+    hard = Report(issues=[Issue(check="numbers_from_tools", message="x", hard=True)])
+    assert _unconfirmed(Card(), hard) == ["часть чисел не подтверждена данными банка"]
+
+
+def test_ask_drops_other_topics_from_card():
+    from api.agent.ask import _only_question
+
+    ctx = make_ctx()
+    ctx.user_inputs = Saved()
+    card = {
+        "consequences": {
+            "risks": [
+                {
+                    "origin": "estimate",
+                    "text": "Проценты на 1 млрд ₽ долга, если ставка идёт за ключевой: 140 млн ₽",
+                },
+                {"origin": "ai", "text": "Курс влияет на выручку"},
+            ]
+        }
+    }
+    _only_question(ctx, card, "Что будет с пошлиной на зерно?")
+    assert [s["text"] for s in card["consequences"]["risks"]] == ["Курс влияет на выручку"]
+    assert ctx.user_inputs is None

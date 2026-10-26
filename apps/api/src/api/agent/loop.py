@@ -472,6 +472,9 @@ class Agent:
             f" переписано {claims.rewritten}, убрано {claims.removed}",
         )
         log.info("claims %s", json.dumps({"insight": insight.id, **claims.model_dump()}, ensure_ascii=False))
+        shaky = _unconfirmed(insight, final)
+        if shaky:
+            insight.quality.warnings.append("Часть выводов не удалось подтвердить: " + "; ".join(shaky))
         trace.trace.summary = _trace_summary(ctx, final, dropped)
         trace.trace.summary.checked.append(
             f"Утверждения вывода: подтверждено {claims.verified_count} из {claims.total}"
@@ -812,6 +815,16 @@ def _trace_summary(ctx: AgentContext, final: Report, dropped: int) -> TraceSumma
             " — " + "; ".join(problems[:3]) if problems else ""
         )
     return TraceSummary(checked=checked, not_found=not_found, problems=problems, verdict=verdict)
+
+
+def _unconfirmed(insight: Insight, final: Report) -> list[str]:
+    """Какие выводы не подтверждены, если итоговая самопроверка не прошла или у утверждения слабая опора."""
+    weak = [c.text.rstrip(".") for c in insight.claims if c.status == "partly"]
+    hard = [i for i in final.issues if i.hard]
+    if not weak and not hard:
+        return []
+    labels = list(dict.fromkeys(CHECK_LABELS[i.check] for i in hard if i.check in CHECK_LABELS))
+    return [*weak[:3], *labels[:2]] or ["не все утверждения опираются на данные"]
 
 
 def _check_found(report: Report) -> str:
