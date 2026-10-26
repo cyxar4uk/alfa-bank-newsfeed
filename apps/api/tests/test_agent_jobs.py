@@ -99,7 +99,9 @@ def test_first_request_returns_status_and_one_build_per_pair(api):
 
 def test_failed_build_is_reported_and_can_be_retried(api):
     error = TransportResponse(400, {"error": "bad"}, '{"error": "bad"}')
-    client, service = api(ScriptedTransport(reply(GOOD_PLAN), error, reply(GOOD_PLAN), reply(good_draft())))
+    client, service = api(
+        ScriptedTransport(reply(GOOD_PLAN), error, error, reply(GOOD_PLAN), reply(good_draft()))
+    )
     assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     failed = wait_status(client, {"failed", "done"})
     assert failed["status"] == "failed" and "400" in failed["error"] and failed["trace_id"]

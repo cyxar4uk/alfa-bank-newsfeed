@@ -94,15 +94,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connections = PgConnections(pool)
     inputs.STORE = PgInputs(pool)
     # агент ищет новости и аналитику банка через app.state.search
+    app.state.agent_error = None
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
         # задачи, прерванные перезапуском, — failed, а не «идёт» вечно; только здесь: прогрев из того же
         # контейнера не должен ронять задачи работающего API
         app.state.agent.jobs.recover()
-    except Exception:
+    except Exception as exc:
         # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
         logger.exception("агент не запустился")
         app.state.agent = None
+        app.state.agent_error = f"{type(exc).__name__}: {exc}"[:300]
     if settings.feed_warmup:
         threading.Thread(target=warm_feeds, args=(app.state,), name="warm-feeds", daemon=True).start()
     app.state.precompute = make_precompute(app.state, settings)
@@ -308,7 +310,7 @@ def precompute_status(request: Request) -> PrecomputeStatus:
 
 
 @app.get("/api/health", response_model=Health, tags=["служебное"])
-def health(repo: Repo, response: Response) -> Health:
+def health(request: Request, repo: Repo, response: Response) -> Health:
     try:
         files = repo.imported_files()
     except Exception:
@@ -325,7 +327,14 @@ def health(repo: Repo, response: Response) -> Health:
         elif not loaded[name].rows_loaded:
             warnings.append(f"файл {name} загружен, но в нём нет ни одной годной строки")
     # API живо — отвечаем 200, а нехватку данных показываем в статусе и предупреждениях
-    return Health(status="degraded" if warnings else "ok", db="ok", data=files, warnings=warnings)
+    status = "degraded" if warnings else "ok"
+    # агент — не данные: причина, почему он не отвечает, — в предупреждениях, статус от неё не меняется
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None and getattr(request.app.state, "agent_error", None):
+        warnings.append(f"агент не запустился: {request.app.state.agent_error}")
+    elif agent is not None and agent.llm is None:
+        warnings.append("агент выключен: не заданы LLM_API_KEY и LLM_BASE_URL (в .env или в окружении)")
+    return Health(status=status, db="ok", data=files, warnings=warnings)
 
 
 @app.get("/api/companies", response_model=list[CompanySummary], tags=["компании"])

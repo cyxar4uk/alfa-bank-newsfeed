@@ -8,12 +8,15 @@
 """
 
 import hashlib
+import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from api.agent.bridges import optional
 from api.agent.checks import CHECKS, Checker, Report, quote_in
+from api.agent.claims import verify as verify_claims
 from api.agent.context import AgentContext, coverage_fact
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
@@ -50,6 +53,7 @@ MAX_REVISIONS = 2
 MAX_ANALYTICS_QUERIES = 4
 # рассуждения DeepSeek занимают 4–7 тыс. токенов до ответа; меньший предел обрезает JSON и стоит лишней
 # попытки
+log = logging.getLogger("api.agent.loop")  # метрики проверки утверждений — для замеров качества
 DRAFT_MAX_TOKENS = 8000  # без рассуждений черновик — 3–5 тыс. токенов
 
 
@@ -222,6 +226,7 @@ class Agent:
         trace.stage("Сверяю каждую цифру и цитату с источниками")
         report = self.check(ctx, draft, trace)
         trace.found(_check_found(report))
+        first_hard = len(report.hard_at())  # сколько утверждений первого черновика не подтвердилось
         best = (draft, report)
         for n in range(1, MAX_REVISIONS + 1):
             if not _worth_revising(ctx, report, n):
@@ -249,10 +254,12 @@ class Agent:
             if _badness(report) <= _badness(best[1]):
                 best = (draft, report)
             draft, report = best
-        insight = self.assemble(ctx, draft, report, trace)
+        insight = self.assemble(ctx, draft, report, trace, first_hard=first_hard)
         return Result(insight=insight, trace=trace.trace, context=ctx, cost=trace.cost)
 
-    def assemble(self, ctx: AgentContext, draft: Draft, report: Report, trace: TraceRecorder) -> Insight:
+    def assemble(
+        self, ctx: AgentContext, draft: Draft, report: Report, trace: TraceRecorder, first_hard: int = 0
+    ) -> Insight:
         clean = _without(draft, report)
         dropped = len(draft.statements()) - len(clean.statements()) + len(draft.actions) - len(clean.actions)
         final = Checker(ctx).run(clean)
@@ -372,7 +379,25 @@ class Agent:
             bank_position=_bank_position(ctx, clean),
             quotes=_quotes(ctx, clean),
         )
+        # каждое утверждение вывода — с опорой; ненайденное число без опоры — убрать
+        trace.stage("Сверяю каждое утверждение с опорой")
+        claims = verify_claims(ctx, insight, rewritten=max(0, first_hard - dropped), dropped=dropped)
+        trace.found(f"Подтверждено {claims.verified_count} из {claims.total}")
+        # шаг-инструмент, а не проверка: итог самопроверки в трассе остаётся прежним
+        trace.tool(
+            "verify_claims",
+            {"total": claims.total},
+            [s.ref for c in insight.claims for s in c.support],
+            f"Проверка утверждений: подтверждено {claims.verified_count} из {claims.total};"
+            f" предположений {claims.hypothesis_count}; не подтверждено {claims.partly_count};"
+            f" переписано {claims.rewritten}, убрано {claims.removed}",
+        )
+        log.info("claims %s", json.dumps({"insight": insight.id, **claims.model_dump()}, ensure_ascii=False))
         trace.trace.summary = _trace_summary(ctx, final, dropped)
+        trace.trace.summary.checked.append(
+            f"Утверждения вывода: подтверждено {claims.verified_count} из {claims.total}"
+            + (f", предположений — {claims.hypothesis_count}" if claims.hypothesis_count else "")
+        )
         missing = insight.unresolved_refs()
         if missing:
             # не должно случаться после самопроверки; если случилось — не отдаём битые ссылки молча

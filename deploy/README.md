@@ -31,7 +31,8 @@ rm upload/*.tgz && docker image prune -f
 ```
 
 `.env` на ВМ создаётся один раз по `.env.example`, права `600`: свой `POSTGRES_PASSWORD`, `LLM_API_KEY`, а в
-`LLM_BASE_URL` — значение `LLM_BASE_URL_RU` (основной адрес моделей с ВМ не отвечает).
+`LLM_BASE_URL` — `https://api.alfahack-gateway26.ru/v1` (основной адрес моделей с ВМ не отвечает). Разбор заранее на стенде
+включён по умолчанию (`PRECOMPUTE_ENABLED=true` в `deploy/compose.server.yaml`); `PRECOMPUTE_ENABLED=false` в `.env` его выключает.
 
 ## Прогрев после выкатки
 

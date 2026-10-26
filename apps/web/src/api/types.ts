@@ -246,6 +246,8 @@ export interface SourceConnection {
 export interface PersonaInputs {
   debt_rub: number | null;
   rate_type: 'floating' | 'fixed' | null;
+  /** валютная выручка в месяц — если API её принимает */
+  fx_revenue_month_rub?: number | null;
   fx_purchases_month_rub: number | null;
   fuel_purchase_month_t: number | null;
   updated_at?: string | null;
@@ -366,6 +368,27 @@ export interface EstimateScenario {
   basis: Statement;
 }
 
+/** Утверждение разбора и чем оно подтверждено: новостью, позицией банка, данными банка о компании. */
+export interface Claim {
+  text: string;
+  status: 'verified' | 'partly' | 'hypothesis';
+  /** опоры: quote — предложение источника или «признак: значение»; ref — src:… из sources или feat:… */
+  support?: { kind: 'news' | 'bank' | 'company'; ref?: string | null; quote?: string | null }[] | null;
+  /** числа утверждения, которым не нашлось опоры */
+  unsupported_numbers?: string[] | null;
+}
+
+/** Итог проверки утверждений. */
+export interface ClaimsSummary {
+  total: number;
+  verified_count: number;
+  partly_count?: number | null;
+  hypothesis_count?: number | null;
+  /** сколько утверждений переписано и убрано при проверке */
+  rewritten?: number | null;
+  removed?: number | null;
+}
+
 export interface Insight {
   id: string;
   event: InsightEvent;
@@ -393,7 +416,11 @@ export interface Insight {
   /** итог «важно ли и что делать» (07_feedback §3) */
   verdict?: { level: Takeaway['level']; headline: string; why?: string | null; actions?: string[] } | null;
   /** позиция банка одной фразой «Альфа-Банк ожидает …» */
-  bank_position?: { statement: string } | null;
+  /** outdated — прогноз банка разошёлся с фактом; outdated_note — «банк ждал 87 ₽/$, сейчас 80,6» */
+  bank_position?: { statement: string; outdated?: boolean | null; outdated_note?: string | null } | null;
+  /** проверка утверждений агентом: что подтверждено и чем */
+  claims?: Claim[] | null;
+  claims_summary?: ClaimsSummary | null;
   /** цитаты из новости, на которые опирается вывод — подсветка в полном тексте */
   quotes?: { text: string; source_id: string }[] | null;
   group_impact?: GroupImpact | null;
@@ -422,6 +449,8 @@ export interface FeedItem {
   short?: string | null;
   /** разбор текущей версии уже собран — его можно взять с cached=true без сборки */
   insight_ready?: boolean | null;
+  /** разбор собран заранее (ready), готовится (queued) или не нужен (none) */
+  insight_state?: 'ready' | 'queued' | 'none' | null;
   /** вывод одной фразой с уровнем (07_feedback §3) */
   takeaway?: Takeaway | null;
   /** картинка новости (og:image источника) и значок издания */
@@ -448,6 +477,8 @@ export interface Story {
   takeaway?: Takeaway | null;
   /** события сюжета — главное первым */
   event_ids: string[];
+  /** разбор главного события сюжета: собран заранее, готовится или не нужен */
+  insight_state?: 'ready' | 'queued' | 'none' | null;
 }
 
 /** Позиция Альфа-Банка по теме недели или фактору: фраза из материала, материал и дата. */
