@@ -9,6 +9,7 @@ from api.agent.jobs import Jobs, JobStatus
 from api.agent.loop import Agent, AgentError, CompanyNotFound, insight_id
 from api.agent.ports import LEVEL_RANK, CompanyData, Event, Library
 from api.agent.scenarios import inputs_stamp
+from api.agent.sectors import guess_sectors
 from api.agent.store import AgentStore, StoredInsight
 from api.agent.tools import Tools
 from api.agent.trace import TraceRecorder
@@ -196,6 +197,10 @@ class AgentService:
     ) -> Insight | JobStatus:
         persona = self._persona(persona_id)
         event = self.library.parse_news(text=text, url=url)
+        if not event.sectors and self.llm is not None:
+            event.sectors = guess_sectors(
+                self.llm, event
+            )  # словарь отраслей ничего не нашёл — резерв на модели
         key = insight_id(event.id, persona.id)
         with self._lock(key):
             active = self.jobs.get(key)

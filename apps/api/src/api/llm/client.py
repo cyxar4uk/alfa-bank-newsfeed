@@ -58,6 +58,9 @@ DEFAULT_FALLBACK_MODELS: dict[str, str] = {
 }
 
 # параметры, понятные любому OpenAI-совместимому провайдеру; остальное при ответе 400 отбрасывается
+# ₽ за миллион токенов — запасной расчёт, когда шлюз не вернул usage.cost (грубо, с запасом вверх)
+FALLBACK_RUB_PER_MTOK = {"in": 15.0, "out": 70.0}
+FALLBACK_CHEAP_PER_MTOK = {"in": 2.0, "out": 8.0}  # Gemma и другие малые модели
 STANDARD_PARAMS = frozenset({"model", "messages", "max_tokens", "temperature"})
 RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 MAX_TOKENS_CAP = 16000
@@ -412,8 +415,12 @@ class LlmClient:
                 attempt=attempt,
             )
             if usage.get("cost") is None:
-                # без usage.cost счётчик не видит расход — помечаем в журнале, чтобы это было заметно
-                record.error = "в ответе нет usage.cost — расход не учтён"
+                # без usage.cost считаем по токенам и помечаем в журнале: лимит суток не должен слепнуть
+                price = FALLBACK_CHEAP_PER_MTOK if "gemma" in record.model.lower() else FALLBACK_RUB_PER_MTOK
+                record.cost = (
+                    record.prompt_tokens * price["in"] + record.completion_tokens * price["out"]
+                ) / 1e6
+                record.error = "в ответе нет usage.cost — расход посчитан по токенам"
             # деньги учитываем сразу; в журнал запись попадёт после проверки ответа (ok или ошибка схемы)
             self.budget.add(record.cost)
             message = choice.get("message") or {}

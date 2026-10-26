@@ -103,6 +103,14 @@ def event_topics(event) -> set[str]:
     }
 
 
+def topic_hits(text: str, topics: set[str]) -> int:
+    """Сколько раз в тексте встречаются слова тем события (с родственными): не случайное слово."""
+    wanted = set(topics)
+    for t in topics:
+        wanted |= RELATED.get(t, set())
+    return sum(len(TOPIC_WORDS[t].findall(text or "")) for t in wanted if t in TOPIC_WORDS)
+
+
 def on_topic(text: str, topics: set[str]) -> bool:
     """Текст (цитата банка) — по теме события. Тем у события нет — проверять не с чем."""
     if not topics:

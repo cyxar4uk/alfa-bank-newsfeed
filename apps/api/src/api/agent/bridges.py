@@ -85,6 +85,26 @@ class ServiceCompanyData(ProfileCompanyData):
             [(sec.okved, sec.strength) for sec in event.sectors],
         )
 
+    def indicator_texts(self, company_id: str) -> list[str]:
+        """Показатели компании из платежей (`api.indicators`): доля крупнейшего покупателя, оборот с группой…
+
+        Готовые факты для контекста; оценка так и называется оценкой. Модуля нет или сбой — пусто.
+        """
+        fn = optional("api.indicators", "company_indicators")
+        if fn is None:
+            return []
+        try:
+            company = self.repo.get_company(company_id)
+            if company is None:
+                return []
+            items = fn(company, self.repo.flows(company_id))
+        except Exception:
+            return []
+        return [
+            i.text + (" (оценка)" if getattr(i, "is_estimate", False) and "оцен" not in i.text else "")
+            for i in items
+        ]
+
     def group_impact(self, company_id, event):
         """Группа для агента — из охвата ленты, а не из временной оценки по признакам участников."""
         return None  # Tools берут группу из coverage(); старый путь остаётся у временной реализации

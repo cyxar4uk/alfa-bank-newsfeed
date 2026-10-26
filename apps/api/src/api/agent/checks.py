@@ -30,6 +30,7 @@ from api.agent.topics import (
     event_topics,
     on_topic,
     past_as_future,
+    topic_hits,
     ved_direction,
 )
 
@@ -49,6 +50,11 @@ CHECKS = (
     "fresh_dates",
     "fits_profile",
     "action_owner",
+)
+
+SUBJECT_PROBLEM = (
+    "подлежащее цитаты — не сам банк (нет «мы ожидаем» / «наш прогноз»): это не позиция банка, а факт —"
+    " перенеси в fact или возьми другую цитату"
 )
 
 # «уточните у казначейства» казначею — себе не поручают; кому поручить — не своей же службе
@@ -154,7 +160,45 @@ _DASHES = re.compile(r"[‐-―−]")
 _SPACE = re.compile(r"\s+")
 _HYPHEN_BREAK = re.compile(r"(\w)-\s*\n\s*(\w)")
 _INFERENCE = re.compile(
-    r"\b(?:поэтому|следовательно|значит|что означает|то есть|а значит|из-за чего|что делает|это означает)\b",
+    r"\b(?:поэтому|следовательно|значит|что означает|а значит|это означает)\b",
+    re.IGNORECASE,
+)
+# «банк считает / ожидает / рекомендует» — позиция банка; в выводе модели так писать нельзя.
+# «Альфа-Банк …» и просто «банк …»; «Банк ВТБ», «Банк России», «Центральный банк» — не наш банк
+_BANK_CLAIM = re.compile(
+    r"(?:альфа[- ]?банк\w*|(?<!центральный )(?<![а-яё])банк(?![а-яёА-ЯЁ])(?!\s+(?-i:[А-ЯЁA-Z])))"
+    r"\s+(?:\w+\s+)?"
+    r"(?:считает|ожидает|рекомендует|прогнозирует|ждёт|ждет|полагает|советует|предлагает)"
+    r"|по (?:мнению|оценке|прогнозу) (?:альфа[- ]?)?банка",
+    re.IGNORECASE,
+)
+# подлежащее цитаты — сам банк: «мы ожидаем», «наш прогноз» (прогноз в материале банка — его собственный)
+_FIRST_PERSON = re.compile(
+    r"\b(?:мы|наш\w*|нам|ожидаем|считаем|рекомендуем|прогнозируем|полагаем|видим|оцениваем|ждём|ждем"
+    r"|придерживаемся|аналитики\s+банка|альфа[- ]?банк\w*|команда\s+аналитиков)\b",
+    re.IGNORECASE,
+)
+# говорит кто-то другой: тогда «прогноз» без «мы / наш» — не позиция банка
+_OTHER_SUBJECT = re.compile(
+    r"\b(?:цб|банк\s+росси\w*|минэкономразвити\w*|минфин\w*|росстат\w*|мвф|правительств\w*|регулятор\w*"
+    r"|денежн\w+\s+власт\w*|центральн\w+\s+банк\w*|opec|опек)\b",
+    re.IGNORECASE,
+)
+_FORECAST_WORD = re.compile(r"\bпрогноз\w*\b", re.IGNORECASE)
+# знак события: доллар упал — рубль крепче; нельзя писать про ослабление рубля (и наоборот)
+_DOLLAR_FELL = re.compile(r"доллар\w*[^.]{0,40}(?:упал|опустил|снизил|подешевел|просел|ниже)", re.IGNORECASE)
+_DOLLAR_ROSE = re.compile(
+    r"доллар\w*[^.]{0,40}(?:вырос|подорожал|поднял|выше|превысил|взлетел)", re.IGNORECASE
+)
+_RUBLE_WEAK = re.compile(
+    r"рубл\w*\s+у\s+(?:минимум|слаб)|ослаблени\w*\s+рубл|рубл\w*\s+(?:ослаб|подешевел)", re.I
+)
+_RUBLE_STRONG = re.compile(
+    r"рубл\w*\s+у\s+максимум|укреплени\w*\s+рубл|рубл\w*\s+(?:укрепил|подорожал)", re.I
+)
+# вывод про кредит без оговорки о типе ставки
+_RATE_ABSOLUTE = re.compile(
+    r"(?:кредит|займ|долг)\w*[^.]{0,50}(?:дешевле не станет|не подешевеет|не станет дешевле|не снизятся)",
     re.IGNORECASE,
 )
 _COMPANY_REF = re.compile(r"\bU_\d+\b")
@@ -260,9 +304,49 @@ class Checker:
             " (bank_view пустой, bank_position null)"
         )
 
+    def rate_known(self) -> bool:
+        return getattr(self.ctx.user_inputs, "rate_type", None) is not None
+
+    def money_unfounded(self, text: str) -> list[str]:
+        """Суммы в рублях, которых нет в данных компании: свою выручку (35,9 млрд ₽) повторять можно."""
+        return [m for m in money_in(text) if self.company_numbers.unsupported(m)]
+
+    def number_text(self, ref: str) -> str:
+        """Текст для сверки чисел: фрагмент, который цитируют, а не вся страница материала."""
+        hit = next((h for h in self.ctx.analytics if h.source.id == ref), None)
+        if hit is not None and hit.source.fragment:
+            return hit.source.fragment
+        return self.source_text(ref)
+
+    def bank_subject(self, quote: str, texts: list[str]) -> bool:
+        """В цитате и рядом с ней говорит сам банк («мы ожидаем», «наш прогноз»), иначе это не его позиция"""
+        nq = normalize(quote).strip(" .,;:\"'…")
+        for t in texts:
+            nt = normalize(t)
+            i = nt.find(nq)
+            if i >= 0:
+                window = nt[max(0, i - 160) : i + len(nq)]
+                if _FIRST_PERSON.search(window):
+                    return True
+                # «прогноз» в материале банка — его собственный, если рядом не названо другое ведомство
+                return bool(_FORECAST_WORD.search(window)) and not _OTHER_SUBJECT.search(window)
+        return True  # цитаты нет в тексте — это поймает другая проверка
+
+    def direction_problem(self, text: str) -> str | None:
+        """Вывод противоречит знаку события: доллар упал, а в тексте «ослабление рубля»."""
+        title = self.ctx.event.source.title
+        if _DOLLAR_FELL.search(title) and _RUBLE_WEAK.search(text):
+            return "доллар упал, рубль стал крепче — а в тексте ослабление рубля"
+        if _DOLLAR_ROSE.search(title) and _RUBLE_STRONG.search(text):
+            return "доллар вырос, рубль стал слабее — а в тексте укрепление рубля"
+        return None
+
     def profile_problems(self, text: str) -> list[tuple[str, str]]:
         """Даты и данные компании: (проверка, текст проблемы)."""
         out = []
+        direction = self.direction_problem(text)
+        if direction:
+            out.append(("verdict", f"знак события: {direction}"))
         past = past_as_future(text, self.ctx.today)
         if past:
             out.append(
@@ -333,6 +417,12 @@ class Checker:
             bad("refs", "позиция банка без ссылки на страницу аналитики Альфа-Банка")
         if s.origin == "data" and not feat_refs:
             bad("refs", "данные о компании без признака (нужен feat:…)")
+        if s.origin in ("ai", "hypothesis", "data") and _BANK_CLAIM.search(s.text):
+            bad(
+                "bank_quotes",
+                "«банк считает/ожидает/рекомендует» — только позиция банка (origin=bank, с цитатой); в своём"
+                " выводе так не пиши и банку свой вывод не приписывай",
+            )
 
         if s.origin in ("fact", "bank"):
             # цитата банка сверяется только со страницами аналитики, не с новостью из тех же refs
@@ -357,6 +447,8 @@ class Checker:
                 topic = self.off_topic(f"{s.text} {s.quote or ''}")
                 if topic:
                     bad("on_topic", topic)
+                if s.quote and not self.bank_subject(s.quote, texts):
+                    bad("bank_quotes", SUBJECT_PROBLEM)
                 # фраза, цитата и подпись — из одного материала: по ним карточка подписывает позицию банка
                 materials = {r.split("#", 1)[0] for r in src_refs if self.ctx.page_ref_of(r)}
                 if len(materials) > 1:
@@ -379,9 +471,10 @@ class Checker:
                 if wrong:
                     known = ", ".join(sorted(d.strftime("%d.%m.%Y") for d in dates))
                     bad("bank_quotes", f"дата материала {wrong[0]} не совпадает с процитированным ({known})")
+            # число — в цитируемом фрагменте, а не в материале целиком: «7,0 %» из другой строки не подходит
             cited = NumberBank()
-            for t in texts:
-                cited.add_text(t)
+            for r in cited_refs:
+                cited.add_text(self.number_text(r))
             missing = cited.unsupported(s.text)
             if missing:
                 bad(check, f"чисел нет в источнике: {', '.join(missing[:4])}")
@@ -394,7 +487,7 @@ class Checker:
         elif s.origin in ("ai", "hypothesis"):
             if s.origin == "hypothesis" and not (s.confirm or s.refute):
                 bad("not_retelling", "у гипотезы нет условий проверки: что её подтвердит и что опровергнет")
-            money = money_in(s.text)
+            money = self.money_unfounded(s.text)
             if money:
                 bad("numbers_from_tools", f"суммы в рублях пишет только расчётный инструмент: {money[0]}")
             missing = self.all_numbers.unsupported(s.text)
@@ -479,6 +572,14 @@ class Checker:
         if unresolved:
             bad("refs", f"ссылки не из контекста: {', '.join(unresolved[:4])}")
         text = " ".join([v.headline, v.why, *(a.text for a in v.actions)])
+        if _BANK_CLAIM.search(text) and not any(self.ctx.page_ref_of(r) for r in v.refs):
+            bad("bank_quotes", "в итоге «банк считает/ожидает» без ссылки на материал банка")
+        if _RATE_ABSOLUTE.search(text) and "если" not in text.lower() and not self.rate_known():
+            bad(
+                "verdict",
+                "тип ставки не указан в данных — оговорка «если ставка идёт за ключевой»",
+                hard=False,
+            )
         for check, problem in self.profile_problems(text):
             bad(check, problem)
         for step in v.actions:
@@ -539,6 +640,8 @@ class Checker:
         texts = [self.source_text(r) for r in pages]
         if not any(quote_in(bp.quote, t) for t in texts):
             bad("bank_quotes", f"выдержка не найдена в распознанном тексте страницы: «{bp.quote[:80]}»")
+        elif not self.bank_subject(bp.quote, texts):
+            bad("bank_quotes", SUBJECT_PROBLEM)
         dates = {
             h.material_date
             for h in self.ctx.analytics
@@ -549,8 +652,8 @@ class Checker:
             known = ", ".join(sorted(d.strftime("%d.%m.%Y") for d in dates))
             bad("bank_quotes", f"дата материала {wrong[0]} не совпадает с процитированным ({known})")
         cited = NumberBank()
-        for t in texts:
-            cited.add_text(t)
+        for r in pages:
+            cited.add_text(self.number_text(r))
         missing = cited.unsupported(bp.statement)
         if missing:
             bad("bank_quotes", f"чисел нет в материале банка: {', '.join(missing[:4])}")
@@ -664,7 +767,7 @@ class Checker:
             problem = self.step_problem(a.text, a.owner)
             if problem:
                 report.issues.append(Issue("action_owner", problem, "actions", i, True))
-            money = money_in(a.text)
+            money = self.money_unfounded(a.text)
             if money:
                 report.issues.append(
                     Issue("numbers_from_tools", f"суммы в рублях в действии: {money[0]}", "actions", i, True)
@@ -718,7 +821,9 @@ class Checker:
 
         # позиции банка нет — это честно, если по теме события банк ничего не писал
         usable = [
-            h for h in self.ctx.analytics if not h.stale and on_topic(h.source.fragment or "", self.topics)
+            h
+            for h in self.ctx.analytics
+            if not h.stale and topic_hits(h.source.fragment or "", self.topics) >= 2
         ]
         if (
             self.ctx.persona.role == "treasury"
