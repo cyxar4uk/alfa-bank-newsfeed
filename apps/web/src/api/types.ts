@@ -246,6 +246,8 @@ export interface SourceConnection {
 export interface PersonaInputs {
   debt_rub: number | null;
   rate_type: 'floating' | 'fixed' | null;
+  /** валютная выручка в месяц — если API её принимает */
+  fx_revenue_month_rub?: number | null;
   fx_purchases_month_rub: number | null;
   fuel_purchase_month_t: number | null;
   updated_at?: string | null;

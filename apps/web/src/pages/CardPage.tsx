@@ -27,6 +27,7 @@ import { useInsight } from '../state/useInsight';
 import { capitalize, claimsOf } from '../state/trust';
 import { ClaimsCheck } from '../components/TrustParts';
 import { RelatedNews } from '../components/RelatedNews';
+import { topicOf } from '../state/topic';
 
 const ROW_ICON: Record<CardRow['id'], IconName> = {
   chain: 'group',
@@ -298,7 +299,7 @@ function Card({
               />
             </div>
           )}
-          <AskBox insight={insight} personaId={personaId} index={index} />
+          <AskBox insight={insight} personaId={personaId} index={index} topic={topicOf(insight, item)} />
           {steps.length > 0 && (
             <details className="howgot">
               <summary>

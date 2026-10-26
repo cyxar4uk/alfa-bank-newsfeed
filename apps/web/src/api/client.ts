@@ -74,8 +74,8 @@ export interface LiveApi extends Api {
   connectSource(id: string, personaId: string): Promise<SourceConnection | null>;
   /** сохранённые «мои числа»; null — метода в API пока нет или ничего не сохранено */
   inputs(personaId: string, signal?: AbortSignal): Promise<PersonaInputs | null>;
-  /** сохранить «мои числа»; false — метода в API пока нет */
-  saveInputs(personaId: string, body: PersonaInputs): Promise<boolean>;
+  /** сохранить «мои числа»; false — метода в API пока нет; partial — сохранено без валютной выручки */
+  saveInputs(personaId: string, body: PersonaInputs): Promise<boolean | 'partial'>;
   /** отключить источник; null — у API такого метода пока нет, отключение только на экране */
   disconnectSource(id: string, personaId: string): Promise<SourceConnection | null>;
   /** «К чему уязвима компания» глазами роли; null — метода в API пока нет */
@@ -364,11 +364,23 @@ function createHttpApi(baseUrl: string): LiveApi {
       try {
         // Пустые поля не отправляем: API принимает только заданные значения.
         const filled = Object.fromEntries(Object.entries(body).filter(([k, v]) => v != null && k !== 'updated_at'));
-        await request<unknown>(`/api/personas/${q(personaId)}/inputs`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(filled),
-        });
+        const put = (payload: Record<string, unknown>) =>
+          request<unknown>(`/api/personas/${q(personaId)}/inputs`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+        try {
+          await put(filled);
+        } catch (e) {
+          // API ещё не знает валютную выручку (422 на лишнее поле) — сохраняем остальное, выручку агент получит вопросом
+          if (!(e instanceof ApiError && e.status === 422 && 'fx_revenue_month_rub' in filled)) throw e;
+          const { fx_revenue_month_rub: _skip, ...rest } = filled;
+          void _skip;
+          if (Object.keys(rest).length === 0) return false;
+          await put(rest);
+          return 'partial';
+        }
         return true;
       } catch (e) {
         if (e instanceof ApiError && (e.status === 404 || e.status === 405)) return false;

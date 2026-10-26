@@ -6548,6 +6548,11 @@ a:hover .thumb img,
   font-size: 15px;
 }
 
+.mynums__more {
+  justify-self: start;
+  font-size: 13px;
+}
+
 .mynums__hint {
   color: var(--ink-3);
   font-size: 12px;
