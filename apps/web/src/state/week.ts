@@ -5,6 +5,7 @@ import { plain, splitTodo, type Level } from './news.ts';
 
 export { splitTodo };
 import { plural, shortDate } from './screens.ts';
+import { readinessOf, type Readiness } from './trust.ts';
 
 export const DYNAMICS_LABEL: Record<Dynamics, string> = { appeared: 'Появился', grew: 'Усилился', faded: 'Утих', steady: 'Держится' };
 
@@ -96,6 +97,7 @@ export interface WeekRow {
   why: string | null;
   /** «Что делать» из вывода — отдельной строкой */
   todo: string | null;
+  ready: Readiness | null;
 }
 
 export interface WeekScreen {
@@ -143,6 +145,13 @@ export function weekScreen(feed: Briefing, hidden: string[]): WeekScreen {
       days: daysOf(st.daily_counts, week),
       countLine: countLineOf(st, week),
       ...splitTodo(st.takeaway?.text ? plain(st.takeaway.text) : null),
+      // готовность — у сюжета, иначе у его главного события в ленте недели
+      // готовность — того события, которое строка открывает (первое нескрытое), иначе — у сюжета
+      ready: readinessOf(
+        feed.items.find((i) => i.event_id === st.event_ids.find((id) => !hidden.includes(id))) ?? {
+          insight_state: st.insight_state,
+        },
+      ),
     }));
   const meta = [periodText(week), rows.length > 0 ? `${rows.length} ${plural(rows.length, ['сюжет', 'сюжета', 'сюжетов'])}` : '']
     .filter(Boolean)

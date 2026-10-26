@@ -16,6 +16,7 @@ import {
   shortDate,
   topicOf,
 } from './screens.ts';
+import { readinessOf, type Readiness } from './trust.ts';
 
 export type Level = Takeaway['level'];
 
@@ -32,6 +33,8 @@ export interface DayRow {
   why: string;
   /** что делать — только когда это есть в разборе */
   todo: string | null;
+  /** разбор собран заранее или готовится */
+  ready: Readiness | null;
 }
 
 export interface EventRow {
@@ -46,6 +49,7 @@ export interface EventRow {
   why: string;
   /** позиция банка одной строкой — только из собранного разбора */
   bank: string | null;
+  ready: Readiness | null;
 }
 
 export interface NewsScreen {
@@ -215,6 +219,7 @@ export function newsScreen(s: NewsState): NewsScreen {
         fromModel: model !== null,
         why: split.why ?? whyOf(top),
         todo: todo ? plain(todo) : split.todo,
+        ready: readinessOf(top),
       };
     });
 
@@ -262,6 +267,7 @@ export function newsScreen(s: NewsState): NewsScreen {
       level: levelWith(top, isLead ? ins : null),
       why: whyOf(top),
       bank: isLead && bankLead ? bankLead.statement : null,
+      ready: readinessOf(top),
     };
   });
   // Без фильтра события из «Главного за день» второй раз не показываем — только когда пользователь выбрал тему.
