@@ -276,9 +276,18 @@ def html_paragraphs(html: str) -> str:
     return clean_body("\n".join(text for text, _ in parser.blocks))
 
 
+# призывы издания в конце статьи — не текст новости
+_PROMO = re.compile(
+    r"^(и )?(больше новостей|подписывайтесь|подпишитесь|читайте (также|нас)|присоединяйтесь к нам|"
+    r"если вы нашли ошибку)",
+    re.I,
+)
+
+
 def clean_body(text: str) -> str:
-    """Убрать невидимые символы (ими прячут текст), выровнять пробелы, абзацы оставить."""
+    """Убрать невидимые символы (ими прячут текст), выровнять пробелы, абзацы оставить; без призывов
+    «подписывайтесь на наш канал» в конце."""
     text = _INVISIBLE.sub("", text.replace("\r\n", "\n"))
     # «Москва. 23 октября. INTERFAX.RU - » в начале абзаца — служебная строка ленты, как в лидах парсера
     paragraphs = (strip_dateline(clean_text(p)) for p in re.split(r"\n\s*", text))
-    return "\n".join(p for p in paragraphs if p)
+    return "\n".join(p for p in paragraphs if p and not _PROMO.match(p))

@@ -705,6 +705,9 @@ class SourceEntry(BaseModel):
     about: str | None = Field(default=None, description="что это за источник — для руководителя")
     benefit: str | None = Field(default=None, description="что даст подключение — одной фразой")
     access: str | None = Field(default=None, description="бесплатно или по подписке, человеческим языком")
+    full_text: str | None = Field(
+        default=None, description="показываем ли полный текст новостей источника и почему (по его условиям)"
+    )
     for_your_industry: bool = Field(
         default=False,
         description="особенно полезен отрасли пользователя: его компании или её ключевых контрагентов",
