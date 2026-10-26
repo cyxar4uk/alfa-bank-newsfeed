@@ -111,6 +111,8 @@ const MAP_CASES: [RegExp, string][] = [
 ];
 
 export function plain(text: string): string {
+  // «направление пока неясно» руководителю ничего не говорит
+  text = text.replace(/направление пока неясно/gi, (m) => (m[0] === 'Н' ? 'Влияние неоднозначно' : 'влияние неоднозначно'));
   let out = text
     .replace(/^по карте чувствительности,?\s*/i, '')
     .replace(/\s*по карте чувствительности,?\s*/gi, ' ');
@@ -178,10 +180,15 @@ function sourceLineOf(group: FeedItem[]): string {
     .join(' · ');
 }
 
+const UNCONFIRMED = /не\s+удалось\s+подтвердить|подтвердить\s+не\s+удалось|нет\s+позиции/i;
+
 /** Позиция банка из разбора: «Альфа-Банк ожидает …» и подпись аналитиков с материалом и датой. */
 export function bankOf(ins: Insight): { statement: string; caption: string } | null {
   const b = ins.bank_view[0];
-  const statement = ins.bank_position?.statement ?? b?.text ?? null;
+  // «Позицию Альфа-Банка подтвердить не удалось» — это не позиция банка: ни красной цитаты, ни подписи аналитиков;
+  // есть настоящая цитата в bank_view — берём её.
+  const own = ins.bank_position?.statement ?? null;
+  const statement = own && !UNCONFIRMED.test(own) ? own : b?.text && !UNCONFIRMED.test(b.text) ? b.text : null;
   if (!statement) return null;
   const src = b ? b.refs.map((r) => bankSourceOf(ins, r)).find((x) => x !== undefined)?.source : undefined;
   return { statement: plain(statement), caption: bankCaption(src) };
