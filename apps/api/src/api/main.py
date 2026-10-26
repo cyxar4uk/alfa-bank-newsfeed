@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
-from api import inputs
+from api import inputs, market
 from api.agent.loop import insight_id
 from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
@@ -28,6 +28,7 @@ from api.contract import (
     Health,
     InfluenceChain,
     Persona,
+    Related,
     RiskMap,
     SourceConnection,
     SourceEntry,
@@ -40,6 +41,7 @@ from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
 from api.inputs import PgInputs
 from api.levels import LEVELS
+from api.market import PgMarket
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
@@ -56,6 +58,7 @@ from api.service import (
     company_exposure,
     company_group_impact,
     company_profile,
+    company_related,
     company_risk_map,
     finish_week,
     persona_feed,
@@ -93,6 +96,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.search = SearchRepo(pool)
     app.state.connections = PgConnections(pool)
     inputs.STORE = PgInputs(pool)
+    market.MARKET = PgMarket(pool)
     # агент ищет новости и аналитику банка через app.state.search
     app.state.agent_error = None
     try:
@@ -576,18 +580,19 @@ def _client_persona(repo: CompanyRepo, persona: str) -> bool:
 
 def _mark_ready(agent, feed: Feed) -> None:
     """Какие карточки уже собраны — экрану не нужно спрашивать статус по каждому событию."""
+    _mark_items(agent, feed.items, feed.persona_id)
+
+
+def _mark_items(agent, items: list, persona_id: str) -> None:
     if agent is None:
         return
     try:
-        ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
+        ready = agent.ready_events([i.event_id for i in items], persona_id)
         jobs = getattr(agent, "jobs", None)
-        for item in feed.items:
+        for item in items:
             item.insight_ready = item.event_id in ready
-            job = (
-                jobs.get(insight_id(item.event_id, feed.persona_id))
-                if jobs and not item.insight_ready
-                else None
-            )
+            key = insight_id(item.event_id, persona_id)
+            job = jobs.get(key) if jobs and not item.insight_ready else None
             busy = job is not None and job.status in ("queued", "running")
             # ready — откроется мгновенно; queued — собирается (разбор заранее или по запросу)
             item.insight_state = "ready" if item.insight_ready else "queued" if busy else "none"
@@ -619,6 +624,29 @@ def search_feed(
     feed = LEVELS.pin(feed, exposure, remember=False)
     attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
     return feed
+
+
+# раньше /api/events/{event_id:path}: путь id с двоеточиями и слэшами иначе поглотил бы «/related»
+@app.get("/api/events/{event_id:path}/related", response_model=Related, tags=["лента"])
+def get_related(
+    request: Request,
+    event_id: str,
+    repo: Repo,
+    news: Annotated[NewsProvider, Depends(news_provider)],
+    persona: Annotated[str, Query(description="id тестового пользователя: выводы и уровни — для него")],
+) -> Related:
+    """«По этой теме»: 3–6 событий ленты пользователя за две недели — того же сюжета, фактора или близкие по
+    заголовку, без перепечаток, свежие выше. С выводом и уровнем, как в ленте."""
+    items = FEEDS.get_or_compute(
+        ("related", event_id, persona, news.name), lambda: company_related(repo, news, persona, event_id)
+    )
+    if items is None:
+        if news.event(event_id) is None:
+            raise HTTPException(status_code=404, detail=f"событие {event_id} не найдено")
+        raise HTTPException(status_code=404, detail=f"пользователь {persona} не найден")
+    items = [i.model_copy(deep=True) for i in items]  # готовность карточек — своя у каждого запроса
+    _mark_items(getattr(request.app.state, "agent", None), items, persona)
+    return Related(event_id=event_id, items=items)  # картинки уже через прокси (api.ranking)
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])

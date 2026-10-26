@@ -737,6 +737,16 @@ class FeedItem(BaseModel):
     )
 
 
+class Related(BaseModel):
+    """«По этой теме» под новостью: 3–6 событий того же сюжета, фактора или близких по заголовку."""
+
+    event_id: str
+    items: list["FeedItem"] = Field(
+        default_factory=list,
+        description="как элементы ленты: заголовок, издание, дата, image_url, вывод; свежие выше",
+    )
+
+
 class EventDetail(BaseModel):
     """Новость целиком: полный текст, если парсер получил его законно (полный RSS, открытая страница)."""
 
@@ -898,8 +908,28 @@ class RiskFactor(BaseModel):
     is_estimate: bool = Field(description="оценка по отрасли, а не факт из данных компании")
     now: RiskNow | None = None
     bank: BankView | None = None
+    market: str | None = Field(
+        default=None,
+        description="рыночная цифра фактора из официального ряда: «курс доллара 80,6 ₽ (ЦБ РФ на 25.10),"
+        " за неделю −2,4 ₽»; ряда нет — null",
+    )
+    market_vs_bank: str | None = Field(
+        default=None,
+        description="прогноз банка против рынка: «банк ждёт 87 ₽ — на 7,9 % выше нынешних 80,6 ₽»",
+    )
     week_counts: list[int] = Field(min_length=7, max_length=7)
     news_count: int
+
+
+class Indicator(BaseModel):
+    """Показатель компании из её платежей (api.indicators): число, фраза, формула, оценка ли."""
+
+    code: str
+    label: str
+    value: float = Field(description="доля 0–1 или сумма в рублях — см. code")
+    text: str = Field(description="фраза с числом для экрана и агента")
+    formula: str = Field(description="как считается — без кодов")
+    is_estimate: bool = Field(default=False, description="число опирается на допущение (см. formula)")
 
 
 class RiskMap(BaseModel):
@@ -910,6 +940,10 @@ class RiskMap(BaseModel):
     week: list[dt.date] = Field(description="дни для week_counts: от 6 дней назад до сегодня")
     factors: list[RiskFactor]
     limits: list[str] = Field(description="чего не оцениваем и почему — с числом покрытия данных")
+    indicators: list[Indicator] = Field(
+        default_factory=list,
+        description="показатели из платежей: концентрация, отрасли, группа, госзаказчики, курс (оценка)",
+    )
 
 
 # --- Трасса ---------------------------------------------------------------------------------------

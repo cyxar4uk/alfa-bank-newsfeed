@@ -721,6 +721,39 @@ def test_for_your_industry_by_company_and_key_counterparties():
     assert not for_industry({"industries": []}, codes)
 
 
+def test_related_endpoint(client):
+    class News(FakeNews):
+        def events(self, since, limit):
+            import datetime as dt
+
+            from api.ranking import MSK, NewsEvent
+
+            now = dt.datetime.now(MSK)
+            return [
+                NewsEvent(
+                    id=f"src:news:r{n}",
+                    title=t,
+                    published_at=now - dt.timedelta(hours=n),
+                    factors=[("rate", 1.0, "ставка")],
+                )  # fmt: skip
+                for n, t in enumerate(
+                    ["ЦБ сохранил ставку", "Банки подняли ставки по кредитам", "ОФЗ дешевеют"]
+                )
+            ]
+
+        def event(self, event_id):
+            return next((e for e in self.events(None, 10) if e.id == event_id), None)
+
+    app.dependency_overrides[news_provider] = News
+    body = client.get("/api/events/src:news:r0/related", params={"persona": "p-u1-cfo"}).json()
+    assert body["event_id"] == "src:news:r0"
+    ids = [i["event_id"] for i in body["items"]]
+    assert "src:news:r0" not in ids and set(ids) <= {"src:news:r1", "src:news:r2"} and ids
+    assert all(i["takeaway"] for i in body["items"])
+    assert client.get("/api/events/src:news:нет/related", params={"persona": "p-u1-cfo"}).status_code == 404
+    assert client.get("/api/events/src:news:r0").status_code == 200  # старый путь цел
+
+
 def test_precompute_status_without_scheduler(client):
     body = client.get("/api/precompute/status").json()
     assert body["running"] is False and body["spent_rub"] == 0 and body["budget_rub"] > 0

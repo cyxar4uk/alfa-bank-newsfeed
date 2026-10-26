@@ -22,12 +22,14 @@ from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
 from api.group import group_context
 from api.images import proxied
+from api.indicators import company_indicators
 from api.levels import LEVELS
 from api.news import NewsProvider
 from api.personas import parse_persona_id
 from api.profile import GROUP_MEMBERS_SHOWN, build_profile, countries
 from api.ranking import MSK, NewsEvent, default_ranking, rank
 from api.records import CompanyRecord, Flow
+from api.related import related, target_item
 from api.repo import CompanyRepo
 from api.riskmap import limits, order, risk_factor
 from api.takeaway import takeaways
@@ -276,6 +278,36 @@ def company_risk_map(
     ]
     profile = company_profile(repo, company_id)
     coverage = profile.payments.revenue_coverage if profile and profile.payments else None
+    company = repo.get_company(company_id)
     return RiskMap(
-        company_id=company_id, role=role, week=days, factors=factors, limits=limits(exposure, coverage)
+        company_id=company_id,
+        role=role,
+        week=days,
+        factors=factors,
+        limits=limits(exposure, coverage),
+        indicators=company_indicators(company, repo.flows(company_id)) if company else [],
     )
+
+
+RELATED_DAYS = 14
+
+
+def company_related(
+    repo: CompanyRepo, news: NewsProvider, persona: str, event_id: str, now: dt.datetime | None = None
+) -> list[FeedItem] | None:
+    """«По этой теме» для пользователя: события его ленты за две недели рядом с открытой новостью.
+
+    Нет события — None; пользователь не клиент — None (как у ленты)."""
+    event = news.event(event_id)
+    if event is None:
+        return None
+    now = now or dt.datetime.now(MSK)
+    events = news.events(since=now - dt.timedelta(days=RELATED_DAYS), limit=WEEK_EVENTS)
+    if all(e.id != event.id for e in events):
+        events = [event, *events]  # открытая новость старше двух недель — сравнивать всё равно с ней
+    feed = persona_feed(repo, news, persona, limit=WEEK_EVENTS, now=now, events=events)
+    if feed is None:
+        return None
+    feed = LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
+    target = target_item(event.id, feed.items, unrelated_item(event))
+    return related(target, feed.items)
