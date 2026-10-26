@@ -9,13 +9,15 @@ export interface MyNumbers {
   /** долг, млн ₽ */
   debt: string;
   rate: RateType;
+  /** валютная выручка в месяц, млн ₽ — у экспортёров */
+  fxRevenue: string;
   /** валютные закупки в месяц, млн ₽ */
   fx: string;
   /** закупка топлива в месяц, тонн */
   fuel: string;
 }
 
-export const EMPTY_NUMBERS: MyNumbers = { debt: '', rate: 'unknown', fx: '', fuel: '' };
+export const EMPTY_NUMBERS: MyNumbers = { debt: '', rate: 'unknown', fxRevenue: '', fx: '', fuel: '' };
 
 const RATE_TEXT: Record<RateType, string> = {
   floating: 'ставка плавающая',
@@ -35,9 +37,11 @@ const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 export function numbersQuestion(nums: MyNumbers): string | null {
   const debt = parseAmount(nums.debt);
   const fx = parseAmount(nums.fx);
+  const fxRevenue = parseAmount(nums.fxRevenue);
   const fuel = parseAmount(nums.fuel);
   const parts = [
     debt != null ? `долг ${fmt.format(debt)} млн ₽, ${RATE_TEXT[nums.rate]}` : null,
+    fxRevenue != null ? `валютная выручка ${fmt.format(fxRevenue)} млн ₽ в месяц` : null,
     fx != null ? `валютные закупки ${fmt.format(fx)} млн ₽ в месяц` : null,
     fuel != null ? `закупка топлива ${fmt.format(fuel)} т в месяц` : null,
   ].filter(Boolean);
@@ -55,6 +59,7 @@ export function readNumbers(personaId: string): MyNumbers {
       return {
         debt: typeof r.debt === 'string' ? r.debt : '',
         rate: r.rate === 'floating' || r.rate === 'fixed' ? r.rate : 'unknown',
+        fxRevenue: typeof r.fxRevenue === 'string' ? r.fxRevenue : '',
         fx: typeof r.fx === 'string' ? r.fx : '',
         fuel: typeof r.fuel === 'string' ? r.fuel : '',
       };
@@ -82,6 +87,7 @@ export function toInputs(nums: MyNumbers): PersonaInputs {
   return {
     debt_rub: mln(nums.debt),
     rate_type: nums.rate === 'unknown' ? null : nums.rate,
+    fx_revenue_month_rub: mln(nums.fxRevenue),
     fx_purchases_month_rub: mln(nums.fx),
     fuel_purchase_month_t: parseAmount(nums.fuel),
   };
@@ -93,6 +99,7 @@ export function fromInputs(i: PersonaInputs): MyNumbers {
   return {
     debt: mln(i.debt_rub),
     rate: i.rate_type ?? 'unknown',
+    fxRevenue: mln(i.fx_revenue_month_rub ?? null),
     fx: mln(i.fx_purchases_month_rub),
     fuel: i.fuel_purchase_month_t == null ? '' : String(i.fuel_purchase_month_t).replace('.', ','),
   };
