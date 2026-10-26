@@ -98,6 +98,20 @@ services:
       timeout: 3s
       retries: 12
 
+  # интерфейс: собранный React-клиент и nginx, который отдаёт его и проксирует /api в сервис api (CORS у API нет)
+  web:
+    build:
+      context: ./apps/web
+      args:
+        VITE_API_URL: /
+    environment:
+      API_UPSTREAM: http://api:8000
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
 volumes:
   pgdata:
   llmcache:

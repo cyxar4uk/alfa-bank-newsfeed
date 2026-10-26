@@ -22,19 +22,13 @@ services:
         # веб состоит и в сети прокси: уникальное имя, чтобы не спутать с сервисами соседнего проекта
         aliases: [alfanews-api]
 
+  # сборка и зависимость от api — из compose.yaml; здесь порты сброшены, веб виден только прокси
   web:
     image: alfa-bank-newsfeed-web:latest
-    build:
-      context: ./apps/web
-      args:
-        VITE_API_URL: /
-        VITE_API_LIVE: all
+    ports: !reset []
     restart: unless-stopped
     environment:
       API_UPSTREAM: http://alfanews-api:8000
-    depends_on:
-      api:
-        condition: service_healthy
     networks:
       default: {}
       proxy:

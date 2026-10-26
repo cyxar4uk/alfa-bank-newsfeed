@@ -27,8 +27,9 @@
 docker compose up --build
 ```
 
-Поднимаются PostgreSQL, одноразовый импорт данных кейса, парсер новостей и API на <http://127.0.0.1:8000>
-(документация — <http://127.0.0.1:8000/api/docs>, схема — `/api/openapi.json`, проверка — `/api/health`).
+Поднимаются PostgreSQL, одноразовый импорт данных кейса, парсер новостей, API на <http://127.0.0.1:8000>
+(документация — <http://127.0.0.1:8000/api/docs>, схема — `/api/openapi.json`, проверка — `/api/health`) и интерфейс
+на <http://127.0.0.1:8080> (вход — `expert` / `radar2026`; nginx отдаёт клиент и проксирует `/api` в сервис `api`).
 
 Парсер (`apps/ingest`, сервис `ingest`) сразу загружает в БД снимок новостей `data/demo/news_snapshot.jsonl` и
 распознанную аналитику банка из `data/raw/derived/`, затем каждые `INGEST_EVERY_MIN` минут собирает свежие новости из
@@ -59,6 +60,7 @@ docker compose up --build
 | `IMPORT_FORCE` | `false` | перезагрузить данные, даже если файлы не менялись |
 | `INGEST_EVERY_MIN` | `30` | как часто парсер собирает свежие новости, минут |
 | `API_PORT` | `8000` | порт API на `127.0.0.1` |
+| `WEB_PORT` | `8080` | порт интерфейса на `127.0.0.1` |
 | `DB_PORT` | `5433` | порт PostgreSQL на `127.0.0.1` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | `newsfeed` | база и учётная запись PostgreSQL |
 | `DATABASE_URL` | `postgresql://newsfeed:newsfeed@127.0.0.1:5433/newsfeed` | подключение для запуска API без Docker |
