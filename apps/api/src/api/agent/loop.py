@@ -726,10 +726,27 @@ def _quotes(ctx: AgentContext, draft: Draft) -> list[Quote]:
     for s in draft.what_happened + draft.why_it_matters + draft.watch:
         if s.origin != "fact" or not s.quote or ctx.event.id not in s.refs:
             continue
-        text = s.quote.strip()
+        text = _whole_sentence(ctx.event.text, s.quote.strip())
         if quote_in(text, ctx.event.text) and all(q.text != text for q in out):
             out.append(Quote(text=text, source_id=ctx.event.id))
     return out
+
+
+def _whole_sentence(source: str, quote: str, limit: int = 320) -> str:
+    """Цитата целым предложением: обрывок посреди предложения при подсветке оставляет хвосты («.1»)."""
+    i = source.find(quote)
+    if i < 0:
+        return quote
+    marks = (". ", "! ", "? ", chr(10))
+    start = 0
+    for mark in marks:
+        j = source.rfind(mark, 0, i)
+        if j >= 0:
+            start = max(start, j + len(mark))
+    ends = [e for e in (source.find(m, i + len(quote)) for m in marks) if e >= 0]
+    end = min(ends) + 1 if ends else len(source)
+    whole = source[start:end].strip()
+    return whole if len(quote) <= len(whole) <= limit else quote
 
 
 # не пройденная проверка — что это значит для пользователя
