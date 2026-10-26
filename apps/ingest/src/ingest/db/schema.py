@@ -50,6 +50,20 @@ ALTER TABLE news ADD COLUMN IF NOT EXISTS image_url text;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS source_icon_url text;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS media_checked_at timestamptz;
 ALTER TABLE news ADD COLUMN IF NOT EXISTS media_attempts integer NOT NULL DEFAULT 0;
+-- рыночные ряды (ingest.market): курсы и ключевая ставка ЦБ, нефть Brent; по дням, история — 90 дней
+CREATE TABLE IF NOT EXISTS market_series (
+    series      text NOT NULL,
+    day         date NOT NULL,
+    value       double precision NOT NULL,
+    unit        text NOT NULL DEFAULT '',
+    source      text NOT NULL DEFAULT '',
+    fetched_at  timestamptz NOT NULL DEFAULT now(),
+    PRIMARY KEY (series, day)
+);
+-- единица и источник — подпись в API; таблица могла быть создана без них
+ALTER TABLE market_series ADD COLUMN IF NOT EXISTS unit text NOT NULL DEFAULT '';
+ALTER TABLE market_series ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT '';
+ALTER TABLE market_series ADD COLUMN IF NOT EXISTS fetched_at timestamptz NOT NULL DEFAULT now();
 -- деловая ли новость — ответ модели для тех, что словари не решили (tags.business = null); он же кэш: второй раз
 -- не спрашиваем. Переразметка словарями таблицу не трогает
 CREATE TABLE IF NOT EXISTS news_business (

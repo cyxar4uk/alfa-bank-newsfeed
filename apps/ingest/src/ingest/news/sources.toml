@@ -64,11 +64,13 @@ terms = "nalog.gov.ru/rn77/copyright: воспроизведение без со
 [[feed]]
 id = "minfin"
 publisher = "Минфин России"
-url = "https://minfin.gov.ru/ru/rss/"
+url = "https://minfin.gov.ru/rss_news?mod=news&lim=50"
 priority = 0
 reliability = "official"
-enabled = false
-terms = "лента отвечает 403 автоматическим клиентам; условия не проверены"
+icon = "https://minfin.gov.ru/favicon.ico"
+full_text = "page"
+hosts = ["minfin.gov.ru"]
+terms = "официальные сообщения федерального органа власти (ст. 1259 ГК РФ — не объект авторского права), со ссылкой на minfin.gov.ru; лента — ссылка /rss_news с главной; из сети разработки отвечает 403, с сервера — 200 (проверено 26.10.2026)"
 
 [[feed]]
 id = "economy"
@@ -104,6 +106,8 @@ url = "https://fas.gov.ru/news.rss"
 priority = 0
 reliability = "official"
 icon = "https://fas.gov.ru/favicon.ico"
+full_text = "page"
+text_container = "page_description"
 hosts = ["fas.gov.ru"]
 terms = "fas.gov.ru (подвал сайта): при полном или частичном использовании материалов ссылка на ФАС России обязательна; из сети разработки сайт не отвечает, с сервера — отвечает (проверено 26.10.2026)"
 
@@ -114,6 +118,7 @@ url = "https://fsvps.gov.ru/news-cat/glavnoe/rssnews"
 priority = 0
 reliability = "official"
 icon = "https://fsvps.gov.ru/favicon.ico"
+full_text = "page"
 hosts = ["fsvps.gov.ru"]
 terms = "официальные сообщения федерального органа власти (ст. 1259 ГК РФ — не объект авторского права), показываем заголовок, лид и ссылку; из сети разработки сайт не отвечает, с сервера — отвечает (проверено 26.10.2026)"
 
@@ -235,7 +240,7 @@ priority = 4
 reliability = "business_media"
 icon = "https://www.retail.ru/favicon.ico"
 hosts = ["www.retail.ru"]
-terms = "retail.ru/lk/law/agreement: использование материалов — только с гиперссылкой на страницу материала; полный текст из ленты (yandex:full-text) не храним"
+terms = "условия: использование со ссылкой на источник; полный текст не берём без письменного разрешения издателя или заключения юриста (решение владельца, проверено 26.10.2026)"
 
 [[feed]]
 id = "new-retail"
@@ -245,7 +250,7 @@ priority = 4
 reliability = "business_media"
 icon = "https://new-retail.ru/favicon.ico"
 hosts = ["new-retail.ru"]
-terms = "new-retail.ru/o_nas: использование материалов разрешено только при наличии активной ссылки на источник"
+terms = "условия: использование со ссылкой на источник; полный текст не берём без письменного разрешения издателя или заключения юриста (решение владельца, проверено 26.10.2026)"
 
 [[feed]]
 id = "rbc"

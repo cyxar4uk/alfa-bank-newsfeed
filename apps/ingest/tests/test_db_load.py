@@ -536,3 +536,14 @@ def test_partial_answer_saves_what_was_answered(conn):
     stats = classify_doubtful(conn, FakeLlm([True]))  # модель ответила только про первую в пачке
     assert stats.asked == 1
     assert conn.execute("SELECT count(*) FROM news_business").fetchone()[0] == 1
+
+
+def test_new_page_text_source_is_rechecked_once(conn):
+    from ingest.db.load import recheck_new_text_sources
+
+    load_news(conn, [news("f", "ФАС проверит цены на уголь", publisher="ФАС России")])
+    conn.execute("UPDATE news SET media_checked_at = now()")  # раньше страницу смотрели только ради картинки
+    assert recheck_new_text_sources(conn) == 1
+    assert conn.execute("SELECT media_checked_at IS NULL FROM news").fetchone()[0] is True
+    conn.execute("UPDATE news SET media_checked_at = now()")
+    assert recheck_new_text_sources(conn) == 0  # набор лент не менялся — второй раз не сбрасываем

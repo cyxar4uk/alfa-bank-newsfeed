@@ -465,7 +465,7 @@ def test_sources_catalog_and_connect(client):
         "ru",
     )
     assert cbr["how_to_connect"]
-    assert all(s["id"] != "minfin" for s in catalog)  # выключенная лента не предлагается
+    assert all(s["id"] != "rosstat" for s in catalog)  # выключенная лента не предлагается
     first = catalog_entries()[0]["id"]
     done = client.post(f"/api/sources/{first}/connect", params={"persona": "p-u1-cfo"}).json()
     assert done["source"]["connected"] is True and done["message"]
