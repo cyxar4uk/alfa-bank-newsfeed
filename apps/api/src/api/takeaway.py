@@ -11,6 +11,7 @@ from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
 from api.coverage import coverage_phrase, credit_phrase
 from api.short import clean_channel
+from api.topicfit import title_about
 
 TEXT_MAX = 160
 # оценка события насыщается: сильная прямая связь с одной причиной даёт 0,4–0,5, максимум в ленте — около 0,6;
@@ -93,34 +94,9 @@ _NUMBERS = re.compile(r"\d+(?:[.,]\d+)?")
 _CODE_VALUE = re.compile(r"^(?:\d{2}\.\d|U_|\d{2}(?:\.\d+)*(?:,\s*\d{2}(?:\.\d+)*)*$)")
 
 
-# метка фактора, которая по смыслу не о нём: новость об ипотеке — не «стоимость заёмных денег» компании,
-# новость о бензине — не «санкции и ВЭД». По заголовку: (о чём он на самом деле, слова самого фактора) —
-# первое есть, второго нет — метка не по смыслу
-OFF_TOPIC = {
-    "rate": (
-        re.compile(r"ипотек"),
-        re.compile(
-            r"ключев\w* ставк|ставк\w* цб|(?<!\w)цб(?!\w)|банк\w* росси|кредит|(?<!\w)мсп(?!\w)|корпоративн"
-            r"|(?:повышени|снижени|повыс|сниз)\w* ставк"
-        ),
-    ),
-    "ved_logistics": (
-        re.compile(r"бензин|дизел|топлив|(?<!\w)азс|нефтепродукт"),
-        re.compile(
-            r"санкц|экспорт|импорт|пошлин|таможн|границ|логист|платеж|(?<!\w)вэд|за рубеж|вывоз|ввоз|перевоз"
-            r"|транспорт|поставк\w* (?:в|из) "
-        ),
-    ),
-}
-
-
 def about(item: FeedItem, code: str) -> bool:
-    """Новость по смыслу о факторе `code`: метка разметки не спорит с заголовком (см. OFF_TOPIC)."""
-    rule = OFF_TOPIC.get(code)
-    if rule is None:
-        return True
-    title = item.event.title.casefold()
-    return not (rule[0].search(title) and not rule[1].search(title))
+    """Новость по смыслу о факторе `code`: метка разметки не спорит с заголовком (api.topicfit)."""
+    return title_about(item.event.title, code)
 
 
 def main_reason(item: FeedItem) -> tuple[str, float | None]:
@@ -155,7 +131,43 @@ def model_view(item: FeedItem) -> tuple[str | None, str]:
 def gist(item: FeedItem) -> str:
     """Суть события из заголовка: до « // », без точки — «ЦБ повысил прогноз цены на нефть Urals до $72»."""
     title = item.event.title.split(" // ")[0].strip().rstrip(".")
-    return title if len(title) <= GIST_MAX else title[: GIST_MAX - 1].rsplit(" ", 1)[0] + "…"
+    return title if len(title) <= GIST_MAX else _cut(title, GIST_MAX)
+
+
+_DANGLING = {
+    "на",
+    "по",
+    "в",
+    "во",
+    "с",
+    "со",
+    "о",
+    "об",
+    "и",
+    "к",
+    "ко",
+    "для",
+    "из",
+    "за",
+    "от",
+    "до",
+    "при",
+    "над",
+    "под",
+}
+
+
+def _cut(text: str, limit: int) -> str:
+    """Обрезать по слову, не оставляя в конце предлог или союз: «…по ситуации на…» → «…по ситуации…»."""
+    words = text[: limit - 1].rsplit(" ", 1)[0].split(" ")
+    while len(words) > 1 and words[-1].casefold().strip(",;:—-") in _DANGLING:
+        words.pop()
+    return " ".join(words).rstrip(",;:— ") + "…"
+
+
+def _end(text: str) -> str:
+    """Закончить фразу: после «…» точка не нужна («…на…. Оцените» → «…на… Оцените»)."""
+    return text if text.endswith("…") else text + "."
 
 
 _GROUP_LINE = re.compile(r"^(\d+) компани\w*, ([\d,]+ (?:тыс\.|млн|млрд|трлн) ₽)")
@@ -371,7 +383,7 @@ def takeaway(
         fitting = [v for v in variants if len(v) <= TEXT_MAX and v not in (avoid or set())]
         if fitting:
             break
-    variants += [f"{what}. {_cap(action)}."]
+    variants += [f"{_end(what)} {_cap(action)}."]
     fitting = fitting or [v for v in variants if len(v) <= TEXT_MAX and v not in (avoid or set())]
     return Takeaway(level=level, text=fitting[0] if fitting else _fits(*variants))
 
@@ -393,7 +405,7 @@ def _brief(why: str) -> str:
 
 
 def _short(what: str, limit: int = 35) -> str:
-    return what if len(what) <= limit else what[: limit - 1].rsplit(" ", 1)[0] + "…"
+    return what if len(what) <= limit else _cut(what, limit)
 
 
 def _cap(text: str) -> str:

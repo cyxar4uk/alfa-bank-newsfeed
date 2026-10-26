@@ -62,7 +62,9 @@ _GOV = re.compile(r"госрасход|бюджетн\w* расход|расхо
 _GOV_UP = re.compile(r"(?<!\w)(?:увелич|вырос|рост(?!\w))")
 _GOV_DOWN = re.compile(r"(?<!\w)(?:сократ|сокращ|урез|сниз)")
 _TAX = re.compile(r"налог|пошлин|утильсбор|акциз")
-_TAX_UP = re.compile(r"(?<!\w)(?:повыс|повыш|введ|ввод|ввест|увелич|рост(?!\w))")
+_TAX_UP = re.compile(r"(?<!\w)(?:повыс|повыш|введ|ввод|ввест|увелич|вырас|вырос|рост(?!\w))")
+# повышение отложено или смягчено — нагрузка пока прежняя, а не «растёт»
+_TAX_LATER = re.compile(r"отсроч|отлож|не\s+раньше|не\s+ранее|смягч|льгот\w* период")
 _TAX_DOWN = re.compile(r"(?<!\w)(?:сниз|сниж|отмен|обнул|уменьш)")
 _DEMAND = re.compile(r"(?<!\w)(?:спрос|продаж|потребител)")
 
@@ -198,6 +200,8 @@ def consequence(item: FeedItem, key: str, exposure: ExposureMap | None) -> str |
         if direction == "down":
             return "Госрасходы сокращаются — госзаказ под риском"
     if key == "tax_regulation" and _TAX.search(title):
+        if _TAX_LATER.search(title):
+            return "Рост налогов и пошлин откладывается — нагрузка пока прежняя"
         direction = _direction(title, _TAX_UP, _TAX_DOWN)
         if direction == "up":
             return "Налоги и пошлины растут — нагрузка выше"

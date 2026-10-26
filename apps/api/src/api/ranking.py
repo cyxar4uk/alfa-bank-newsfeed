@@ -35,6 +35,7 @@ from api.contract import (
 from api.images import proxied
 from api.okved import SECTOR_BY_CODE, okved_prefix
 from api.short import chain_short, factor_short
+from api.topicfit import head, title_about
 
 ROLES_PATH = Path(__file__).with_name("roles.toml")
 MSK = dt.timezone(dt.timedelta(hours=3))
@@ -377,6 +378,8 @@ def score_event(
         factor = by_code.get(code)
         if not factor or not factor.strength or strength <= 0:
             continue
+        if not title_about(event.title, code):
+            continue  # метка по ключевому слову, а новость не об этом факторе (api.topicfit)
         if code == "region" and not (company_places & event_places):
             continue  # событие про другой регион
         note = ""
@@ -533,7 +536,7 @@ def bank_topics(title: str, strong: list[str]) -> list[str]:
     from api.bankview import TOPICS  # bankview импортирует ranking — здесь, а не наверху
 
     # после « // » идёт лид: слова из него не делают новость темой банка
-    low = title.split(" // ")[0].casefold().replace("ё", "е")
+    low = head(title)
     return [c for c in dict.fromkeys(strong) if c in TOPICS and any(s in low for s in TOPICS[c][1])]
 
 

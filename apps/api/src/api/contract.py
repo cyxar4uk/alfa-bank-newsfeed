@@ -876,6 +876,10 @@ class Feed(BaseModel):
     items: list[FeedItem]
     candidates: int = Field(description="сколько событий рассмотрено")
     news_source: str = Field(description="откуда новости: база поиска или снимок data/demo")
+    note: str | None = Field(
+        default=None,
+        description="поиск: честная пометка, если ничего из найденного не касается компании — вместо тишины",
+    )
 
     summary: list[Statement] = Field(
         default_factory=list, description="сводка для брифинга — пишет агент; лента без агента — пусто"
