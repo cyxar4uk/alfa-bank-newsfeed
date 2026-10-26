@@ -17,6 +17,8 @@ services:
     image: alfa-bank-newsfeed-api:latest
     ports: !reset []
     restart: unless-stopped
+    environment:
+      PRECOMPUTE_ENABLED: ${PRECOMPUTE_ENABLED:-true}  # на стенде разбор заранее включён; у эксперта по умолчанию нет
     networks:
       default:
         # веб состоит и в сети прокси: уникальное имя, чтобы не спутать с сервисами соседнего проекта

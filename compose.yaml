@@ -1,5 +1,17 @@
 name: alfa-bank-newsfeed
 
+# ключ и адрес моделей: из переменных оболочки или из .env (подстановка), иначе пусто — агент отвечает 503
+x-llm-env: &llm-env
+  LLM_API_KEY: ${LLM_API_KEY:-}
+  LLM_BASE_URL: ${LLM_BASE_URL:-}
+  LLM_MODELS: ${LLM_MODELS:-}
+  LLM_STEP_PARAMS: ${LLM_STEP_PARAMS:-}
+  LLM_FALLBACKS: ${LLM_FALLBACKS:-}
+  LLM_ALLOW_ANY_MODEL: ${LLM_ALLOW_ANY_MODEL:-false}
+  LLM_PARSER_MODEL: ${LLM_PARSER_MODEL:-}
+  LLM_OCR_MODEL: ${LLM_OCR_MODEL:-}
+  PRECOMPUTE_ENABLED: ${PRECOMPUTE_ENABLED:-false}
+
 x-api-env: &api-env
   DATABASE_URL: postgresql://${POSTGRES_USER:-newsfeed}:${POSTGRES_PASSWORD:-newsfeed}@db:5432/${POSTGRES_DB:-newsfeed}
 
@@ -51,7 +63,7 @@ services:
       - path: .env
         required: false
     environment:
-      <<: *api-env
+      <<: [*api-env, *llm-env]
       INGEST_EVERY_MIN: ${INGEST_EVERY_MIN:-30}
       LLM_JOURNAL: /cache/ingest_llm_calls.jsonl
       INGEST_LLM_DAILY_BUDGET_RUB: ${INGEST_LLM_DAILY_BUDGET_RUB:-10}
@@ -73,7 +85,7 @@ services:
       - path: .env
         required: false
     environment:
-      <<: *api-env
+      <<: [*api-env, *llm-env]
       DATA_DIR: /data
       NEWS_SNAPSHOT: /demo/news_snapshot.jsonl
       LLM_CACHE_DIR: /cache/llm
