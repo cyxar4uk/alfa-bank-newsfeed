@@ -35,10 +35,14 @@ from api.contract import (
     UserInputs,
     UserInputsIn,
 )
+from api.data_analysis import DataAnalysisIndirect, DataAnalysisPath, DataAnalysisResponse
+from api.data_quality import data_quality
 from api.db import connect, ensure_schema
 from api.images import ImageError, proxied
 from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
+from api.indicators import company_indicators
+from api.indirect import indirect_dependencies
 from api.inputs import PgInputs
 from api.levels import LEVELS
 from api.market import PgMarket
@@ -384,6 +388,65 @@ def get_company(company_id: str, repo: Repo) -> CompanyProfile:
     if profile is None:
         raise HTTPException(status_code=404, detail=f"компания {company_id} не найдена")
     return profile
+
+
+@app.get(
+    "/api/companies/{company_id}/data-analysis",
+    response_model=DataAnalysisResponse,
+    tags=["компании"],
+)
+def get_data_analysis(
+    company_id: str,
+    repo: Repo,
+    okved: Annotated[
+        list[str] | None, Query(description="Необязательные классы ОКВЭД для второго шага")
+    ] = None,
+) -> DataAnalysisResponse:
+    """Показатели платежей, паспорт качества и ограниченные наблюдаемые связи второго шага."""
+    company = repo.get_company(company_id)
+    if company is None:
+        raise HTTPException(status_code=404, detail=f"Компания {company_id} не найдена")
+    codes = [code.strip() for value in (okved or []) for code in value.split(",") if code.strip()]
+    flows = repo.flows(company_id)
+    profile = company_profile(repo, company_id)
+    if profile is None:
+        raise HTTPException(status_code=404, detail=f"Компания {company_id} не найдена")
+    indirect = indirect_dependencies(repo, company_id, codes or None)
+    indirect_response = None
+    if indirect is not None:
+        paths = []
+        for path in indirect.paths:
+            intermediary = repo.get_company(path.intermediary_id)
+            counterparty = repo.get_company(path.counterparty_id)
+            incoming = path.direction.startswith("поступления")
+            paths.append(
+                DataAnalysisPath(
+                    **path.model_dump(),
+                    intermediary_name=display_name(intermediary, path.intermediary_id),
+                    intermediary_industry=sector_for(intermediary.okved_code) if intermediary else None,
+                    counterparty_name=display_name(counterparty, path.counterparty_id),
+                    counterparty_industry=path.industry
+                    or (sector_for(counterparty.okved_code) if counterparty else None),
+                    first_share_basis="все внешние поступления компании"
+                    if incoming
+                    else "все внешние платежи компании",
+                    second_share_basis="все внешние поступления посредника"
+                    if incoming
+                    else "все внешние платежи посредника",
+                )
+            )
+        indirect_response = DataAnalysisIndirect(
+            company_id=indirect.company_id,
+            paths=paths,
+            intermediaries_checked=indirect.intermediaries_checked,
+            limitation=indirect.limitation,
+        )
+    return DataAnalysisResponse(
+        company=profile,
+        indicators=company_indicators(company, flows),
+        quality=data_quality(company, flows),
+        indirect=indirect_response,
+    )
 
 
 @app.get("/api/companies/{company_id}/exposure", response_model=ExposureMap, tags=["компании"])

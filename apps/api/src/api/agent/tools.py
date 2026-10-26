@@ -146,6 +146,17 @@ class Tools:
             ),
         )
         if result is not None:
+            # Ограниченный второй шаг запускается только после основного инструмента.
+            indirect_method = getattr(self.company, "indirect_chain", None)
+            if indirect_method is not None:
+                indirect = self._call(
+                    "get_indirect_chain",
+                    {"company_id": cid, "event_id": ctx.event.id},
+                    lambda: indirect_method(cid, ctx.event.source),
+                    lambda _r: [],
+                    lambda r: f"Гипотез второго шага: {len(r or [])}",
+                )
+                result.indirect = indirect or []
             ctx.chain = result
             ctx.warnings += [g for g in result.gaps if g not in ctx.warnings]
 

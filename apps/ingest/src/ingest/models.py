@@ -11,6 +11,8 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from ingest.structured_event import StructuredEvent
+
 LEAD_MAX_CHARS = 500
 # надёжность источника: официальный, информационное агентство, деловое СМИ, прочее — задаётся у ленты в sources.toml
 Reliability = Literal["official", "agency", "business_media", "other"]
@@ -54,13 +56,17 @@ class Tags(BaseModel):
     # деловая ли новость: True / False по словарям, None — сомнительная (решает модель, ответ — в news_business)
     business: bool | None = None
     business_reason: str | None = None
+    # Optional metadata from the same tagging response; older rows remain valid.
+    structured_event: StructuredEvent | None = None
 
 
 class Expectation(BaseModel):
     """Ожидание из текста новости (фича F): кто ожидает, что, по какому показателю. quote — дословно из лида."""
 
     who: str
-    who_kind: Literal["analysts", "market", "international", "regulator", "government", "company", "bank", "other"]
+    who_kind: Literal[
+        "analysts", "market", "international", "regulator", "government", "company", "bank", "other"
+    ]
     indicator: str | None = None  # код фактора, к которому относится ожидание
     values: list[str] = Field(default_factory=list)
     quote: str

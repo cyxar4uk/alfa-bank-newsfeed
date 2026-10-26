@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import type { CompanyProfile, ExposureMap, FeedItem, Persona, Role, SensitivityFactor, Strength } from '../api/types';
 import { factorIcon } from '../components/factorIcon';
+import { DataAnalysis } from '../components/DataAnalysis';
 import { Icon } from '../components/Icon';
 import { ServiceTabs } from '../components/ServiceTabs';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
@@ -370,6 +371,7 @@ export function ExposureMapPage() {
           ))}
         </ul>
       )}
+      <DataAnalysis companyId={company.id} />
     </div>
   );
 }

@@ -13,7 +13,7 @@
 
 import re
 
-from api.agent.checks import _stems
+from api.agent.checks import _stems, evidence_numbers, evidence_problem
 from api.agent.context import AgentContext
 from api.agent.numbers import numbers_in
 from api.contract import Claim, ClaimsSummary, ClaimSupport, Insight, Statement
@@ -109,19 +109,19 @@ class Verifier:
                 continue
             # ссылка — опора, только если источник говорит о том же: общие слова или то же число
             quote, score = _best_quote(text, source_text)
-            if score >= MIN_OVERLAP:
+            exact_measure = (
+                score >= 1
+                and bool(numbers_in(text))
+                and not evidence_numbers(text, quote)
+                and evidence_problem(text, quote) is None
+            )
+            if score >= MIN_OVERLAP or exact_measure:
                 out.append(ClaimSupport(kind=kind, ref=ref, quote=quote))
-        if not out:
+        if not refs:
             out = self.support_by_overlap(text)
-        # у каждого числа — где оно взято: «Brent уже $112,4» → предложение новости с этим числом
-        shown = " ".join(s.quote for s in out)
-        for n in numbers_in(text):
-            if n.raw in shown or len(out) >= MAX_SUPPORT:
-                continue
-            found = self.number_source(n.raw)
-            if found is not None:
-                out.append(found)
-                shown += " " + found.quote
+        # Дополнительную опору ищем по смыслу предложения, а не по наличию той же цифры.
+        if out and any(s.kind == "company" for s in out):
+            out.extend(self.support_by_overlap(text))
         return out[:MAX_SUPPORT]
 
     def number_source(self, raw: str) -> ClaimSupport | None:
@@ -161,11 +161,35 @@ class Verifier:
     # --- статус ------------------------------------------------------------------------------------------
 
     def claim(self, text: str, refs: list[str], origin: str | None = None) -> Claim:
-        missing = [] if origin == "estimate" else self.numbers.unsupported(text)  # расчёт по формуле сервиса
         support = self.support_for(text, refs)
+        missing = list(
+            dict.fromkeys(
+                n.raw
+                for n in numbers_in(text)
+                if not any(n.raw not in evidence_numbers(n.raw + " " + n.unit, s.quote) for s in support)
+            )
+        )
+        # Расчёт подтверждает только точный результат инструмента из текущего контекста.
+        estimate = next((e for e in self.ctx.estimates if e.statement.text == text), None)
+        if estimate:
+            missing = []
+            support = [
+                ClaimSupport(kind="company", ref=r, quote=text[:QUOTE_MAX])
+                for r in estimate.statement.refs[:MAX_SUPPORT]
+            ]
+        strong = any(
+            evidence_problem(text, s.quote) is None
+            # Число уже сверено с размерностью выше; ещё требуется совпадение показателя
+            # и хотя бы одного смыслового слова, с допуском «сохранилась»/«осталась».
+            and bool(
+                {w[:5].replace("ё", "е") for w in re.findall(r"[а-яёa-z]{4,}", text.lower())}
+                & {w[:5].replace("ё", "е") for w in re.findall(r"[а-яёa-z]{4,}", s.quote.lower())}
+            )
+            for s in support
+        )
         if origin == "hypothesis" or _POSSIBLE.match(text.strip()):
             status = "hypothesis"
-        elif support and not missing:
+        elif support and not missing and (strong or estimate):
             status = "verified"
         else:
             status = "partly"

@@ -34,9 +34,17 @@ def test_trace_has_claims_step():
 def test_numbers_are_normalized():
     v = Verifier(make_ctx())
     # в новости «14%», в материале банка «14,0%»: оба написания — одно число
-    assert v.claim("Ставка осталась 14,0 %.", [NEWS_ID]).status == "verified"
+    normalized = v.claim("Ставка осталась 14,0 %.", [NEWS_ID])
+    assert normalized.status == "verified", normalized.model_dump()
     claim = v.claim("Ставка выросла до 27 %.", [NEWS_ID])
     assert claim.status == "partly" and claim.unsupported_numbers == ["27"]
+
+
+def test_annual_interest_is_not_supported_by_monthly_source():
+    ctx = make_ctx()
+    ctx.event.source.fragment = "Ставка составляет 14% в месяц."
+    claim = Verifier(ctx).claim("Ставка составляет 14 % годовых.", [NEWS_ID])
+    assert claim.status == "partly"
 
 
 def test_support_by_overlap_for_claims_without_refs():

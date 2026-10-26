@@ -2,12 +2,13 @@
 // а не одни на все карточки (замечание жюри: «Что при ставке 12 %?» на карточке про курс — как заготовка).
 import type { FeedItem, Insight } from '../api/types.ts';
 
-export type Topic = 'fx' | 'rate' | 'fuel' | 'other';
+export type Topic = 'fx' | 'rate' | 'deposit' | 'fuel' | 'other';
 
 function topicOfCode(code: string | undefined | null): Topic | null {
   if (!code) return null;
   if (code === 'fx') return 'fx';
-  if (code === 'rate' || code === 'deposit_yield') return 'rate';
+  if (code === 'rate') return 'rate';
+  if (code === 'deposit_yield') return 'deposit';
   if (code === 'commodity_oil' || code === 'oil') return 'fuel';
   return null;
 }
@@ -21,6 +22,7 @@ export function topicOf(insight: Pick<Insight, 'event' | 'relevance'>, item: Pic
   if (fromRefs) return fromRefs;
   const t = insight.event.title.toLowerCase();
   if (/курс|доллар|рубл|валют|юан/.test(t)) return 'fx';
+  if (/депозит|вклад|размещени|доходност/.test(t)) return 'deposit';
   if (/ставк|кредит/.test(t)) return 'rate';
   if (/нефт|топлив|бензин|дизел|urals|brent/.test(t)) return 'fuel';
   return 'other';
@@ -33,6 +35,8 @@ export function topicQuestions(topic: Topic): string[] {
       return ['Сколько это при 75 / 87 / 93 ₽/$?', 'Как защитить выручку от курса?'];
     case 'rate':
       return ['Что при ставке 12 / 16 %?', 'Сколько это в рублях?'];
+    case 'deposit':
+      return ['Какие сумму свободного остатка и срок размещения учитывать?'];
     case 'fuel':
       return ['Что при нефти $85?', 'Сколько это в рублях?'];
     default:
@@ -49,6 +53,8 @@ export function topicFields(topic: Topic): NumberField[] {
       return ['fxRevenue', 'fx'];
     case 'rate':
       return ['debt'];
+    case 'deposit':
+      return [];
     case 'fuel':
       return ['fuel'];
     default:

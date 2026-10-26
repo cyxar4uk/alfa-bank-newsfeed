@@ -4,6 +4,7 @@ import type {
   Briefing,
   CatalogSource,
   CompanyExposure,
+  DataAnalysis,
   EventDetail,
   CompanyProfile,
   ExposureMap,
@@ -54,6 +55,7 @@ export interface Api {
 export interface LiveApi extends Api {
   /** карта чувствительности как её отдаёт API — с доказательствами из данных банка */
   exposure(companyId: string, signal?: AbortSignal): Promise<CompanyExposure>;
+  dataAnalysis(companyId: string, okved?: string[], signal?: AbortSignal): Promise<DataAnalysis>;
   /** разбор без ожидания: готовый, статус фоновой сборки или «не касается» */
   insightJob(eventId: string, personaId: string, signal?: AbortSignal): Promise<InsightResult>;
   /** статус фоновой сборки разбора */
@@ -308,6 +310,7 @@ function createHttpApi(baseUrl: string): LiveApi {
       return body ?? null;
     },
     exposure: (companyId, signal) => required(`/api/companies/${q(companyId)}/exposure`, signal),
+    dataAnalysis: (companyId, okved, signal) => required(`/api/companies/${q(companyId)}/data-analysis${okved?.length ? `?${okved.map((x) => `okved=${q(x)}`).join('&')}` : ''}`, signal),
     insightJob: async (eventId, personaId, signal) => {
       const { status, body } = await request<Insight | JobStatus>(
         `/api/insights/${q(eventId)}?persona=${q(personaId)}&wait=false`,

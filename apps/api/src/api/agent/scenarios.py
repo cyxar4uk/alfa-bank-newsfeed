@@ -14,6 +14,7 @@
 import re
 from dataclasses import dataclass
 
+from api.agent.inputs import fx_flow, interest_change
 from api.contract import Statement
 from api.numbers import fmt_number, fmt_rub
 
@@ -47,6 +48,14 @@ class Inputs:
     fuel_t: float | None = None  # закупка топлива в месяц, т
     rate_type: str | None = None  # floating | fixed
 
+    receipts_month: float | None = None
+    purchases_month: float | None = None
+    fx_currency: str | None = None
+    fx_base_rate: float | None = None
+    fx_scenario_rate: float | None = None
+    current_rate_pct: float | None = None
+    scenario_rate_pct: float | None = None
+
     @classmethod
     def from_user(cls, saved) -> "Inputs":
         """Из сохранённых «моих чисел» (`api.contract.UserInputs`): закупки в месяц → в год."""
@@ -55,13 +64,36 @@ class Inputs:
         monthly = getattr(saved, "fx_purchases_month_rub", None)
         return cls(
             debt=getattr(saved, "debt_rub", None),
-            fx=monthly * 12 if monthly else None,
+            fx=monthly * 12 if monthly is not None else None,
+            receipts_month=getattr(saved, "fx_revenue_month_rub", None),
+            purchases_month=monthly,
+            fx_currency=getattr(saved, "fx_currency", None),
+            fx_base_rate=getattr(saved, "fx_base_rate", None),
+            fx_scenario_rate=getattr(saved, "fx_scenario_rate", None),
+            current_rate_pct=getattr(saved, "current_rate_pct", None),
+            scenario_rate_pct=getattr(saved, "scenario_rate_pct", None),
             fuel_t=getattr(saved, "fuel_purchase_month_t", None),
             rate_type=getattr(saved, "rate_type", None),
         )
 
     def any(self) -> bool:
-        return any(v for v in (self.debt, self.fx, self.purchases, self.fuel_t))
+        return any(
+            v is not None
+            for v in (
+                self.debt,
+                self.fx,
+                self.purchases,
+                self.fuel_t,
+                self.receipts_month,
+                self.purchases_month,
+                self.fx_currency,
+                self.fx_base_rate,
+                self.fx_scenario_rate,
+                self.current_rate_pct,
+                self.scenario_rate_pct,
+                self.rate_type,
+            )
+        )
 
 
 def saved_inputs(persona_id: str):
@@ -99,9 +131,8 @@ def rate(debt: float | None = None, refs: list[str] | None = None, rate_type: st
     if rate_type == "fixed":
         return Statement(
             text=(
-                f"Ставка по долгу фиксированная: проценты {label} до пересмотра договора не изменятся. При"
-                f" рефинансировании: при {fmt_number(RATE_NOW)} % — {fmt_rub(now)} в год, при"
-                f" {fmt_number(RATE_2027)} % (прогноз Альфа-Банка на конец 2027 г.) — {fmt_rub(later)}."
+                f"Ставка по долгу фиксированная: проценты {label} не изменятся "
+                "до пересмотра условий договора."
             ),
             origin="estimate",
             refs=refs or [],
@@ -202,6 +233,13 @@ def oil(
 
 # расчёты карточки, которые заменяются на числах пользователя (старые тексты «на каждый 1 млрд» — тоже)
 SCENARIO_PREFIXES = (
+    "Валютная часть за месяц:",
+    "Процентная часть за месяц:",
+    "Итого за сопоставимый месяц:",
+    "Общий итог не рассчитан:",
+    "При валюте ",
+    "По фиксированной ставке проценты не меняются",
+    "Если плавающая ставка изменится",
     "Проценты на",
     "Ставка по долгу фиксированная",
     "Если курс дойдёт",
@@ -212,16 +250,96 @@ SCENARIO_PREFIXES = (
 ASK_RATES = (12.0, 14.0, 16.0)  # ставки, на которых заранее считаем проценты по долгу пользователя в чате
 
 
-def user_lines(saved) -> list[str]:
+def joint_scenario(inputs: Inputs) -> Statement | None:
+    """Месячные FX и процентные компоненты; общий итог — только когда известны обе стороны."""
+    fx_known = (
+        inputs.receipts_month is not None
+        and inputs.purchases_month is not None
+        and inputs.fx_currency
+        and inputs.fx_base_rate
+        and inputs.fx_scenario_rate
+    )
+    fx_delta_month = None
+    parts: list[str] = []
+    if fx_known:
+        flow = fx_flow(
+            inputs.receipts_month,
+            inputs.purchases_month,
+            inputs.fx_base_rate,
+            inputs.fx_scenario_rate,
+        )
+        fx_delta_month = flow.change_month_rub
+        direction = "плюс" if fx_delta_month > 0 else "минус" if fx_delta_month < 0 else "без изменения"
+        parts.append(
+            f"Валютная часть за месяц: {direction} {fmt_rub(abs(fx_delta_month))}, "
+            f"поступления минус закупки при {inputs.fx_currency}, курс {fmt_number(inputs.fx_base_rate)} → "
+            f"{fmt_number(inputs.fx_scenario_rate)} ₽."
+        )
+
+    interest_known = inputs.debt is not None and (
+        inputs.debt == 0
+        or inputs.rate_type == "fixed"
+        or (
+            inputs.rate_type == "floating"
+            and inputs.current_rate_pct is not None
+            and inputs.scenario_rate_pct is not None
+        )
+    )
+    interest_delta_month = None
+    if interest_known and (inputs.debt == 0 or inputs.rate_type == "fixed"):
+        interest_delta_month = 0.0
+        label = (
+            "явно указано отсутствие долга"
+            if inputs.debt == 0
+            else "фиксированная ставка до пересмотра договора"
+        )
+        parts.append(f"Процентная часть за месяц: без изменения (0 ₽; {label}).")
+    elif interest_known:
+        change = interest_change(inputs.debt, inputs.current_rate_pct, inputs.scenario_rate_pct)
+        interest_delta_month = -change / 12
+        direction = (
+            "плюс" if interest_delta_month > 0 else "минус" if interest_delta_month < 0 else "без изменения"
+        )
+        parts.append(
+            f"Процентная часть за месяц: {direction} {fmt_rub(abs(interest_delta_month))}; "
+            "при долге "
+            f"{fmt_rub(inputs.debt)} и плавающей ставке {fmt_number(inputs.current_rate_pct)}% → "
+            f"{fmt_number(inputs.scenario_rate_pct)}% годовых."
+        )
+
+    if fx_delta_month is not None and interest_delta_month is not None:
+        total = fx_delta_month + interest_delta_month
+        direction = "плюс" if total > 0 else "минус" if total < 0 else "без изменения"
+        parts.append(
+            f"Итого за сопоставимый месяц: {direction} {fmt_rub(abs(total))}. "
+            "Допущения: объёмы валютных поступлений и закупок постоянны; текущая и сценарная ставки "
+            "действуют полный период; проценты выплачиваются равномерно по месяцам. "
+            "Это условное изменение денежного потока, не прибыль и не прогноз."
+        )
+    elif parts:
+        parts.append("Общий итог не рассчитан: для второй компоненты не хватает данных.")
+    return Statement(text=" ".join(parts), origin="estimate", refs=[], confidence="medium") if parts else None
+
+
+def user_lines(saved, ctx=None) -> list[str]:
     """Что пользователь сообщил о себе («мои числа») — модели в контекст; рубли по ставкам уже посчитаны."""
     inputs = Inputs.from_user(saved)
-    if saved is None or not (inputs.any() or inputs.rate_type):
+    if saved is None:
+        from api.agent.clarifications import clarification_questions
+
+        return [f"Уточнение для сценария: {q}" for q in clarification_questions(ctx, saved)]
+    if not (inputs.any() or inputs.rate_type):
         return []
     kind = {"floating": "плавающая (идёт за ключевой)", "fixed": "фиксированная"}.get(
         inputs.rate_type or "", ""
     )
     lines = []
-    if inputs.debt:
+    if inputs.debt is not None and inputs.rate_type == "fixed":
+        lines.append(
+            f"Ваш долг по вашим данным — {fmt_rub(inputs.debt)}; ставка фиксированная, "
+            "проценты не меняются до пересмотра условий договора."
+        )
+    elif inputs.debt:
         table = "; ".join(
             f"при {fmt_number(r)} % — {fmt_rub(inputs.debt * r / 100)} в год" for r in ASK_RATES
         )
@@ -236,6 +354,12 @@ def user_lines(saved) -> list[str]:
         lines.append(f"Валютные закупки по вашим данным — {fmt_rub(inputs.fx)} в год.")
     if inputs.fuel_t:
         lines.append(f"Закупка топлива по вашим данным — {fmt_number(inputs.fuel_t, 0)} т в месяц.")
+    combined = joint_scenario(inputs)
+    if combined:
+        lines.append(combined.text)
+    from api.agent.clarifications import clarification_questions
+
+    lines.extend(f"Уточнение для сценария: {q}" for q in clarification_questions(ctx, saved))
     return lines
 
 
@@ -274,24 +398,29 @@ def for_context(ctx, inputs: Inputs | None = None) -> list[tuple[str, Statement,
     features = {f.id: f.value for f in ctx.profile.features}
     exposure = {f.code: f for f in ctx.exposure}
     out = []
+    combined = joint_scenario(inputs)
+    if combined and ("fx" in topics or "rate" in topics):
+        factor = "fx" if "fx" in topics else "rate"
+        out.append(("est:user_joint_scenario", combined, "factors" if factor == "fx" else "risks", factor))
     # прогноз ставки банка — только сверенный со страницей материала, иначе 12 % не из источника
     page = ctx.page_texts.get(RATE_PAGE, "").replace(" ", "")
     rate_verified = "14,0%" in page and "12,0%" in page
     if (
         rate_verified
-        and topics & {"rate", "deposit"}
+        and "rate" in topics
         and (
             features.get("feat:CL_PRODUCT_LOA_MARK")
             or features.get("feat:CL_PRODUCT_LEA_MARK")
             or inputs.debt
         )
     ):
-        # прогноз сверен со страницей — на неё и на признаки кредита и лизинга ссылается расчёт
+        # Прогноз ставки из источника показываем только при отсутствии заполненного сценария.
         refs = [
             RATE_PAGE,
             *(f for f in ("feat:CL_PRODUCT_LOA_MARK", "feat:CL_PRODUCT_LEA_MARK") if features.get(f)),
         ]
-        out.append(("est:rate_scenario", rate(inputs.debt, refs, inputs.rate_type), "risks", "rate"))
+        if combined is None:
+            out.append(("est:rate_scenario", rate(inputs.debt, refs, inputs.rate_type), "risks", "rate"))
     fx_hit = next((h for h in ctx.analytics if h.source.id == FX_SOURCE), None)
     now = fx_now(ctx.event.text) or fx_now(ctx.event.source.title)
     fx_verified = fx_hit is not None and "87" in (fx_hit.source.fragment or "")
@@ -300,6 +429,7 @@ def for_context(ctx, inputs: Inputs | None = None) -> list[tuple[str, Statement,
         and (features.get("feat:FTS_FLAG") or inputs.fx)
         and fx_verified
         and now
+        and combined is None
         and abs(FX_FORECAST / now - 1) >= MIN_FX_CHANGE
     ):
         flags = [f for f in ("feat:FTS_FLAG",) if features.get(f)]

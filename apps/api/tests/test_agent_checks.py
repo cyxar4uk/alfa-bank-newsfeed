@@ -17,7 +17,7 @@ from agent_fakes import (
     make_profile,
 )
 
-from api.agent.checks import CHECKS, Checker, normalize, quote_in
+from api.agent.checks import CHECKS, Checker, evidence_problem, normalize, quote_in
 from api.agent.context import AgentContext
 from api.agent.drafts import DraftAction, DraftStatement
 from api.agent.loop import _without
@@ -94,9 +94,10 @@ def test_bank_quote_found_in_page_text_despite_line_breaks_and_yo():
     quote = (
         "Если раньше мы ориентировались на ставку на уровне 13,5% на конец 2026 г., то теперь мы ожидаем её"
     )
-    statement = bank(text="Раньше банк ждал 13,5% на конец 2026 года, теперь — 14,0%.", quote=quote)
+    statement = bank(text="Раньше банк ждал 13,5% на конец 2026 года.", quote=quote)
     report = run(good_draft(bank_view=[statement]))
     assert report.ok, report.summary()
+    assert evidence_problem("Альфа-Банк ожидает 14,0% на конец 2026 года.", quote)
 
 
 def test_bank_view_without_alfa_source():

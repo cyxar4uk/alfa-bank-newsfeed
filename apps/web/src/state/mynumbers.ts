@@ -13,11 +13,16 @@ export interface MyNumbers {
   fxRevenue: string;
   /** валютные закупки в месяц, млн ₽ */
   fx: string;
+  fxCurrency: string;
+  fxBaseRate: string;
+  fxScenarioRate: string;
+  currentRate: string;
+  scenarioRate: string;
   /** закупка топлива в месяц, тонн */
   fuel: string;
 }
 
-export const EMPTY_NUMBERS: MyNumbers = { debt: '', rate: 'unknown', fxRevenue: '', fx: '', fuel: '' };
+export const EMPTY_NUMBERS: MyNumbers = { debt: '', rate: 'unknown', fxRevenue: '', fx: '', fxCurrency: '', fxBaseRate: '', fxScenarioRate: '', currentRate: '', scenarioRate: '', fuel: '' };
 
 const RATE_TEXT: Record<RateType, string> = {
   floating: 'ставка плавающая',
@@ -26,23 +31,24 @@ const RATE_TEXT: Record<RateType, string> = {
 };
 
 /** «2 000», «1,5» → число; пусто, ноль или мусор → null. */
-export function parseAmount(value: string): number | null {
+export function parseAmount(value: string, allowZero = false): number | null {
+  if (!value.trim()) return null;
   const n = Number(value.replace(/\s/g, '').replace(',', '.'));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  return Number.isFinite(n) && (n > 0 || (allowZero && n === 0)) ? n : null;
 }
 
 const fmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 1 });
 
 /** Вопрос агенту по введённым числам; null — ничего не введено. */
 export function numbersQuestion(nums: MyNumbers): string | null {
-  const debt = parseAmount(nums.debt);
-  const fx = parseAmount(nums.fx);
-  const fxRevenue = parseAmount(nums.fxRevenue);
+  const debt = parseAmount(nums.debt, true);
+  const fx = parseAmount(nums.fx, true);
+  const fxRevenue = parseAmount(nums.fxRevenue, true);
   const fuel = parseAmount(nums.fuel);
   const parts = [
-    debt != null ? `долг ${fmt.format(debt)} млн ₽, ${RATE_TEXT[nums.rate]}` : null,
-    fxRevenue != null ? `валютная выручка ${fmt.format(fxRevenue)} млн ₽ в месяц` : null,
-    fx != null ? `валютные закупки ${fmt.format(fx)} млн ₽ в месяц` : null,
+    debt != null && nums.debt.trim() ? (debt === 0 ? 'долга нет (0 млн ₽)' : `долг ${fmt.format(debt)} млн ₽, ${RATE_TEXT[nums.rate]}`) : null,
+    fxRevenue != null && nums.fxRevenue.trim() ? `валютная выручка ${fmt.format(fxRevenue)} млн ₽ в месяц` : null,
+    fx != null && nums.fx.trim() ? `валютные закупки ${fmt.format(fx)} млн ₽ в месяц` : null,
     fuel != null ? `закупка топлива ${fmt.format(fuel)} т в месяц` : null,
   ].filter(Boolean);
   if (parts.length === 0) return null;
@@ -61,6 +67,11 @@ export function readNumbers(personaId: string): MyNumbers {
         rate: r.rate === 'floating' || r.rate === 'fixed' ? r.rate : 'unknown',
         fxRevenue: typeof r.fxRevenue === 'string' ? r.fxRevenue : '',
         fx: typeof r.fx === 'string' ? r.fx : '',
+        fxCurrency: typeof r.fxCurrency === 'string' ? r.fxCurrency : '',
+        fxBaseRate: typeof r.fxBaseRate === 'string' ? r.fxBaseRate : '',
+        fxScenarioRate: typeof r.fxScenarioRate === 'string' ? r.fxScenarioRate : '',
+        currentRate: typeof r.currentRate === 'string' ? r.currentRate : '',
+        scenarioRate: typeof r.scenarioRate === 'string' ? r.scenarioRate : '',
         fuel: typeof r.fuel === 'string' ? r.fuel : '',
       };
     }
@@ -81,14 +92,19 @@ export function saveNumbers(personaId: string, nums: MyNumbers) {
 /** Тело для PUT /api/personas/{persona}/inputs: миллионы — в рубли, пустое — null. */
 export function toInputs(nums: MyNumbers): PersonaInputs {
   const mln = (v: string) => {
-    const n = parseAmount(v);
+    const n = parseAmount(v, true);
     return n == null ? null : Math.round(n * 1_000_000);
   };
   return {
     debt_rub: mln(nums.debt),
     rate_type: nums.rate === 'unknown' ? null : nums.rate,
-    fx_revenue_month_rub: mln(nums.fxRevenue),
-    fx_purchases_month_rub: mln(nums.fx),
+    fx_revenue_month_rub: nums.fxRevenue.trim() && parseAmount(nums.fxRevenue, true) != null ? Math.round(parseAmount(nums.fxRevenue, true)! * 1_000_000) : null,
+    fx_purchases_month_rub: nums.fx.trim() && parseAmount(nums.fx, true) != null ? Math.round(parseAmount(nums.fx, true)! * 1_000_000) : null,
+    fx_currency: nums.fxCurrency.trim() ? nums.fxCurrency.trim().toUpperCase() : null,
+    fx_base_rate: parseAmount(nums.fxBaseRate),
+    fx_scenario_rate: parseAmount(nums.fxScenarioRate),
+    current_rate_pct: parseAmount(nums.currentRate, true),
+    scenario_rate_pct: parseAmount(nums.scenarioRate, true),
     fuel_purchase_month_t: parseAmount(nums.fuel),
   };
 }
@@ -101,6 +117,11 @@ export function fromInputs(i: PersonaInputs): MyNumbers {
     rate: i.rate_type ?? 'unknown',
     fxRevenue: mln(i.fx_revenue_month_rub ?? null),
     fx: mln(i.fx_purchases_month_rub),
+    fxCurrency: i.fx_currency ?? '',
+    fxBaseRate: i.fx_base_rate == null ? '' : String(i.fx_base_rate).replace('.', ','),
+    fxScenarioRate: i.fx_scenario_rate == null ? '' : String(i.fx_scenario_rate).replace('.', ','),
+    currentRate: i.current_rate_pct == null ? '' : String(i.current_rate_pct).replace('.', ','),
+    scenarioRate: i.scenario_rate_pct == null ? '' : String(i.scenario_rate_pct).replace('.', ','),
     fuel: i.fuel_purchase_month_t == null ? '' : String(i.fuel_purchase_month_t).replace('.', ','),
   };
 }

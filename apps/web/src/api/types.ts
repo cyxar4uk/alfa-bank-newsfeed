@@ -57,6 +57,24 @@ export interface CompanyProfile {
   industry?: { okved: string; rank: number; total: number } | null;
 }
 
+export interface DataAnalysis {
+  company: CompanyProfile;
+  indicators: { code: string; label: string; value: number | null; text: string; formula: string; coverage?: number | null; is_estimate?: boolean }[];
+  quality: {
+    payments_present: boolean;
+    external_counterparties: number;
+    excluded_self_payments: number;
+    excluded_outlier_counterparties: number;
+    industry: { known_amount: number; total_amount: number; coverage: number; unknown_share: number };
+    counterparty: { known_amount: number; total_amount: number; coverage: number; unknown_share: number };
+    region: { known_amount: number; total_amount: number; coverage: number; unknown_share: number };
+  };
+  indirect: {
+    company_id: string; intermediaries_checked: number; limitation: string;
+    paths: { intermediary_id: string; counterparty_id: string; intermediary_name: string; intermediary_industry: string | null; counterparty_name: string; counterparty_industry: string | null; first_share_basis: string; second_share_basis: string; first_amount: number; first_share: number; second_amount: number; second_share: number; conditional_link_index: number; direction: string; industry: string | null; coverage: number; limitation: string }[];
+  } | null;
+}
+
 export type Role = 'owner' | 'ceo' | 'cfo' | 'chief_accountant' | 'treasury' | 'other';
 
 export interface Persona {
@@ -249,6 +267,11 @@ export interface PersonaInputs {
   /** валютная выручка в месяц — если API её принимает */
   fx_revenue_month_rub?: number | null;
   fx_purchases_month_rub: number | null;
+  fx_currency?: string | null;
+  fx_base_rate?: number | null;
+  fx_scenario_rate?: number | null;
+  current_rate_pct?: number | null;
+  scenario_rate_pct?: number | null;
   fuel_purchase_month_t: number | null;
   updated_at?: string | null;
 }

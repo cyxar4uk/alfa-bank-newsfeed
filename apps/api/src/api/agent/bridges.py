@@ -26,6 +26,8 @@ from api.agent.ports import (
 )
 from api.contract import GroupImpact as Coverage
 from api.contract import Source
+from api.okved import sector_for
+from api.profile import display_name
 
 _CHANNEL_FACTOR = {"buyers": "demand", "suppliers": "supply"}
 
@@ -143,6 +145,44 @@ class ServiceCompanyData(ProfileCompanyData):
             )
         return out
 
+    def indirect_chain(self, company_id, event: Source) -> list[str]:
+        """Формулировки ограниченного второго шага; отдельно от подтверждённых каналов и refs."""
+        fn = optional("api.indirect", "indirect_dependencies")
+        if fn is None:
+            return []
+        try:
+            result = fn(self.repo, company_id, list(event.tags.okved) or None)
+        except Exception:
+            return []
+        if result is None:
+            return []
+        texts = []
+        for path in result.paths[:5]:
+            intermediary = self.repo.get_company(path.intermediary_id)
+            counterparty = self.repo.get_company(path.counterparty_id)
+            intermediary_name = display_name(intermediary, path.intermediary_id)
+            counterparty_name = display_name(counterparty, path.counterparty_id)
+            intermediary_sector = sector_for(intermediary.okved_code) if intermediary else None
+            counterparty_sector = path.industry or (
+                sector_for(counterparty.okved_code) if counterparty else None
+            )
+            if path.direction.startswith("поступления"):
+                first_basis = "всех внешних поступлений компании"
+                second_basis = "всех внешних поступлений посредника"
+            else:
+                first_basis = "всех внешних платежей компании"
+                second_basis = "всех внешних платежей посредника"
+            texts.append(
+                f"Наблюдаемый путь: {path.direction}; посредник — {intermediary_name} "
+                f"(отрасль: {intermediary_sector or 'не определена'}), конечный контрагент — "
+                f"{counterparty_name} (отрасль: {counterparty_sector or 'не определена'}). "
+                f"Доля первого плеча — {path.first_share:.1%} {first_basis}; "
+                f"доля второго плеча — {path.second_share:.1%} {second_basis}. "
+                f"Условный индекс связи — {path.conditional_link_index:.1%}; это не вероятность события "
+                f"и не оценка убытка. Покрытие отрасли второго плеча — {path.coverage:.0%}."
+            )
+        return texts
+
     def counterparty_chain(self, company_id, event: Source):
         if self._chain_fn is None:
             return super().counterparty_chain(company_id, event)
@@ -189,6 +229,7 @@ def _event_from_news(item, body: str | None = None) -> Event:
     source = Source.model_validate(item.model_dump(include=set(Source.model_fields)))
     return Event(
         source=source,
+        structured_event=getattr(item, "structured_event", None),
         factors=[
             FactorTag(code=f.code, strength=f.strength, evidence=list(f.evidence)) for f in item.factors
         ],

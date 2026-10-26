@@ -10,6 +10,7 @@ from api.chain import MIN_SHARE, build_chain
 from api.contract import (
     CompanyProfile,
     ExposureMap,
+    Feature,
     Feed,
     FeedItem,
     FeedRelevance,
@@ -48,14 +49,29 @@ def company_profile(repo: CompanyRepo, company_id: str) -> CompanyProfile | None
         size, members = repo.group(company.group_id, exclude=company.id, limit=GROUP_MEMBERS_SHOWN)
         stats = repo.group_stats([company.group_id]).get(company.group_id)
         group_revenue = stats.revenue if stats else None
-    return build_profile(
+    flows = repo.flows(company.id)
+    profile = build_profile(
         company,
-        repo.flows(company.id),
+        flows,
         group_size=size,
         group_members=members,
         industry=repo.industry(company),
         group_revenue=group_revenue,
     )
+    # Рассчитанный показатель имеет отдельную опору: модель может сослаться на него,
+    # а проверка утверждений — найти точное значение, базу и формулу в профиле.
+    for item in company_indicators(company, flows):
+        profile.features.append(
+            Feature(
+                id=f"feat:indicator_{item.code}",
+                label=item.label,
+                value=item.value,
+                display=f"{item.text}. Как рассчитано: {item.formula}",
+                source="derived",
+                derived_from=["payments"],
+            )
+        )
+    return profile
 
 
 def company_exposure(repo: CompanyRepo, company_id: str) -> ExposureMap | None:
