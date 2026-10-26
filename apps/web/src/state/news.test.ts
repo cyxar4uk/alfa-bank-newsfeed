@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Briefing, CompanyExposure, FeedItem, Insight } from '../api/types.ts';
-import { chainOf, levelOf, matchFeed, newsScreen, plain, whyOf, type NewsState } from './news.ts';
+import { bankOf, chainOf, levelOf, matchFeed, newsScreen, plain, whyOf, type NewsState } from './news.ts';
 
 function item(id: string, score: number, codes: string[], extra: Partial<FeedItem> = {}): FeedItem {
   return {
@@ -212,4 +212,11 @@ test('фильтр по теме, которой нет, не действует
   const weak = newsScreen({ ...base, feed: { ...feed, items: [item('w', 0.2, ['rate'])] } });
   assert.deepEqual(weak.day, []);
   assert.equal(weak.events.length, 1);
+});
+
+test('для руководителя: «направление пока неясно» → «влияние неоднозначно», непринятая позиция банка — не позиция', () => {
+  assert.equal(plain('Курс доллара — направление пока неясно: 15 компаний'), 'Курс доллара — влияние неоднозначно: 15 компаний');
+  const unconfirmed = { ...lead, bank_position: { statement: 'Позицию Альфа-Банка по этой теме подтвердить не удалось' }, bank_view: [] } as unknown as Insight;
+  assert.equal(bankOf(unconfirmed), null);
+  assert.ok(bankOf(lead));
 });

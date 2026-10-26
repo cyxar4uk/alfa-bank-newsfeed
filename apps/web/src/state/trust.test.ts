@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Insight, RiskMap } from '../api/types.ts';
-import { claimsOf, outdatedSignals, readinessOf } from './trust.ts';
+import { claimsOf, managerLabel, outdatedSignals, readinessOf } from './trust.ts';
 
 test('готовность разбора: insight_state главнее старого insight_ready', () => {
   assert.equal(readinessOf({ insight_state: 'ready' }), 'ready');
@@ -62,4 +62,11 @@ test('прогноз банка разошёлся: факторы карты и
   const lead = { event: { title: 'Нефть дорожает' }, bank_position: { statement: 'Банк ждал Urals $63', outdated: true } } as Insight;
   assert.deepEqual(outdatedSignals(null, lead), [{ topic: 'Нефть дорожает', text: 'Банк ждал Urals $63 — прогноз устарел' }]);
   assert.deepEqual(outdatedSignals(null, null), []);
+});
+
+test('кнопка менеджеру: с названием продукта, у уже подключённого — «Проверить условия»', () => {
+  assert.equal(managerLabel(undefined), 'Оставить заявку менеджеру');
+  assert.equal(managerLabel([{ code: 'fx', name: 'Форвард на валютную выручку', owned: false }]), 'Обсудить с менеджером: форвард на валютную выручку');
+  assert.equal(managerLabel([{ code: 'fx', name: 'Форвард на валютную выручку', owned: true }]), 'Проверить условия: форвард на валютную выручку');
+  assert.equal(managerLabel([{ code: 'x', name: 'ВЭД-платежи' }]), 'Обсудить с менеджером: ВЭД-платежи');
 });
