@@ -57,21 +57,12 @@ DEFAULT_FALLBACK_MODELS: dict[str, str] = {
     "z-ai/glm-5.3-flash": "deepseek/deepseek-v4.1-flash",
 }
 
-RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
-# при 400 шлюз часто не принимает необязательные параметры (reasoning, response_format): повтор без них
-OPTIONAL_PARAMS = ("reasoning", "response_format")
+# параметры, понятные любому OpenAI-совместимому провайдеру; остальное при ответе 400 отбрасывается
 # ₽ за миллион токенов — запасной расчёт, когда шлюз не вернул usage.cost (грубо, с запасом вверх)
 FALLBACK_RUB_PER_MTOK = {"in": 15.0, "out": 70.0}
 FALLBACK_CHEAP_PER_MTOK = {"in": 2.0, "out": 8.0}  # Gemma и другие малые модели
-_PARAM_WORDS = ("reasoning", "response_format", "unsupported", "parameter", "param", "not supported")
-
-
-def _mentions_params(text: str) -> bool:
-    """400 из-за необязательных параметров, а не из-за длины контекста или схемы."""
-    low = (text or "").lower()
-    return any(w in low for w in _PARAM_WORDS)
-
-
+STANDARD_PARAMS = frozenset({"model", "messages", "max_tokens", "temperature"})
+RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
 MAX_TOKENS_CAP = 16000
 
 
@@ -175,6 +166,7 @@ class LlmClient:
         models: dict[str, str] | None = None,
         step_params: dict[str, dict] | None = None,
         fallbacks: dict[str, str] | None = None,
+        allow_any_model: bool = False,
         max_attempts: int = 4,
         validation_attempts: int = 2,
         backoff: float = 2.0,
@@ -189,15 +181,22 @@ class LlmClient:
         self.step_params = {**DEFAULT_STEP_PARAMS, **(step_params or {})}
         # None — запасные по умолчанию, {} — без запасных
         self.fallbacks = dict(DEFAULT_FALLBACK_MODELS if fallbacks is None else fallbacks)
-        unknown = {m for m in [*self.models.values(), *self.fallbacks.values()] if m not in ALLOWED_MODELS}
-        if unknown:
-            raise ValueError(f"модели не из списка кейса: {', '.join(sorted(unknown))}")
+        self.allow_any_model = allow_any_model
+        unknown = {m for m in [*self.models.values(), *self.fallbacks.values()] if not self._allowed(m)}
+        if unknown and not allow_any_model:
+            raise ValueError(
+                f"модели не из списка кейса: {', '.join(sorted(unknown))}"
+                " (LLM_ALLOW_ANY_MODEL=true принимает любые id провайдера)"
+            )
         self.max_attempts = max_attempts
         self.validation_attempts = validation_attempts
         self.backoff = backoff
         self._sleep = sleep
         self._now = now
         self._upstream: tuple[float, float | None] = (0.0, None)  # (когда спросили, остаток)
+
+    def _allowed(self, model: str) -> bool:
+        return self.allow_any_model or model in ALLOWED_MODELS
 
     def upstream_remaining(self, ttl: float = 60.0) -> float | None:
         """Остаток суточного бюджета ключа у шлюза, ₽ (общий на всю команду); неизвестен — None.
@@ -240,7 +239,7 @@ class LlmClient:
     ) -> Completion[T]:
         """Вызвать модель шага. Со `schema` — вернуть проверенный объект или поднять LlmBadResponse."""
         model = model or self.model_for(step)
-        if model not in ALLOWED_MODELS:
+        if not self._allowed(model):
             raise ValueError(f"модель {model} не из списка кейса")
         messages = list(messages)
         if schema is not None:
@@ -362,7 +361,6 @@ class LlmClient:
         model = body["model"]
         error = ""
         lost = 0  # обрывы после отправки: запрос мог дойти и быть оплачен — повторяем только один раз
-        stripped = False  # один повтор после 400 без необязательных параметров
         for n in range(1, self.max_attempts + 1):
             self.budget.check()
             started = time.monotonic()
@@ -395,23 +393,10 @@ class LlmClient:
                     )
                 )
                 error = f"модель ответила с кодом {resp.status}"
-                if (
-                    resp.status == 400
-                    and not stripped
-                    and any(k in body for k in OPTIONAL_PARAMS)
-                    and _mentions_params(resp.text)
-                ):
-                    stripped = True
-                    self._log(
-                        CallRecord(
-                            step=step,
-                            model=model,
-                            attempt=attempt,
-                            ok=False,
-                            error="шлюз не принял параметры — повтор без reasoning и response_format",
-                        )
-                    )
-                    body = {k: v for k, v in body.items() if k not in OPTIONAL_PARAMS}
+                extra = {k for k in body if k not in STANDARD_PARAMS}
+                if resp.status == 400 and extra:
+                    # провайдер не знает нестандартных параметров (reasoning, …) — повтор без них
+                    body = {k: v for k, v in body.items() if k in STANDARD_PARAMS}
                     continue
                 if resp.status in RETRY_STATUSES or (resp.status == 200 and choice is None):
                     self._pause(n)
@@ -498,4 +483,5 @@ def client_from_settings(settings) -> "LlmClient | None":
         models=settings.llm_models,
         step_params=settings.llm_step_params,
         fallbacks={**DEFAULT_FALLBACK_MODELS, **settings.llm_fallbacks},
+        allow_any_model=settings.llm_allow_any_model,
     )

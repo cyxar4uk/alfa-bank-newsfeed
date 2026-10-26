@@ -44,6 +44,7 @@ from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
 from api.precompute import Precompute, PrecomputeStatus
+from api.products import attach_products
 from api.profile import LARGE_REVENUE, display_name
 from api.ranking import MSK
 from api.repo import CompanyRepo, PgCompanyRepo
@@ -93,15 +94,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.connections = PgConnections(pool)
     inputs.STORE = PgInputs(pool)
     # агент ищет новости и аналитику банка через app.state.search
+    app.state.agent_error = None
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))
         # задачи, прерванные перезапуском, — failed, а не «идёт» вечно; только здесь: прогрев из того же
         # контейнера не должен ронять задачи работающего API
         app.state.agent.jobs.recover()
-    except Exception:
+    except Exception as exc:
         # агент не поднялся (опечатка в LLM_MODELS, битые файлы материалов) — остальное API работает
         logger.exception("агент не запустился")
         app.state.agent = None
+        app.state.agent_error = f"{type(exc).__name__}: {exc}"[:300]
     if settings.feed_warmup:
         threading.Thread(target=warm_feeds, args=(app.state,), name="warm-feeds", daemon=True).start()
     app.state.precompute = make_precompute(app.state, settings)
@@ -307,7 +310,7 @@ def precompute_status(request: Request) -> PrecomputeStatus:
 
 
 @app.get("/api/health", response_model=Health, tags=["служебное"])
-def health(repo: Repo, response: Response) -> Health:
+def health(request: Request, repo: Repo, response: Response) -> Health:
     try:
         files = repo.imported_files()
     except Exception:
@@ -324,7 +327,14 @@ def health(repo: Repo, response: Response) -> Health:
         elif not loaded[name].rows_loaded:
             warnings.append(f"файл {name} загружен, но в нём нет ни одной годной строки")
     # API живо — отвечаем 200, а нехватку данных показываем в статусе и предупреждениях
-    return Health(status="degraded" if warnings else "ok", db="ok", data=files, warnings=warnings)
+    status = "degraded" if warnings else "ok"
+    # агент — не данные: причина, почему он не отвечает, — в предупреждениях, статус от неё не меняется
+    agent = getattr(request.app.state, "agent", None)
+    if agent is None and getattr(request.app.state, "agent_error", None):
+        warnings.append(f"агент не запустился: {request.app.state.agent_error}")
+    elif agent is not None and agent.llm is None:
+        warnings.append("агент выключен: не заданы LLM_API_KEY и LLM_BASE_URL (в .env или в окружении)")
+    return Health(status=status, db="ok", data=files, warnings=warnings)
 
 
 @app.get("/api/companies", response_model=list[CompanySummary], tags=["компании"])
@@ -533,6 +543,7 @@ def build_feed(
             feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
     # уровень, однажды показанный, — тот же в дне, неделе и карточке (api.levels); сюжеты недели берут его же
     feed = LEVELS.pin(feed, exposure)
+    attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
     if events is not None:
         feed = finish_week(feed, events, news, now, limit, exposure)
     return feed
@@ -604,7 +615,10 @@ def search_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     _mark_ready(getattr(request.app.state, "agent", None), feed)
-    return LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
+    exposure = company_exposure(repo, feed.company_id)
+    feed = LEVELS.pin(feed, exposure, remember=False)
+    attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
+    return feed
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])

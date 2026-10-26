@@ -369,19 +369,3 @@ def test_judge_marks_the_contradicting_risk():
     marked = {(i.block, i.index) for i in report.issues if i.check == "verdict"}
     assert ("verdict", 0) in marked and ("risks", 1) in marked
     assert ("risks", 1) in report.hard_at()
-
-
-def test_gateway_400_not_about_params_is_not_retried(tmp_path):
-    import json as _json
-
-    from test_llm import Answer, FakeTransport, make_client, ok
-
-    from api.llm import LlmUnavailable, TransportResponse
-
-    body = {"error": {"message": "context length exceeded"}}
-    transport = FakeTransport(TransportResponse(400, body, _json.dumps(body)), ok('{"answer": "a", "n": 1}'))
-    try:
-        make_client(transport, tmp_path).complete("draft", [{"role": "user", "content": "x"}], schema=Answer)
-    except LlmUnavailable:
-        pass
-    assert len(transport.bodies) == 1  # 400 не про параметры — повтора нет

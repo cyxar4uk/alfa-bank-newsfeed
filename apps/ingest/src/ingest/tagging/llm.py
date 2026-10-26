@@ -7,6 +7,7 @@
 """
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Protocol
@@ -14,7 +15,7 @@ from typing import Protocol
 from ingest.models import FactorLink, SectorLink, Source, Tags
 from ingest.tagging.rules import Dictionaries, load_dictionaries, prepare
 
-DEFAULT_MODEL = "google/gemma-4-26b-a4b-it"
+DEFAULT_MODEL = os.environ.get("LLM_PARSER_MODEL") or "google/gemma-4-26b-a4b-it"
 EVIDENCE_MIN_CHARS = 4
 
 

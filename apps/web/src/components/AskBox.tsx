@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { AskAnswer, Insight } from '../api/types';
 import { Icon } from './Icon';
 import { StatementList, type RefIndex } from './Statement';
+import { topicFields, topicQuestions, type NumberField, type Topic } from '../state/topic';
 import { fromInputs, numbersQuestion, readNumbers, saveNumbers, toInputs, type MyNumbers, type RateType } from '../state/mynumbers';
 
 type Entry =
@@ -12,15 +13,12 @@ type Entry =
 
 const MAX_LENGTH = 500;
 
-/** Подсказки-вопросы: с цифрами и про действия — то, чего пользователям не хватило; дальше — по составу разбора. */
-function suggestionsFor(insight: Insight): string[] {
-  const text = [insight.event.title, ...insight.why_it_matters.map((s) => s.text)].join(' ').toLowerCase();
-  const list: string[] = ['Сколько это в рублях?'];
-  if (/ставк/.test(text)) list.push('Что будет при ставке 12 %?');
-  list.push('Что поручить и кому?');
+/** Подсказки-вопросы: с цифрами под тему события, потом общие и по составу разбора. */
+function suggestionsFor(insight: Insight, topic: Topic): string[] {
+  const list = [...topicQuestions(topic), 'Что поручить и кому?'];
   if (insight.bank_view.length > 0) list.push('Как это оценивает Альфа-Банк?');
   if (insight.exposure?.channels.some((c) => c.kind !== 'direct')) list.push('Через каких контрагентов нас это задевает?');
-  return list.slice(0, 4);
+  return [...new Set(list)].slice(0, 4);
 }
 
 /** Черновик вопроса живёт в sessionStorage: перерисовка или возврат на карточку его не теряют. */
@@ -42,7 +40,19 @@ function saveDraft(insightId: string, text: string) {
 }
 
 /** Уточняющий вопрос по разбору: подсказки по контексту события, ответы с источниками. */
-export function AskBox({ insight, personaId, index }: { insight: Insight; personaId: string; index: RefIndex }) {
+export function AskBox({
+  insight,
+  personaId,
+  index,
+  topic = 'other',
+}: {
+  insight: Insight;
+  personaId: string;
+  index: RefIndex;
+  topic?: Topic;
+}) {
+  const [allFields, setAllFields] = useState(false);
+  const fields = allFields ? (['debt', 'fxRevenue', 'fx', 'fuel'] as NumberField[]) : topicFields(topic);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState(() => readDraft(insight.id));
   const [nums, setNums] = useState<MyNumbers>(() => readNumbers(personaId));
@@ -68,8 +78,11 @@ export function AskBox({ insight, personaId, index }: { insight: Insight; person
     setNumsNote(null);
     try {
       const saved = await api.saveInputs(personaId, toInputs(nums));
-      if (saved) setNumsNote('Сохранено. Агент возьмёт ваши числа в расчёт — строки с рублями появятся в разборе.');
-      else void ask(numbersQ);
+      if (saved === true) setNumsNote('Сохранено. Агент возьмёт ваши числа в расчёт — строки с рублями появятся в разборе.');
+      else if (saved === 'partial') {
+        setNumsNote('Сохранено, кроме валютной выручки — её передаём агенту вопросом.');
+        void ask(numbersQ);
+      } else void ask(numbersQ);
     } catch {
       setNumsNote('Не удалось сохранить числа — попробуйте ещё раз.');
     } finally {
@@ -125,7 +138,7 @@ export function AskBox({ insight, personaId, index }: { insight: Insight; person
         Спросить о разборе
       </h2>
       <div className="ask__suggestions" role="group" aria-label="Подсказки-вопросы">
-        {suggestionsFor(insight).map((s) => (
+        {suggestionsFor(insight, topic).map((s) => (
           <button key={s} type="button" className="chip" disabled={busy} onClick={() => void ask(s)}>
             {s}
           </button>
@@ -145,26 +158,45 @@ export function AskBox({ insight, personaId, index }: { insight: Insight; person
             void recalc();
           }}
         >
-          <label className="mynums__field">
-            <span>Мой долг, млн ₽</span>
-            <input className="field" inputMode="decimal" value={nums.debt} onChange={(e) => setNum({ debt: e.target.value })} placeholder="например, 2 000" />
-          </label>
-          <label className="mynums__field">
-            <span>Ставка по долгу</span>
-            <select className="field" value={nums.rate} onChange={(e) => setNum({ rate: e.target.value as RateType })}>
-              <option value="unknown">Не знаю</option>
-              <option value="floating">Плавающая</option>
-              <option value="fixed">Фиксированная</option>
-            </select>
-          </label>
-          <label className="mynums__field">
-            <span>Валютные закупки в месяц, млн ₽</span>
-            <input className="field" inputMode="decimal" value={nums.fx} onChange={(e) => setNum({ fx: e.target.value })} placeholder="например, 150" />
-          </label>
-          <label className="mynums__field">
-            <span>Закупка топлива в месяц, тонн</span>
-            <input className="field" inputMode="decimal" value={nums.fuel} onChange={(e) => setNum({ fuel: e.target.value })} placeholder="например, 1 200" />
-          </label>
+          {fields.includes('debt') && (
+            <>
+              <label className="mynums__field">
+                <span>Мой долг, млн ₽</span>
+                <input className="field" inputMode="decimal" value={nums.debt} onChange={(e) => setNum({ debt: e.target.value })} placeholder="например, 2 000" />
+              </label>
+              <label className="mynums__field">
+                <span>Ставка по долгу</span>
+                <select className="field" value={nums.rate} onChange={(e) => setNum({ rate: e.target.value as RateType })}>
+                  <option value="unknown">Не знаю</option>
+                  <option value="floating">Плавающая</option>
+                  <option value="fixed">Фиксированная</option>
+                </select>
+              </label>
+            </>
+          )}
+          {fields.includes('fxRevenue') && (
+            <label className="mynums__field">
+              <span>Валютная выручка в месяц, млн ₽</span>
+              <input className="field" inputMode="decimal" value={nums.fxRevenue} onChange={(e) => setNum({ fxRevenue: e.target.value })} placeholder="например, 400" />
+            </label>
+          )}
+          {fields.includes('fx') && (
+            <label className="mynums__field">
+              <span>Валютные закупки в месяц, млн ₽</span>
+              <input className="field" inputMode="decimal" value={nums.fx} onChange={(e) => setNum({ fx: e.target.value })} placeholder="например, 150" />
+            </label>
+          )}
+          {fields.includes('fuel') && (
+            <label className="mynums__field">
+              <span>Закупка топлива в месяц, тонн</span>
+              <input className="field" inputMode="decimal" value={nums.fuel} onChange={(e) => setNum({ fuel: e.target.value })} placeholder="например, 1 200" />
+            </label>
+          )}
+          {!allFields && fields.length < 4 && (
+            <button type="button" className="link-button mynums__more" onClick={() => setAllFields(true)}>
+              Ещё поля: долг, валюта, топливо
+            </button>
+          )}
           <p className="mynums__hint">Пересчёт делает агент по формулам разбора — с допущениями и источниками. Заполните то, что знаете.</p>
           <button type="submit" className="btn btn--secondary btn--s" disabled={busy || numsBusy || !numbersQ}>
             Пересчитать для моих чисел

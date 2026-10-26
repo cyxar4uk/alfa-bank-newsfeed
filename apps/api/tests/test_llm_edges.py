@@ -17,10 +17,11 @@ def test_budget_phrase_in_model_answer_does_not_stop_service(tmp_path):
 
 def test_upstream_error_text_stays_in_journal(tmp_path):
     body = '{"error": {"message": "internal: upstream db=10.0.0.5 failed"}}'
-    client = make_client(FakeTransport(TransportResponse(422, json.loads(body), body)), tmp_path)
+    bad = TransportResponse(400, json.loads(body), body)
+    client = make_client(FakeTransport(bad, bad), tmp_path)
     with pytest.raises(LlmUnavailable) as exc:
         client.complete("draft", MESSAGES)
-    assert "10.0.0.5" not in str(exc.value) and "422" in str(exc.value)
+    assert "10.0.0.5" not in str(exc.value) and "400" in str(exc.value)
     assert "10.0.0.5" in (tmp_path / "calls.jsonl").read_text(encoding="utf-8")
 
 
@@ -104,3 +105,21 @@ def test_fallback_keeps_reasoning_off(tmp_path):
     client.complete("draft", MESSAGES, schema=Answer)
     assert transport.bodies[-1]["model"] == "z-ai/glm-5.3-flash"
     assert transport.bodies[-1]["reasoning"] == {"enabled": False}
+
+
+def test_400_is_retried_once_without_nonstandard_params(tmp_path):
+    bad = TransportResponse(400, {"error": {"message": "unknown field reasoning"}}, "unknown field reasoning")
+    transport = FakeTransport(bad, ok('{"answer": "a", "n": 1}'))
+    client = make_client(transport, tmp_path)
+    assert client.complete("draft", MESSAGES, schema=Answer).value.answer == "a"
+    assert "reasoning" in transport.bodies[0] and "response_format" in transport.bodies[0]
+    assert "reasoning" not in transport.bodies[1] and "response_format" not in transport.bodies[1]
+
+
+def test_any_model_id_with_flag(tmp_path):
+    with pytest.raises(ValueError):
+        make_client(FakeTransport(), tmp_path, models={"draft": "vendor/other-model"})
+    client = make_client(
+        FakeTransport(ok("{}")), tmp_path, models={"draft": "vendor/other-model"}, allow_any_model=True
+    )
+    assert client.model_for("draft") == "vendor/other-model"

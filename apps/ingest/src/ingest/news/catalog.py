@@ -25,6 +25,7 @@ class CatalogSource(BaseModel):
     about: str = Field(min_length=1)
     benefit: str = Field(min_length=1)
     access: str = Field(min_length=1)
+    full_text: str = Field(min_length=1, description="берём ли полный текст и почему — решение по условиям источника")
     industries: list[str] = Field(
         default_factory=list, description="префиксы ОКВЭД, для которых источник особенно полезен; пусто — для всех"
     )

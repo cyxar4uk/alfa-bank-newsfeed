@@ -6548,6 +6548,11 @@ a:hover .thumb img,
   font-size: 15px;
 }
 
+.mynums__more {
+  justify-self: start;
+  font-size: 13px;
+}
+
 .mynums__hint {
   color: var(--ink-3);
   font-size: 12px;
@@ -6556,6 +6561,283 @@ a:hover .thumb img,
 
 .mynums__form .btn {
   justify-self: start;
+}
+
+/* ─── Доверие: разбор готов, проверка утверждений, прогноз банка разошёлся ─── */
+.row-marks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.ready-mark {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.event-row__source .ready-mark {
+  margin-left: 8px;
+}
+
+.ready-mark--ready {
+  color: var(--ok-text);
+}
+
+.ready-mark--queued {
+  color: var(--ink-3);
+}
+
+.ready-mark__dot {
+  width: 8px;
+  height: 8px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.claims__toggle {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-chip);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.claims--ok .claims__toggle {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.claims__toggle .flip {
+  transform: rotate(180deg);
+}
+
+.claims__list {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.claims__row {
+  display: grid;
+  gap: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+}
+
+.claims__row--verified {
+  border-left-color: var(--ok);
+}
+
+.claims__row--partly {
+  border-left-color: var(--warn);
+}
+
+.claims__row--hypothesis {
+  border-left-color: var(--origin-ai);
+}
+
+.claims__status {
+  color: var(--ink-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.claims__support {
+  display: grid;
+  gap: 3px;
+}
+
+.claims__src {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.claims__src svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.claims__src b {
+  font-weight: 500;
+}
+
+.claims__unsupported {
+  color: var(--level-watch);
+  font-size: 12px;
+}
+
+.claims__src--bank svg {
+  color: var(--origin-bank);
+}
+
+.verdict__outdated {
+  font-weight: 600;
+}
+
+.day-bank__note {
+  display: block;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.verdict__outdated-note {
+  color: var(--ink-2);
+  font-size: 13px;
+}
+
+.outdated {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border-radius: var(--r-control);
+  background: var(--warn-bg);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.outdated__icon {
+  margin-top: 1px;
+  color: var(--level-watch);
+}
+
+.outdated__title {
+  font-weight: 600;
+}
+
+.outdated__list b {
+  font-weight: 500;
+}
+
+/* «По этой теме» под новостью */
+.related {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.related__title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 26px;
+}
+
+.related__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.related__card {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+}
+
+.related__thumb .thumb {
+  width: 100%;
+  height: 112px;
+}
+
+.related__source {
+  color: var(--ink-3);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.related__headline {
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+  text-decoration: none;
+}
+
+.related__headline:hover {
+  color: var(--link);
+}
+
+.related__why {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  color: var(--ink-2);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.related__why svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/* Готовая карточка: вывод слева и шире, статья справа; вывод не прокручивается отдельно (замечание жюри) */
+.verdict__rc {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.verdict__rc-item {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.verdict__rc-item svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.verdict__rc-item--risk svg {
+  color: var(--level-watch);
+}
+
+.verdict__rc-item--chance svg {
+  color: var(--ok-text);
+}
+
+@media (min-width: 1101px) {
+  .article-page--ready {
+    grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+  }
+
+  .article-page--ready > .verdict.side-col {
+    position: static;
+    grid-column: 1;
+    grid-row: 1;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .article-page--ready > .article {
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
