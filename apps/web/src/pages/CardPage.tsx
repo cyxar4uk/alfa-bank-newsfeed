@@ -24,7 +24,7 @@ import { markRead } from '../state/read';
 import { progressOf, stepsOf } from '../state/steps';
 import { useAsync, type AsyncState } from '../state/useAsync';
 import { useInsight } from '../state/useInsight';
-import { capitalize, claimsOf } from '../state/trust';
+import { capitalize, claimsOf, managerLabel } from '../state/trust';
 import { ClaimsCheck } from '../components/TrustParts';
 import { RelatedNews } from '../components/RelatedNews';
 import { topicOf } from '../state/topic';
@@ -302,7 +302,7 @@ function Card({
             aria-expanded={request === 'manager'}
             aria-controls={request === 'manager' ? 'request-form' : undefined}
           >
-            <span>Оставить заявку менеджеру</span>
+            <span>{managerLabel(item?.products)}</span>
             <span className="verdict__manager-hint">Менеджер получит разбор и тему: {topic}</span>
           </button>
           {request && (

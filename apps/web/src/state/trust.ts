@@ -80,6 +80,14 @@ export function capitalize(text: unknown): string {
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
 
+/** Подпись кнопки менеджеру: «Обсудить с менеджером: форвард на валютную выручку»; продукт уже есть — «Проверить условия: …». */
+export function managerLabel(products: FeedItem['products'] | undefined): string {
+  const p = (products ?? []).find((x) => x && x.name);
+  if (!p) return 'Оставить заявку менеджеру';
+  const name = /^.[а-яёa-z]/.test(p.name) ? p.name[0].toLowerCase() + p.name.slice(1) : p.name;
+  return `${p.owned ? 'Проверить условия' : 'Обсудить с менеджером'}: ${name}`;
+}
+
 export interface OutdatedSignal {
   /** «Курс рубля» */
   topic: string;

@@ -451,6 +451,8 @@ export interface FeedItem {
   insight_ready?: boolean | null;
   /** разбор собран заранее (ready), готовится (queued) или не нужен (none) */
   insight_state?: 'ready' | 'queued' | 'none' | null;
+  /** продукты банка под это событие; owned — уже есть у компании */
+  products?: { code: string; name: string; why?: string | null; link?: string | null; owned?: boolean | null }[] | null;
   /** вывод одной фразой с уровнем (07_feedback §3) */
   takeaway?: Takeaway | null;
   /** картинка новости (og:image источника) и значок издания */
