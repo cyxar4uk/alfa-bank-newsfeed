@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, 
 from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
-from api import inputs
+from api import inputs, market
 from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
@@ -40,6 +40,7 @@ from api.images import fetch as fetch_image
 from api.importer import DATA_FILES
 from api.inputs import PgInputs
 from api.levels import LEVELS
+from api.market import PgMarket
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
@@ -92,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.search = SearchRepo(pool)
     app.state.connections = PgConnections(pool)
     inputs.STORE = PgInputs(pool)
+    market.MARKET = PgMarket(pool)
     # агент ищет новости и аналитику банка через app.state.search
     try:
         app.state.agent = build_service(settings, pool, app.state.repo, getattr(app.state, "search", None))

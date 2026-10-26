@@ -10,6 +10,7 @@ import re
 from api.consequence import consequence, is_seller
 from api.contract import ExposureMap, FeedItem, Takeaway
 from api.coverage import coverage_phrase, credit_phrase
+from api.market import factor_line
 from api.short import clean_channel
 
 TEXT_MAX = 160
@@ -194,6 +195,9 @@ def facts(item: FeedItem, key: str, exposure: ExposureMap | None) -> list[str]:
                 found.append(f"кредиты у {m.group(1)} из {m.group(2)} других компаний группы")
         elif not label.startswith("компании группы"):
             found.append(f"{label}: {value}")
+    # рыночная цифра причины (курс, ставка, нефть) из официального ряда — последней: число компании важнее
+    if market := factor_line(key):
+        found.append(market)
     return list(dict.fromkeys(found))
 
 

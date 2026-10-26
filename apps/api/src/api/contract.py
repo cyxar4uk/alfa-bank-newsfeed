@@ -847,6 +847,15 @@ class RiskFactor(BaseModel):
     is_estimate: bool = Field(description="оценка по отрасли, а не факт из данных компании")
     now: RiskNow | None = None
     bank: BankView | None = None
+    market: str | None = Field(
+        default=None,
+        description="рыночная цифра фактора из официального ряда: «курс доллара 80,6 ₽ (ЦБ РФ на 25.10),"
+        " за неделю −2,4 ₽»; ряда нет — null",
+    )
+    market_vs_bank: str | None = Field(
+        default=None,
+        description="прогноз банка против рынка: «банк ждёт 87 ₽ — на 7,9 % выше нынешних 80,6 ₽»",
+    )
     week_counts: list[int] = Field(min_length=7, max_length=7)
     news_count: int
 

@@ -11,9 +11,10 @@ import re
 from collections.abc import Callable
 from typing import Any
 
-from api.bankview import bank_view
+from api.bankview import _ANCHORS, _number, bank_view
 from api.consequence import direction_label
 from api.contract import ExposureMap, FactorExposure, FeedItem, RiskFactor, RiskNow
+from api.market import FACTOR_SERIES, factor_line, gap_to_bank
 from api.numbers import fmt_percent
 from api.ranking import MSK, NewsEvent, RankingConfig
 from api.short import _CODE, _EMPTY_PARENS, _SERVICE
@@ -24,6 +25,8 @@ FACTORS_MIN, FACTORS_MAX = 5, 7
 STRENGTH = {"high": "strong", "medium": "notable", "low": "weak"}
 COVERAGE_LOW = 0.1  # платежи покрывают меньше 10 % выручки — цепочки через контрагентов не оцениваем
 LIMITS_MAX = 4
+# ряд рынка → как найти прогноз банка в его фразе (api.bankview)
+BANK_ANCHORS = {"usd_rub": "доллар по", "key_rate": "ставку", "brent_usd": "Brent"}
 
 
 def why(factor: FactorExposure) -> str:
@@ -118,6 +121,9 @@ def risk_factor(
         )
     bank = bank_view(factor.code, bank_fragments, now.title if now else None, now.date if now else None)
     counts = topic_counts(events, factor.code, days, aliases)
+    series = FACTOR_SERIES.get(factor.code)
+    anchor = BANK_ANCHORS.get(series or "")
+    forecast = _number(bank.text, _ANCHORS[anchor]) if bank and anchor else None
     return RiskFactor(
         code=factor.code,
         label=factor.label,
@@ -126,6 +132,8 @@ def risk_factor(
         is_estimate=factor.estimate,
         now=now,
         bank=bank,
+        market=factor_line(factor.code),
+        market_vs_bank=gap_to_bank(series, forecast) if series and forecast else None,
         week_counts=counts,
         news_count=sum(counts),
     )
