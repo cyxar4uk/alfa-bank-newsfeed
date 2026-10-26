@@ -60,7 +60,8 @@ test('прогноз банка разошёлся: факторы карты и
   } as RiskMap;
   assert.deepEqual(outdatedSignals(map, null), [{ topic: 'Курс рубля', text: 'банк ждал 87 ₽/$, в новостях — 80,6' }]);
   const lead = { event: { title: 'Нефть дорожает' }, bank_position: { statement: 'Банк ждал Urals $63', outdated: true } } as Insight;
-  assert.deepEqual(outdatedSignals(null, lead), [{ topic: 'Нефть дорожает', text: 'Банк ждал Urals $63 — прогноз устарел' }]);
+  // разбор агента — только «есть более свежий материал»: в баннер «разошёлся с фактом» не попадает
+  assert.deepEqual(outdatedSignals(null, lead), []);
   assert.deepEqual(outdatedSignals(null, null), []);
 });
 
