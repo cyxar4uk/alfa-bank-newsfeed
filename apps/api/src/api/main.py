@@ -623,6 +623,10 @@ def search_feed(
     exposure = company_exposure(repo, feed.company_id)
     feed = LEVELS.pin(feed, exposure, remember=False)
     attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
+    if feed.items and not any(i.relevance.score > 0 for i in feed.items):
+        feed.note = f"По запросу «{q}» нашлись новости, но ни одна не касается вашей компании — для справки."
+    elif not feed.items:
+        feed.note = f"По запросу «{q}» новостей не найдено."
     return feed
 
 

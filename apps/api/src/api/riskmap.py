@@ -119,7 +119,17 @@ def risk_factor(
             publisher=event.source.publisher,
             date=published.astimezone(MSK).date() if published else event.event.date,
         )
-    bank = bank_view(factor.code, bank_fragments, now.title if now else None, now.date if now else None)
+    channel = factor.channel.text.casefold() if factor.channel else ""
+    side = ("экспорт",) if "экспорт" in channel and "импорт" not in channel else None
+    if "импорт" in channel and "экспорт" not in channel:
+        side = ("импорт",)
+    bank = bank_view(
+        factor.code,
+        bank_fragments,
+        now.title if now else None,
+        now.date if now else None,
+        prefer=side if factor.code == "ved_logistics" else None,
+    )
     counts = topic_counts(events, factor.code, days, aliases)
     series = FACTOR_SERIES.get(factor.code)
     anchor = BANK_ANCHORS.get(series or "")

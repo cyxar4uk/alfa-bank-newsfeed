@@ -113,6 +113,7 @@ def bank_view(
     fragments_fn: Callable[[list[str], str], list[Any]] | None,
     news_title: str | None = None,
     news_date: dt.date | None = None,
+    prefer: tuple[str, ...] | None = None,
 ) -> BankView | None:
     """Позиция банка по теме `code` или None; `news_title` — свежая новость для сверки «прогноз устарел».
 
@@ -121,6 +122,8 @@ def bank_view(
     if fragments_fn is None or code not in TOPICS:
         return None
     query, stems = TOPICS[code]
+    if prefer:  # направление компании: экспортёру — экспорт, а не «товарный импорт $340 млрд»
+        stems = prefer
     candidates = []
     for rank, fragment in enumerate(fragments_fn([code], query)):
         published = fragment.published_at.astimezone(MSK).date() if fragment.published_at else None

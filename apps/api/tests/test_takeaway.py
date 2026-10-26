@@ -329,3 +329,44 @@ def test_delay_words_do_not_flip_a_real_cut_and_group_chain_is_not_payment_only(
     assert not payment_only(group)
     unknown = item(0.9, code="chain:buyers:56", kind="chain", exposure=None, title="Новость")
     assert not payment_only(unknown)
+
+
+def test_label_must_agree_with_title():
+    from api.topicfit import title_about
+
+    for title, code in (
+        ("Пошлину на иностранный крепкий алкоголь могут повысить в ноябре", "ved_logistics"),
+        ("Виноделы предложили повысить пошлины на вино из недружественных стран", "ved_logistics"),
+        ("Землю — крестьянам // Право аренды государственных участков", "commodity_agro"),
+        ("Новак заявил о готовности поставить дизель", "ved_logistics"),
+        ("Набиуллина заявила о задаче сделать рыночную ипотеку посильной", "rate"),
+        ("ЦБ не спешит // Решение по ставке", "labor"),
+    ):
+        assert not title_about(title, code), title
+    for title, code in (
+        ("Пошлины на экспорт пшеницы выросли", "ved_logistics"),
+        ("Урожай зерна в России снизился", "commodity_agro"),
+        ("ЦБ сохранил ключевую ставку", "rate"),
+        ("Мигрантов по весне считают", "labor"),
+    ):
+        assert title_about(title, code), title
+
+
+def test_title_is_cut_on_word_without_dangling_preposition_and_dots():
+    from api.takeaway import _cut, _end
+
+    cut = _cut("Новак провёл совещание по ситуации на топливном рынке и бензиновой бирже", 45)
+    assert cut.endswith("…") and not cut.endswith(" на…") and "...." not in _end(cut)
+    assert _end(cut) == cut and _end("Готово") == "Готово."
+
+
+def test_tax_deferral_and_growth_words():
+    from api.consequence import consequence
+
+    later = consequence(
+        item(0.6, title="Правительство одобрило отсрочку повышения утильсбора"), "tax_regulation", None
+    )
+    assert later == "Рост налогов и пошлин откладывается — нагрузка пока прежняя"
+    assert "растут" in consequence(
+        item(0.6, title="Утильсбор на автомобили вырастет с 1 декабря"), "tax_regulation", None
+    )
