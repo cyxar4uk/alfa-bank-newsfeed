@@ -207,3 +207,165 @@ def test_card_version_follows_saved_numbers(monkeypatch):
     stamp["value"] = dt.datetime(2026, 10, 26, 9, 0).isoformat()
     assert service.cached(key, PERSONA.id) is None
     assert service.cached(key) is not None  # вопрос и пересчёт по открытой карточке — работают
+
+
+def test_own_news_without_sectors_gets_them_from_the_cheap_model():
+    from agent_fakes import ScriptedTransport, make_llm
+
+    from api.agent.sectors import SectorGuess, SectorGuesses, guess_sectors
+
+    llm = make_llm(
+        ScriptedTransport(
+            reply(
+                SectorGuesses(
+                    items=[SectorGuess(okved="46.71", name="Торговля топливом"), SectorGuess(okved="x")]
+                )
+            )
+        )
+    )
+    found = guess_sectors(llm, make_event())
+    assert [(s.okved, s.via) for s in found] == [("46", "llm")] and found[0].strength == 0.5
+
+
+# --- замечания эксперта жюри ---------------------------------------------------------------------------
+
+
+def test_bank_wording_is_forbidden_in_own_conclusions():
+    from api.agent.checks import Checker
+
+    ai = DraftStatement(
+        text="Банк считает это выгодным для заёмщиков.",
+        origin="ai",
+        refs=["feat:CL_PRODUCT_LOA_MARK"],
+        factor="rate",
+    )
+    report = Checker(make_ctx()).run(good_draft(risks=[ai, *good_draft().risks]))
+    assert ("risks", 0) in report.hard_at() and any(i.check == "bank_quotes" for i in report.issues)
+    central = DraftStatement(
+        text="Банк России считает ставку достаточной.",
+        origin="ai",
+        refs=["feat:CL_PRODUCT_LOA_MARK"],
+        factor="rate",
+    )
+    assert ("risks", 0) not in Checker(make_ctx()).run(good_draft(risks=[central])).hard_at()
+
+
+def test_quote_subject_must_be_the_bank():
+    from agent_fakes import BANK_PAGE
+
+    from api.agent.checks import Checker
+
+    checker = Checker(make_ctx())
+    assert checker.bank_subject("мы ожидаем ее сохранения на текущем значении 14,0%", [BANK_PAGE])
+    monetary = "Решение о бюджетных вводных станет индикатором для денежных властей. Рынок ждёт паузы."
+    assert not checker.bank_subject("станет индикатором для денежных властей", [monetary])
+
+
+def test_money_from_company_data_may_be_repeated():
+    from api.agent.checks import Checker
+
+    ctx = make_ctx()
+    checker = Checker(ctx)
+    assert checker.money_unfounded("Выручка 777 млн ₽ выросла") == ["777 млн ₽"]
+    ctx.profile.features[0].value = 777_000_000
+    assert Checker(ctx).money_unfounded("Выручка 777 млн ₽ выросла") == []
+
+
+def test_dollar_fall_and_ruble_weakness_conflict():
+    from api.agent.checks import Checker
+
+    event = make_event()
+    event.source.title = "Курс доллара опустился до 80,19 рубля"
+    checker = Checker(make_ctx(event=event))
+    assert checker.direction_problem("Рубль у минимумов: ослабление рубля дорожает закупку")
+    assert checker.direction_problem("Рубль стал крепче, импорт дешевеет") is None
+
+
+def test_refs_without_source_are_cut_not_just_reported():
+    from api.agent.loop import prune_refs
+    from api.contract import Consequences, Insight, InsightEvent, Relevance, Statement
+
+    insight = Insight(
+        id="ins:1",
+        event=InsightEvent(title="x"),
+        relevance=Relevance(score=0.5, reason="x", refs=["feat:UNKNOWN"]),
+        why_it_matters=[Statement(text="Данные без признака.", origin="data", refs=["feat:UNKNOWN"])],
+        consequences=Consequences(
+            risks=[Statement(text="Вывод.", origin="ai", refs=["feat:UNKNOWN", "feat:KNOWN"])]
+        ),
+        features_used=["feat:KNOWN"],
+    )
+    cut = prune_refs(insight)
+    assert cut == {"feat:UNKNOWN"} and insight.why_it_matters == []  # data без источника не показываем
+    assert insight.consequences.risks[0].refs == ["feat:KNOWN"] and insight.relevance.refs == []
+    assert insight.unresolved_refs() == set()
+
+
+def test_own_news_is_capped_at_watch():
+    from agent_fakes import fact
+
+    draft = good_draft(what_happened=[fact(refs=["src:news:user-1"])])
+    agent, _ = make_agent(reply(GOOD_PLAN), reply(draft))
+    event = make_event()
+    event.source.id = "src:news:user-1"
+    insight = agent.run(PERSONA, event).insight
+    assert insight.relevance.score <= 0.49 and insight.verdict.level != "act"
+
+
+def test_bank_position_marks_outdated_material():
+    from datetime import date
+
+    from agent_fakes import FRAGMENT
+    from test_agent_verdict import BUDGET_FRAGMENT, TwoMaterials
+
+    from api.agent.loop import _outdated
+
+    ctx = make_ctx(analytics=TwoMaterials().search_alfa_analytics(""))
+    old = next(h for h in ctx.analytics if h.source.id == BUDGET_FRAGMENT)
+    new = next(h for h in ctx.analytics if h.source.id == FRAGMENT)
+    assert old.material_date < new.material_date == date(2026, 9, 11)
+    flag, note = _outdated(ctx, old)
+    assert isinstance(flag, bool) and (note is None or "свежее" in note or "более свежий" in note)
+
+
+def test_other_banks_are_not_alfa_claims():
+    from api.agent.checks import _BANK_CLAIM
+
+    others = ("Банк ВТБ ожидает снижения ставки.", "Центральный банк ожидает паузы.")
+    ours = (
+        "Банк считает это выгодным.",
+        "Альфа-Банк ожидает ставку 14 %.",
+        "По мнению банка, ставка вырастет.",
+    )
+    for text in (*others, "Банковский сектор ожидает роста."):
+        assert not _BANK_CLAIM.search(text), text
+    for text in ours:
+        assert _BANK_CLAIM.search(text), text
+
+
+def test_bank_subject_third_person_and_other_agencies():
+    from api.agent.checks import Checker
+
+    checker = Checker(make_ctx())
+    third = "Аналитики банка ожидают снижения ставки в 2027 году."
+    assert checker.bank_subject("ожидают снижения ставки", [third])
+    other = "Прогноз ЦБ предполагает снижение ставки в 2027 году."
+    assert not checker.bank_subject("предполагает снижение ставки", [other])
+    own_forecast = "Прогноз по курсу рубля остаётся на уровне 87 руб./$."
+    assert checker.bank_subject("остаётся на уровне 87", [own_forecast])
+
+
+def test_judge_marks_the_contradicting_risk():
+    from agent_fakes import FakeCompany, FakeLibrary, ScriptedTransport, make_llm
+
+    from api.agent.drafts import DraftDirection
+    from api.agent.loop import Agent, DirectionVerdict
+    from api.agent.trace import TraceRecorder
+
+    judged = DirectionVerdict(consistent=False, problem="крепкий рубль удешевляет закупку", risk_indexes=[1])
+    agent = Agent(make_llm(ScriptedTransport(reply(judged))), FakeCompany(), FakeLibrary())
+    direction = DraftDirection(what="доллар упал", direction="down", beneficiary="импортёры")
+    report = agent.check(make_ctx(), good_draft(event_direction=direction), TraceRecorder())
+    marked = {(i.block, i.index) for i in report.issues if i.check == "verdict"}
+    assert ("verdict", 0) in marked and ("risks", 1) in marked
+    assert ("risks", 1) in report.hard_at()

@@ -32,16 +32,12 @@ class Plan(BaseModel):
     """Шаг «план»: какие факторы и каналы проверить и что искать."""
 
     factors: list[PlanFactor] = Field(description="2–4 фактора компании, которые стоит проверить")
-    channels: list[Literal["direct", "buyers", "suppliers", "group"]] = Field(
-        description="каналы, по которым событие может дойти до компании"
-    )
     analytics_queries: list[str] = Field(
         description="1–4 коротких поисковых запроса по аналитике Альфа-Банка (2–5 слов)"
     )
     news_queries: list[str] = Field(
         default_factory=list, description="0–2 запроса по другим новостям: ожидания рынка, контекст"
     )
-    need_group: bool = Field(default=False, description="нужно ли смотреть компании группы")
     need_estimates: bool = Field(
         default=False, description="нужен ли расчёт в рублях (ставка, депозит, курс)"
     )
@@ -159,8 +155,19 @@ class DraftAction(BaseModel):
     refs: Refs = Field(default_factory=list)
 
 
+class DraftDirection(BaseModel):
+    what: str = Field(min_length=1, description="что изменилось: «доллар упал до 80,19 ₽»")
+    direction: Literal["up", "down", "flat"] = Field(description="куда: вырос, упал, без изменений")
+    beneficiary: str = Field(default="", description="кому выгодно: «импортёры», «экспортёры», «заёмщики»…")
+
+
 class Draft(BaseModel):
     """Черновик инсайта: итог для руководителя и шесть вопросов кейса с происхождением и ссылками."""
+
+    event_direction: DraftDirection | None = Field(
+        default=None,
+        description="знак события: что изменилось, куда, кому выгодно — итог и риски согласуй с ним",
+    )
 
     verdict: DraftVerdict | None = Field(
         default=None, description="итог: важно ли это компании, почему (с числом), что делать"
