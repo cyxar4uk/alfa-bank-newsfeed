@@ -98,11 +98,11 @@ def test_first_request_returns_status_and_one_build_per_pair(api):
 
 
 def test_failed_build_is_reported_and_can_be_retried(api):
-    error = TransportResponse(400, {"error": "bad"}, '{"error": "bad"}')
+    error = TransportResponse(422, {"error": "bad"}, '{"error": "bad"}')
     client, service = api(ScriptedTransport(reply(GOOD_PLAN), error, reply(GOOD_PLAN), reply(good_draft())))
     assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     failed = wait_status(client, {"failed", "done"})
-    assert failed["status"] == "failed" and "400" in failed["error"] and failed["trace_id"]
+    assert failed["status"] == "failed" and "422" in failed["error"] and failed["trace_id"]
     # повторный запрос после сбоя — новая сборка
     assert client.get(f"/api/insights/{NEWS_ID}", params=ASYNC).status_code == 202
     assert wait_status(client, {"done", "failed"})["status"] == "done"
@@ -251,7 +251,7 @@ def test_default_is_synchronous_for_old_clients(api):
 
 
 def test_failed_own_news_is_rebuilt_by_get(api):
-    error = TransportResponse(400, {"error": "bad"}, '{"error": "bad"}')
+    error = TransportResponse(422, {"error": "bad"}, '{"error": "bad"}')
     client, service = api(ScriptedTransport(reply(GOOD_PLAN), error))
     text = "Совет директоров Банка России сохранил ключевую ставку на уровне 14% годовых."
     r = client.post("/api/analyze", params={"wait": "false"}, json={"persona_id": PERSONA.id, "text": text})

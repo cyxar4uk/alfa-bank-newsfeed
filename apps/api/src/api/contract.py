@@ -471,6 +471,8 @@ class BankPosition(BaseModel):
     date: dt.date | None = Field(default=None, description="дата материала")
     source_id: str | None = Field(default=None, description="фрагмент материала (src:alfa:…)")
     url: str | None = None
+    outdated: bool = Field(default=False, description="по теме есть материал банка свежее этого")
+    outdated_note: str | None = Field(default=None, description="чем устарела: «есть материал от 11.09»")
 
 
 class Quote(BaseModel):

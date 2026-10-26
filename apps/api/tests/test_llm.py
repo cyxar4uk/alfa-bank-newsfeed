@@ -186,9 +186,9 @@ def test_gives_up_after_max_attempts(tmp_path):
 
 
 def test_client_error_is_not_retried(tmp_path):
-    transport = FakeTransport(TransportResponse(400, {"error": {"message": "bad model"}}, '{"error": "bad"}'))
+    transport = FakeTransport(TransportResponse(422, {"error": {"message": "bad model"}}, '{"error": "bad"}'))
     client = make_client(transport, tmp_path)
-    with pytest.raises(LlmUnavailable, match="400"):
+    with pytest.raises(LlmUnavailable, match="422"):
         client.complete("draft", MESSAGES)
     assert len(transport.bodies) == 1
 
@@ -269,3 +269,26 @@ def test_cut_by_length_without_reasoning_gets_one_bigger_try(tmp_path):
     with pytest.raises(LlmBadResponse, match="оборвался на лимите"):
         client.complete("plan", MESSAGES, schema=Answer, max_tokens=500)
     assert [b["max_tokens"] for b in transport.bodies] == [500, 1000]
+
+
+def test_400_retries_once_without_optional_params(tmp_path):
+    transport = FakeTransport(
+        TransportResponse(400, {"error": {"message": "unsupported"}}, '{"error": "unsupported"}'),
+        ok('{"answer": "Москва", "n": 4}'),
+    )
+    client = make_client(transport, tmp_path)
+    assert client.complete("draft", MESSAGES, schema=Answer).value.n == 4
+    assert "response_format" in transport.bodies[0] and "reasoning" in transport.bodies[0]
+    assert "response_format" not in transport.bodies[1] and "reasoning" not in transport.bodies[1]
+
+
+def test_cost_is_estimated_by_tokens_without_usage_cost(tmp_path):
+    data = {
+        "model": "z-ai/glm-5.3-flash",
+        "choices": [{"message": {"content": '{"answer": "a", "n": 1}'}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10000, "completion_tokens": 2000},
+    }
+    transport = FakeTransport(TransportResponse(200, data, json.dumps(data)))
+    client = make_client(transport, tmp_path)
+    client.complete("plan", MESSAGES, schema=Answer)
+    assert 0.2 < client.budget.spent < 0.4  # 10 тыс. токенов на входе и 2 тыс. на выходе

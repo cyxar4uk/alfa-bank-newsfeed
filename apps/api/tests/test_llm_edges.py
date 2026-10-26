@@ -17,10 +17,10 @@ def test_budget_phrase_in_model_answer_does_not_stop_service(tmp_path):
 
 def test_upstream_error_text_stays_in_journal(tmp_path):
     body = '{"error": {"message": "internal: upstream db=10.0.0.5 failed"}}'
-    client = make_client(FakeTransport(TransportResponse(400, json.loads(body), body)), tmp_path)
+    client = make_client(FakeTransport(TransportResponse(422, json.loads(body), body)), tmp_path)
     with pytest.raises(LlmUnavailable) as exc:
         client.complete("draft", MESSAGES)
-    assert "10.0.0.5" not in str(exc.value) and "400" in str(exc.value)
+    assert "10.0.0.5" not in str(exc.value) and "422" in str(exc.value)
     assert "10.0.0.5" in (tmp_path / "calls.jsonl").read_text(encoding="utf-8")
 
 

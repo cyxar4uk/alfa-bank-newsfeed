@@ -58,6 +58,20 @@ DEFAULT_FALLBACK_MODELS: dict[str, str] = {
 }
 
 RETRY_STATUSES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+# при 400 шлюз часто не принимает необязательные параметры (reasoning, response_format): повтор без них
+OPTIONAL_PARAMS = ("reasoning", "response_format")
+# ₽ за миллион токенов — запасной расчёт, когда шлюз не вернул usage.cost (грубо, с запасом вверх)
+FALLBACK_RUB_PER_MTOK = {"in": 15.0, "out": 70.0}
+FALLBACK_CHEAP_PER_MTOK = {"in": 2.0, "out": 8.0}  # Gemma и другие малые модели
+_PARAM_WORDS = ("reasoning", "response_format", "unsupported", "parameter", "param", "not supported")
+
+
+def _mentions_params(text: str) -> bool:
+    """400 из-за необязательных параметров, а не из-за длины контекста или схемы."""
+    low = (text or "").lower()
+    return any(w in low for w in _PARAM_WORDS)
+
+
 MAX_TOKENS_CAP = 16000
 
 
@@ -348,6 +362,7 @@ class LlmClient:
         model = body["model"]
         error = ""
         lost = 0  # обрывы после отправки: запрос мог дойти и быть оплачен — повторяем только один раз
+        stripped = False  # один повтор после 400 без необязательных параметров
         for n in range(1, self.max_attempts + 1):
             self.budget.check()
             started = time.monotonic()
@@ -380,6 +395,24 @@ class LlmClient:
                     )
                 )
                 error = f"модель ответила с кодом {resp.status}"
+                if (
+                    resp.status == 400
+                    and not stripped
+                    and any(k in body for k in OPTIONAL_PARAMS)
+                    and _mentions_params(resp.text)
+                ):
+                    stripped = True
+                    self._log(
+                        CallRecord(
+                            step=step,
+                            model=model,
+                            attempt=attempt,
+                            ok=False,
+                            error="шлюз не принял параметры — повтор без reasoning и response_format",
+                        )
+                    )
+                    body = {k: v for k, v in body.items() if k not in OPTIONAL_PARAMS}
+                    continue
                 if resp.status in RETRY_STATUSES or (resp.status == 200 and choice is None):
                     self._pause(n)
                     continue
@@ -397,8 +430,12 @@ class LlmClient:
                 attempt=attempt,
             )
             if usage.get("cost") is None:
-                # без usage.cost счётчик не видит расход — помечаем в журнале, чтобы это было заметно
-                record.error = "в ответе нет usage.cost — расход не учтён"
+                # без usage.cost считаем по токенам и помечаем в журнале: лимит суток не должен слепнуть
+                price = FALLBACK_CHEAP_PER_MTOK if "gemma" in record.model.lower() else FALLBACK_RUB_PER_MTOK
+                record.cost = (
+                    record.prompt_tokens * price["in"] + record.completion_tokens * price["out"]
+                ) / 1e6
+                record.error = "в ответе нет usage.cost — расход посчитан по токенам"
             # деньги учитываем сразу; в журнал запись попадёт после проверки ответа (ok или ошибка схемы)
             self.budget.add(record.cost)
             message = choice.get("message") or {}
