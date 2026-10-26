@@ -703,6 +703,11 @@ class FeedItem(BaseModel):
         default=None,
         description="карточка уже собрана — GET /api/insights/{event_id} ответит из кэша; null — агента нет",
     )
+    insight_state: Literal["ready", "queued", "none"] = Field(
+        default="none",
+        description="карточка разбора: ready — готова, откроется мгновенно; queued — собирается (заранее,"
+        " api.precompute, или по запросу); none — не собиралась",
+    )
     takeaway: Takeaway | None = Field(default=None, description="вывод: важно ли, почему, что делать")
     image_url: str | None = Field(default=None, description="картинка новости (og:image источника)")
     source_icon_url: str | None = Field(default=None, description="значок издания")

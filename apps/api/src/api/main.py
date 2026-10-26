@@ -11,6 +11,7 @@ from ingest.db.schema import ensure_schema as ensure_search_schema
 from psycopg_pool import ConnectionPool
 
 from api import inputs
+from api.agent.loop import insight_id
 from api.agent.rerank import rerank
 from api.agent.routes import router as agent_router
 from api.agent.service import build_service
@@ -42,6 +43,7 @@ from api.levels import LEVELS
 from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
+from api.precompute import Precompute, PrecomputeStatus
 from api.profile import LARGE_REVENUE, display_name
 from api.ranking import MSK
 from api.repo import CompanyRepo, PgCompanyRepo
@@ -102,9 +104,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.agent = None
     if settings.feed_warmup:
         threading.Thread(target=warm_feeds, args=(app.state,), name="warm-feeds", daemon=True).start()
+    app.state.precompute = make_precompute(app.state, settings)
+    if settings.precompute_enabled and app.state.agent is not None:
+        # первый цикл сразу после старта — это и есть прогрев демо после выкатки
+        app.state.precompute.start(settings.precompute_every_s)
     try:
         yield
     finally:
+        app.state.precompute.shutdown()
         if app.state.agent is not None:
             app.state.agent.jobs.shutdown()  # фоновые сборки не переживут остановку — после старта они failed
         pool.close()
@@ -143,6 +150,29 @@ def warm_one(state, company_id: str, role: str) -> None:
         ("risk", company_id, persona, news.name),
         lambda: company_risk_map(state.repo, news, company_id, persona),
         refresh=True,
+    )
+
+
+def make_precompute(state, settings) -> Precompute:
+    """Планировщик разборов заранее для демо-пользователей; лента — та же, что на экране (кэш лент)."""
+
+    def feed_for(persona: str) -> Feed | None:
+        news = news_for(state)
+        agent = getattr(state, "agent", None)
+        return FEEDS.get_or_compute(
+            (persona, "day", 20, True, news.name),
+            lambda: build_feed(state.repo, news, agent, persona, 20, True, "day"),
+        )
+
+    return Precompute(
+        getattr(state, "agent", None),
+        [persona_id(company_id, role) for company_id, role, _ in DEMO_PERSONAS],
+        feed_for,
+        budget_rub=settings.precompute_budget_rub,
+        per_hour=settings.precompute_per_hour,
+        in_flight=settings.precompute_in_flight,
+        watch=settings.precompute_watch,
+        enabled=settings.precompute_enabled,
     )
 
 
@@ -265,6 +295,15 @@ app.include_router(search_router)
 
 
 app.include_router(agent_router)
+
+
+@app.get("/api/precompute/status", response_model=PrecomputeStatus, tags=["служебное"])
+def precompute_status(request: Request) -> PrecomputeStatus:
+    """Разборы заранее: сколько собрано до открытия, хиты кэша, потрачено за сутки, почему стоит."""
+    pre = getattr(request.app.state, "precompute", None)
+    if pre is None:  # без lifespan (тесты) — планировщик не создан
+        pre = make_precompute(request.app.state, get_settings())
+    return pre.status()
 
 
 @app.get("/api/health", response_model=Health, tags=["служебное"])
@@ -530,8 +569,17 @@ def _mark_ready(agent, feed: Feed) -> None:
         return
     try:
         ready = agent.ready_events([i.event_id for i in feed.items], feed.persona_id)
+        jobs = getattr(agent, "jobs", None)
         for item in feed.items:
             item.insight_ready = item.event_id in ready
+            job = (
+                jobs.get(insight_id(item.event_id, feed.persona_id))
+                if jobs and not item.insight_ready
+                else None
+            )
+            busy = job is not None and job.status in ("queued", "running")
+            # ready — откроется мгновенно; queued — собирается (разбор заранее или по запросу)
+            item.insight_state = "ready" if item.insight_ready else "queued" if busy else "none"
     except Exception:
         logger.warning("не удалось проверить готовые карточки ленты", exc_info=True)
 
