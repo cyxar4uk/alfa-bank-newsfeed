@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Protocol
 
 from ingest.models import FactorLink, SectorLink, Source, Tags
+from ingest.structured_event import parse_event
 from ingest.tagging.rules import Dictionaries, load_dictionaries, prepare
 
 DEFAULT_MODEL = os.environ.get("LLM_PARSER_MODEL") or "google/gemma-4-26b-a4b-it"
@@ -51,7 +52,21 @@ def build_prompt(source: Source, dicts: Dictionaries) -> str:
 Верни JSON без пояснений:
 {{"factors": [{{"code": "...", "strength": 0.0-1.0, "evidence": "дословная цитата из текста"}}],
  "sectors": [{{"okved": "две цифры", "strength": 0.0-1.0, "evidence": "дословная цитата из текста"}}],
- "event_type": "{events} | null"}}
+ "event_type": "{events} | null",
+ "structured_event": {{"schema_version": 1, "extraction_method": "llm", "validation": "exact_quotes_only",
+   "status": {{"value": "adopted | proposed | forecast | opinion", "quote": "полное дословное предложение"}},
+   "direction": {{"value": "increase | decrease | unchanged | mixed | unknown", "negated": false,
+     "time_constraint": null, "quote": "полное дословное предложение"}} | null,
+   "objects": [{{"value": "объект", "quote": "дословная цитата"}}],
+   "geography": [{{"value": "место", "quote": "дословная цитата"}}],
+   "dates": [{{"value": "дата или период", "quote": "дословная цитата"}}],
+   "numbers": [{{"value": "число как в тексте", "unit": "% | п.п. | руб. и т.п.",
+     "period": "дословный период или null", "quote": "дословная цитата с числом и единицей"}}]}}
+Если структурное событие нельзя уверенно извлечь, укажи null. Статус описывает именно степень свершения:
+принятое решение — adopted, внесённая/предложенная мера — proposed, ожидание — forecast, оценка/мнение — opinion.
+Не превращай предложение в принятое решение. Сохраняй отрицание и ограничители времени («не раньше»).
+Не смешивай проценты (%) и процентные пункты (п.п.), не пересчитывай числа и единицы.
+Все quote — полные дословные предложения из текста.
 strength: 1 — событие прямо про этот фактор или отрасль, 0.6 — заметно влияет, 0.3 — косвенно. Не выдумывай связей:
 если связи нет, не включай фактор. evidence — только слова, которые есть в тексте.
 
@@ -96,7 +111,11 @@ def parse_answer(answer: str, source: Source, dicts: Dictionaries, name: str) ->
 
     factors = []
     for item in _items(data, "factors"):
-        code, s, ev = str(item.get("code", "")), _strength(item.get("strength")), evidence(item.get("evidence"))
+        code, s, ev = (
+            str(item.get("code", "")),
+            _strength(item.get("strength")),
+            evidence(item.get("evidence")),
+        )
         if code in known_factors and s and ev:
             factors.append(FactorLink(code=code, name=known_factors[code], strength=s, evidence=ev))
     sectors = []
@@ -104,14 +123,18 @@ def parse_answer(answer: str, source: Source, dicts: Dictionaries, name: str) ->
         okved = str(item.get("okved", "")).strip().zfill(2)[:2]
         s, ev = _strength(item.get("strength")), evidence(item.get("evidence"))
         if okved in known_okved and s and ev:
-            sectors.append(SectorLink(okved=okved, name=dicts.sector_name(okved), strength=s, via="llm", evidence=ev))
+            sectors.append(
+                SectorLink(okved=okved, name=dicts.sector_name(okved), strength=s, via="llm", evidence=ev)
+            )
     event = data.get("event_type")
     known_events = {e.name for e in dicts.event_types}
+    structured_event = parse_event(data.get("structured_event"), source.title, source.fragment)
     return Tags(
         factors=factors,
         sector_links=sectors,
         event_type=event if isinstance(event, str) and event in known_events else None,
         tagged_by=[name],
+        structured_event=structured_event,
     )
 
 
@@ -160,7 +183,10 @@ class ApiLlmTagger:
             self._answers[source.id] = answer
             self.cache.parent.mkdir(parents=True, exist_ok=True)
             with self.cache.open("a", encoding="utf-8") as f:
-                f.write(json.dumps({"id": source.id, "model": self.model, "answer": answer}, ensure_ascii=False) + "\n")
+                f.write(
+                    json.dumps({"id": source.id, "model": self.model, "answer": answer}, ensure_ascii=False)
+                    + "\n"
+                )
         return parse_answer(answer, source, dicts, self.name)
 
 
@@ -190,7 +216,9 @@ def merge_tags(base: Tags, extra: Tags) -> Tags:
             factors[f.code] = f
         elif f.strength > factors[f.code].strength:
             old = factors[f.code]
-            factors[f.code] = old.model_copy(update={"strength": f.strength, "evidence": old.evidence + f.evidence})
+            factors[f.code] = old.model_copy(
+                update={"strength": f.strength, "evidence": old.evidence + f.evidence}
+            )
     sectors = {s.okved: s for s in base.sector_links}
     for s in extra.sector_links:
         if s.okved not in sectors or s.strength > sectors[s.okved].strength:
@@ -209,4 +237,5 @@ def merge_tags(base: Tags, extra: Tags) -> Tags:
         tagged_by=_union(base.tagged_by, extra.tagged_by),
         business=base.business,
         business_reason=base.business_reason,
+        structured_event=extra.structured_event or base.structured_event,
     )

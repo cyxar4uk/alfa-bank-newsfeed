@@ -172,9 +172,24 @@ def test_saved_inputs_map_to_scenarios():
 
 def test_fixed_rate_and_fuel_tonnes():
     fixed = scenarios.rate(2e9, rate_type="fixed").text
-    assert "фиксированная" in fixed and "не изменятся" in fixed and "280 млн ₽" in fixed
+    assert "фиксированная" in fixed and "не изменятся" in fixed
+    assert "280 млн ₽" not in fixed and "14" not in fixed
     tonnes = scenarios.oil(fuel_t=300).text
     assert "300 т" in tonnes and "18,1 %" in tonnes and "38,9 %" in tonnes and "маржа" in tonnes
+
+
+def test_interest_scenario_uses_explicit_contract_rate_not_key_rate():
+    result = scenarios.joint_scenario(
+        scenarios.Inputs(
+            debt=2e9,
+            rate_type="floating",
+            current_rate_pct=17.5,
+            scenario_rate_pct=14,
+        )
+    )
+    assert result is not None
+    assert "17,5% → 14%" in result.text
+    assert "5,8 млн ₽" in result.text
 
 
 def test_card_scenarios_use_saved_numbers():

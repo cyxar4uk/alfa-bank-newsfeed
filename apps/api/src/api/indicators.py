@@ -9,9 +9,8 @@
 from collections import defaultdict
 
 from api.contract import Indicator
-from api.market import market_now
 from api.okved import SECTOR_BY_CODE, okved_prefix
-from api.profile import Flows, aggregate_flows, format_rub, format_share
+from api.profile import Flows, aggregate_flows, countries, format_rub, format_share
 from api.records import CompanyRecord, Flow
 
 GOV_OKVED = "84"  # государственное управление и обеспечение военной безопасности; социальное обеспечение
@@ -101,29 +100,149 @@ def _gov(agg: Flows) -> Indicator | None:
     )
 
 
-def _fx(agg: Flows) -> Indicator | None:
-    """Чувствительность к курсу: оборот с участниками ВЭД, пересчитанный на 1 ₽ курса доллара (оценка)."""
-    fx_turnover = sum(
-        p.out_amount + p.in_amount for p in agg.external() if p.counterparty and p.counterparty.fts_flag
+def _side_concentrations(agg: Flows, out: bool) -> list[Indicator]:
+    pairs = [p for p in agg.external() if (p.out_amount if out else p.in_amount) > 0]
+    amounts = sorted((p.out_amount if out else p.in_amount for p in pairs), reverse=True)
+    total = sum(amounts)
+    if not total:
+        return []
+    side = "платежей поставщикам" if out else "поступлений от покупателей"
+    prefix = "supplier" if out else "customer"
+    result = []
+    for n in (3, 5):
+        share = sum(amounts[:n]) / total
+        label = f"Доля крупнейших {n} {'поставщиков' if out else 'покупателей'}"
+        result.append(
+            Indicator(
+                code=f"top{n}_{prefix}_share",
+                label=label,
+                value=round(share, 4),
+                text=(f"На {n} крупнейших контрагентов приходится {format_share(share)} внешних {side}"),
+                formula=f"сумма {n} крупнейших сумм по внешним контрагентам / все внешние {side}",
+            )
+        )
+    shares = [a / total for a in amounts]
+    hhi = sum(share * share for share in shares)
+    hhi_text = f"{hhi:.4f}".replace(".", ",")
+    result.append(
+        Indicator(
+            code=f"hhi_{prefix}",
+            label=f"Индекс концентрации {'поставщиков' if out else 'покупателей'}",
+            value=round(hhi, 4),
+            text=f"Индекс Херфиндаля — Хиршмана для внешних {side}: {hhi_text}",
+            formula=(
+                f"сумма квадратов долей каждого внешнего контрагента в сумме внешних {side};"
+                " диапазон 0–1"
+            ),
+        )
     )
-    now = market_now("usd_rub")
-    if not fx_turnover or now is None or not now.value:
+    return result
+
+
+def _unknown_coverage(agg: Flows, out: bool) -> list[Indicator]:
+    pairs = [p for p in agg.external() if (p.out_amount if out else p.in_amount) > 0]
+    total = sum(p.out_amount if out else p.in_amount for p in pairs)
+    if not total:
+        return []
+    side = "платежей поставщикам" if out else "поступлений от покупателей"
+    direction = "out" if out else "in"
+    unknown = {
+        "industry": sum(
+            (p.out_amount if out else p.in_amount)
+            for p in pairs
+            if not p.counterparty or not okved_prefix(p.counterparty.okved_code)
+        ),
+        "counterparty": sum((p.out_amount if out else p.in_amount) for p in pairs if not p.counterparty),
+        "region": sum(
+            (p.out_amount if out else p.in_amount)
+            for p in pairs
+            if not p.counterparty or not (p.counterparty.region or p.counterparty.city)
+        ),
+    }
+    labels = {"industry": "отрасль", "counterparty": "контрагент", "region": "регион"}
+    return [
+        Indicator(
+            code=f"unknown_{key}_{direction}_share",
+            label=f"Неизвестна: {labels[key]}",
+            value=round(amount / total, 4),
+            text=(
+                f"Неизвестна {labels[key]} для {format_share(amount / total)} внешних {side} "
+                f"({format_rub(amount)} из {format_rub(total)})"
+            ),
+            formula=(
+                f"сумма внешних {side}, для которых {labels[key]} не указана / "
+                f"все внешние {side} ({format_rub(total)})"
+            ),
+        )
+        for key, amount in unknown.items()
+    ]
+
+
+def _region_concentration(agg: Flows, out: bool) -> Indicator | None:
+    pairs = [p for p in agg.external() if (p.out_amount if out else p.in_amount) > 0]
+    total = sum(p.out_amount if out else p.in_amount for p in pairs)
+    if not total:
         return None
-    per_rub = fx_turnover / now.value
+    by_region: dict[str, float] = defaultdict(float)
+    for pair in pairs:
+        region = (pair.counterparty.region or "").strip() if pair.counterparty else ""
+        if region:
+            by_region[region] += pair.out_amount if out else pair.in_amount
+    if not by_region:
+        return None
+    region, amount = max(by_region.items(), key=lambda item: (item[1], item[0]))
+    side = "внешних платежей поставщикам" if out else "внешних поступлений"
+    direction = "out" if out else "in"
+    share = amount / total  # unknown regions remain in the denominator
     return Indicator(
-        code="fx_sensitivity",
-        label="Чувствительность к курсу",
-        value=round(per_rub, 2),
+        code=f"top_region_share_{direction}",
+        label=f"Крупнейший регион {'поставщиков' if out else 'покупателей'}",
+        value=round(share, 4),
         text=(
-            f"Оборот с участниками ВЭД — {format_rub(fx_turnover)}; если он в долларах, каждый 1 ₽ курса"
-            f" меняет его рублёвую сумму примерно на {format_rub(per_rub)} (оценка)"
+            f"Регион {region} — {format_share(share)} {side} "
+            f"({format_rub(amount)}); неизвестный регион включён в знаменатель"
         ),
-        formula=(
-            "внешний оборот с контрагентами-участниками ВЭД / курс доллара ЦБ на последнюю дату; допущение —"
-            " расчёты с ними в долларах (валюты платежей в данных нет), поэтому это оценка, а не факт"
-        ),
-        is_estimate=True,
+        formula=f"внешние {side} контрагентов из крупнейшего известного региона / все внешние {side}",
     )
+
+
+def _ved_country_membership(agg: Flows, out: bool) -> list[Indicator]:
+    pairs = [pair for pair in agg.external() if (pair.out_amount if out else pair.in_amount) > 0]
+    total = sum(pair.out_amount if out else pair.in_amount for pair in pairs)
+    if not total:
+        return []
+    by_country: dict[str, float] = defaultdict(float)
+    for pair in pairs:
+        cp = pair.counterparty
+        if not cp or cp.fts_flag is not True or not cp.fts_countries:
+            continue
+        amount = pair.out_amount if out else pair.in_amount
+        for country in set(countries(cp.fts_countries)):
+            by_country[country] += amount
+    side = "внешних платежей поставщикам" if out else "внешних поступлений"
+    direction = "out" if out else "in"
+    warning = (
+        "Страна ВЭД не указывает валюту или направление расчётов; одна сумма может относиться к нескольким "
+        "странам, поэтому доли пересекаются и не складываются в долю оборота."
+    )
+    return [
+        Indicator(
+            code=f"ved_country_{direction}_share_{index}",
+            label=f"Участники ВЭД: {country}",
+            value=round(amount / total, 4),
+            text=(
+                f"Контрагенты-участники ВЭД с указанной страной {country} связаны с "
+                f"{format_share(amount / total)} {side}. {warning}"
+            ),
+            formula=(
+                f"внешние {side} контрагентов с флагом ВЭД и страной {country} / все внешние {side}; "
+                "страны множественные, доли пересекаются"
+            ),
+        )
+        for index, (country, amount) in enumerate(
+            sorted(by_country.items(), key=lambda item: (-item[1], item[0]))[:5], start=1
+        )
+    ]
 
 
 def company_indicators(company: CompanyRecord, flows: list[Flow]) -> list[Indicator]:
@@ -134,10 +253,17 @@ def company_indicators(company: CompanyRecord, flows: list[Flow]) -> list[Indica
     found = [
         _concentration(agg, out=False),
         _concentration(agg, out=True),
+        *_side_concentrations(agg, out=False),
+        *_side_concentrations(agg, out=True),
+        *_unknown_coverage(agg, out=False),
+        *_unknown_coverage(agg, out=True),
+        _region_concentration(agg, out=False),
+        _region_concentration(agg, out=True),
+        *_ved_country_membership(agg, out=False),
+        *_ved_country_membership(agg, out=True),
         _side_sectors(agg, out=True),
         _side_sectors(agg, out=False),
         _intra(agg),
         _gov(agg),
-        _fx(agg),
     ]
     return [i for i in found if i is not None]

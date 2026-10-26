@@ -799,15 +799,36 @@ class UserInputsIn(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    debt_rub: float | None = Field(default=None, ge=0, description="долг компании, ₽")
+    debt_rub: float | None = Field(default=None, ge=0, allow_inf_nan=False, description="долг компании, ₽")
     rate_type: Literal["floating", "fixed"] | None = Field(default=None, description="ставка по долгу")
     fx_revenue_month_rub: float | None = Field(
-        default=None, ge=0, description="валютная выручка, ₽/мес (экспортёру)"
+        default=None, ge=0, allow_inf_nan=False, description="валютная выручка, ₽/мес (экспортёру)"
     )
     fx_purchases_month_rub: float | None = Field(
-        default=None, ge=0, description="валютные закупки в месяц, ₽"
+        default=None, ge=0, allow_inf_nan=False, description="валютные закупки в месяц, ₽"
     )
-    fuel_purchase_month_t: float | None = Field(default=None, ge=0, description="закупка топлива в месяц, т")
+    fx_currency: str | None = Field(
+        default=None, pattern=r"^[A-Z]{3}$", description="Код валюты ISO 4217, например USD"
+    )
+    fx_base_rate: float | None = Field(
+        default=None, gt=0, allow_inf_nan=False, description="Базовый курс, ₽ за единицу валюты"
+    )
+    fx_scenario_rate: float | None = Field(
+        default=None, gt=0, allow_inf_nan=False, description="Сценарный курс, ₽ за единицу валюты"
+    )
+    current_rate_pct: float | None = Field(
+        default=None, ge=0, le=100, allow_inf_nan=False, description="Текущая ставка по кредиту, % годовых"
+    )
+    scenario_rate_pct: float | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        allow_inf_nan=False,
+        description="Сценарная процентная ставка, % годовых; сравнивается с текущей ставкой в событиях",
+    )
+    fuel_purchase_month_t: float | None = Field(
+        default=None, ge=0, allow_inf_nan=False, description="закупка топлива в месяц, т"
+    )
 
 
 class UserInputs(UserInputsIn):

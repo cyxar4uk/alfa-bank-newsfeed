@@ -13,7 +13,7 @@ from api.agent.drafts import Draft
 from api.contract import Insight
 
 # поднимать вручную, если поведение изменилось так, что хэш этого не увидит (например, логика сборки)
-LOGIC_REVISION = 6
+LOGIC_REVISION = 7
 
 
 def agent_version(models: dict[str, str] | None = None, step_params: dict[str, dict] | None = None) -> str:

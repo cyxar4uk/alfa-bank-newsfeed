@@ -301,7 +301,7 @@ class AgentContext:
             "Признаки компании (id · название · значение):",
         ]
         lines.insert(2, self.render_rate_type())
-        for i, line in enumerate(user_lines(self.user_inputs)):
+        for i, line in enumerate(user_lines(self.user_inputs, self)):
             lines.insert(3 + i, line)
         for f in p.features:
             value = f.display if f.display is not None else f.value
@@ -370,6 +370,16 @@ class AgentContext:
                 lines.append(f"  контрагенты: {cps}")
         for gap in self.chain.gaps:
             lines.append(f"- пробел: {gap}")
+        if self.chain.indirect:
+            lines.append("Гипотезы второго шага по наблюдаемым платежам (не подтверждённые каналы):")
+            lines.extend(f"- гипотеза: {text}" for text in self.chain.indirect)
+        lines.append(
+            "Ограничения платежных данных: это снимок только наблюдаемых связей; "
+            "дат, назначений платежа и валюты нет. "
+            "Не делай выводы о динамике, просрочке, прибыли или рыночной доле. "
+            "Счета из интерфейсного прототипа "
+            "синтетические и не являются данными кейса."
+        )
         return "\n".join(lines)
 
     def render_group(self) -> str:
@@ -424,6 +434,14 @@ class AgentContext:
             parts.append("Ожидания рынка из текста новости:")
             for e in self.event.expectations:
                 parts.append(as_data(s.id, f"{e.who}: {e.quote}", "ожидание"))
+        if self.event.structured_event is not None:
+            parts.append(
+                as_data(
+                    s.id,
+                    self.event.structured_event.model_dump_json(),
+                    "извлечение из источника: проверена дословность цитат, смысл требует проверки",
+                )
+            )
         return "\n".join(parts)
 
     def render_news(self) -> str:

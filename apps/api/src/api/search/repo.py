@@ -162,9 +162,18 @@ def _msk(value: dt.datetime | None) -> dt.datetime | None:
 
 def news_from_row(row: dict[str, Any], score: float | None = None) -> NewsItem:
     tags = row["tags"] or {}
+    from ingest.structured_event import StructuredEvent
+
+    try:
+        structured = (
+            StructuredEvent.model_validate(tags["structured_event"]) if tags.get("structured_event") else None
+        )
+    except ValueError:
+        structured = None
     return NewsItem(
         id=row["id"],
         title=row["title"],
+        structured_event=structured,
         publisher=row["publisher"],
         reliability=row.get("reliability"),
         url=row["url"],

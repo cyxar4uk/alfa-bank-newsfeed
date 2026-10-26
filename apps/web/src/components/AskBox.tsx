@@ -52,6 +52,7 @@ export function AskBox({
   topic?: Topic;
 }) {
   const [allFields, setAllFields] = useState(false);
+  const showScenarioFields = allFields || topic === 'fx' || topic === 'rate';
   const fields = allFields ? (['debt', 'fxRevenue', 'fx', 'fuel'] as NumberField[]) : topicFields(topic);
   const [entries, setEntries] = useState<Entry[]>([]);
   const [text, setText] = useState(() => readDraft(insight.id));
@@ -186,6 +187,17 @@ export function AskBox({
               <input className="field" inputMode="decimal" value={nums.fx} onChange={(e) => setNum({ fx: e.target.value })} placeholder="например, 150" />
             </label>
           )}
+          {showScenarioFields && <>
+            <label className="mynums__field"><span>Валюта расчётов (код)</span><input className="field" value={nums.fxCurrency} onChange={(e) => setNum({ fxCurrency: e.target.value })} placeholder="USD" /></label>
+            <label className="mynums__field"><span>Базовый курс, ₽ за единицу валюты</span><input className="field" inputMode="decimal" value={nums.fxBaseRate} onChange={(e) => setNum({ fxBaseRate: e.target.value })} placeholder="например, 90" /></label>
+            <label className="mynums__field"><span>Сценарный курс, ₽ за единицу валюты</span><input className="field" inputMode="decimal" value={nums.fxScenarioRate} onChange={(e) => setNum({ fxScenarioRate: e.target.value })} placeholder="например, 95" /></label>
+            {(allFields || topic === 'rate') && <>
+              <label className="mynums__field"><span>Текущая ставка по договору, % годовых</span><input className="field" inputMode="decimal" value={nums.currentRate} onChange={(e) => setNum({ currentRate: e.target.value })} placeholder="например, 16" /></label>
+              <label className="mynums__field"><span>Сценарная ставка, % годовых</span><input className="field" inputMode="decimal" value={nums.scenarioRate} onChange={(e) => setNum({ scenarioRate: e.target.value })} placeholder="например, 12" /></label>
+            </>}
+          </>}
+          {topic === 'fx' && (!nums.fxCurrency || !nums.fxBaseRate || !nums.fxScenarioRate || !nums.fxRevenue || !nums.fx) && <p className="mynums__hint" role="note">Для сопоставимого расчёта укажите поступления и закупки за один месяц, валюту и оба курса. Отсутствующую сторону можно указать как 0.</p>}
+          {topic === 'rate' && nums.rate !== 'fixed' && (!nums.debt || !nums.currentRate || !nums.scenarioRate) && <p className="mynums__hint" role="note">Для расчёта изменения процентов укажите долг, тип ставки, текущую договорную и сценарную ставки.</p>}
           {fields.includes('fuel') && (
             <label className="mynums__field">
               <span>Закупка топлива в месяц, тонн</span>

@@ -236,6 +236,187 @@ def related(text: str, quote: str) -> bool:
     return len(_stems(text) & _stems(quote)) >= 2
 
 
+def evidence_problem(text: str, quote: str) -> str | None:
+    """Консервативная проверка одной опоры; совпадение числа само по себе ничего не доказывает."""
+    a, b = normalize(text), normalize(quote)
+    # Даты публикации в формулировке «материал от 11.09.2026» — метаданные, не период показателя.
+    a_period = re.sub(r"\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b", " ", a)
+    b_period = re.sub(r"\b\d{1,2}[./]\d{1,2}[./](?:19|20)\d{2}\b", " ", b)
+    years = set(re.findall(r"\b(?:19|20)\d{2}\b", a_period))
+    source_years = set(re.findall(r"\b(?:19|20)\d{2}\b", b_period))
+    if years and not years <= source_years:
+        return "период утверждения не подтверждён цитатой"
+    period_patterns = (
+        (r"среднегод\w*", r"среднегод\w*"),
+        (r"конец\s+(?:19|20)\d{2}\s*г?", r"конец\s+(?:19|20)\d{2}\s*г?"),
+        (r"\b[1-4][кq]\d{2}\b", r"\b[1-4][кq]\d{2}\b"),
+        (r"\b[1-2][пh]\d{2}\b", r"\b[1-2][пh]\d{2}\b"),
+        (r"\bза\s+(?:19|20)\d{2}\s+год\w*", r"\bза\s+(?:19|20)\d{2}\s+год\w*"),
+        (r"\b(?:в|за)\s+день\b|\bдневн\w*", r"\b(?:в|за)\s+день\b|\bдневн\w*"),
+        (r"\b(?:в|за)\s+недел\w*|\bнедельн\w*", r"\b(?:в|за)\s+недел\w*|\bнедельн\w*"),
+        (r"\b(?:в|за)\s+месяц\w*|\bмесячн\w*", r"\b(?:в|за)\s+месяц\w*|\bмесячн\w*"),
+        (r"\b(?:в|за)\s+год\w*|\bгодов\w*|\bгодичн\w*", r"\b(?:в|за)\s+год\w*|\bгодов\w*|\bгодичн\w*"),
+    )
+    for claim_pattern, source_pattern in period_patterns:
+        claim_periods = set(re.findall(claim_pattern, a_period))
+        source_periods = set(re.findall(source_pattern, b_period))
+        if claim_periods and not claim_periods <= source_periods:
+            return "база или период показателя не подтверждены цитатой"
+    forecast = r"ожида\w*|прогноз\w*|планиру\w*|жд[её]\w*|может|возможно|будет|будут"
+    if bool(re.search(forecast, a)) != bool(re.search(forecast, b)):
+        return "прогноз и состоявшийся факт нельзя подменять друг другом"
+    if bool(re.search(r"\bне\b|\bнет\b|\bбез\b", a)) != bool(re.search(r"\bне\b|\bнет\b|\bбез\b", b)):
+        return "отрицание в утверждении и цитате различается"
+    up = r"вырос\w*|выраст\w*|рост\w*|увелич\w*|повыс\w*"
+    down = r"сниз\w*|сниж\w*|упал\w*|упад\w*|сократ\w*|сокращ\w*"
+    stable = r"сохран\w*|остал\w*|неизмен\w*"
+
+    def directions(value: str) -> set[int]:
+        return {i for i, pattern in enumerate((up, down, stable)) if re.search(pattern, value)}
+
+    claim_direction, source_direction = directions(a), directions(b)
+    incompatible = ({0, 1}, {0, 2}, {1, 2})
+    if (
+        claim_direction
+        and source_direction
+        and any(
+            (left in claim_direction and right in source_direction)
+            or (right in claim_direction and left in source_direction)
+            for left, right in incompatible
+        )
+    ):
+        return "направление изменения противоречит цитате"
+    # Для явно названных показателей одинаковое значение другого показателя не подходит.
+    # Недостаток контекста — слабая опора. Проблема только если в цитате явно указан
+    # другой показатель, исключающий показатель утверждения.
+    metric_groups = {
+        "revenue": (r"выруч\w*", r"оборот\w*"),
+        "profit": (r"прибыл\w*",),
+        "inflation": (r"инфляц\w*",),
+        "rate": (r"ставк\w*",),
+        "debt": (r"долг\w*", r"кредит\w*"),
+        "purchases": (r"закуп\w*", r"постав\w*"),
+        "sales": (r"продаж\w*",),
+        "demand": (r"спрос\w*",),
+        "price": (r"цен\w*", r"стоимост\w*"),
+        "production": (r"производств\w*", r"добыч\w*"),
+        "exports": (r"экспорт\w*",),
+        "imports": (r"импорт\w*",),
+        "fx": (r"курс\w*",),
+        "oil": (r"нефт\w*",),
+        "gas": (r"газ\w*",),
+        "wages": (r"зарплат\w*",),
+    }
+    claim_metrics = {
+        name for name, patterns in metric_groups.items() if any(re.search(p, a) for p in patterns)
+    }
+    quote_metrics = {
+        name for name, patterns in metric_groups.items() if any(re.search(p, b) for p in patterns)
+    }
+    if claim_metrics and quote_metrics and claim_metrics.isdisjoint(quote_metrics):
+        return "показатель в цитате противоречит утверждению"
+    missing = evidence_numbers(text, quote)
+    if missing:
+        return "число или единица не подтверждены цитатой: " + ", ".join(missing[:4])
+    return None
+
+
+def evidence_numbers(text: str, quote: str) -> list[str]:
+    """Числа должны совпадать с единицами внутри конкретной цитаты."""
+
+    def unit(n, context, compare_period):
+        value = n.unit + " " + context
+        # Number.unit хранит только короткий префикс; уточняем распространённое
+        # написание процентных пунктов по исходному фрагменту целиком.
+        if re.search(r"п\.?\s*п\.?|процентн\w*\s+пункт", context) and re.match(
+            r"(?:п\.?\s*п\.?|процент)", value
+        ):
+            return "pp"
+        for pattern, name in (
+            (r"^(?:п\.?\s*п\.?|процентн)", "pp"),
+            (r"^(?:%|процент)", "%"),
+            (r"^(?:млрд|миллиард)", "bn"),
+            (r"^(?:млн|миллион)", "mn"),
+            (r"^(?:тыс|тысяч)", "th"),
+            (r"^(?:трлн|триллион)", "tn"),
+            (r"^(?:₽|руб)", "rub"),
+            (r"^(?:\$|долл)", "usd"),
+            (r"^(?:€|евро)", "eur"),
+            (r"^(?:¥|юан|cny)", "cny"),
+        ):
+            if re.search(pattern, value):
+                scale = ""
+                # Unit field is short, but normally includes scale and currency together.
+                # Read both from the full phrase to keep «млрд ₽» distinct from «млрд $».
+                if name in {"bn", "mn", "th", "tn"}:
+                    scale = name
+                    if re.search(r"(?:₽|рубл\w*)", context):
+                        result = scale + "_rub"
+                    elif re.search(r"(?:\$|долл\w*)", context):
+                        result = scale + "_usd"
+                    elif re.search(r"(?:€|евро\w*)", context):
+                        result = scale + "_eur"
+                    elif re.search(r"(?:¥|юан\w*|cny)", context):
+                        result = scale + "_cny"
+                    else:
+                        result = name
+                    break
+                result = name
+                break
+        else:
+            result = "count"
+
+        # Временная база относится именно к этому числу; контекст уже обрезан
+        # перед следующим числом и границей клаузы.
+        if compare_period:
+            for pattern, period in (
+                (r"\b(?:в|за)\s+день\b|\bдневн\w*", "day"),
+                (r"\b(?:в|за)\s+недел\w*|\bнедельн\w*", "week"),
+                (r"\b(?:в|за)\s+месяц\w*|\bмесячн\w*", "month"),
+                (r"\b(?:в|за)\s+год\w*|\bгодов\w*|\bгодичн\w*", "year"),
+            ):
+                if re.search(pattern, context):
+                    result += "_" + period
+                    break
+        return result
+
+    def number_contexts(value):
+        found = numbers_in(value)
+        positions = []
+        cursor = 0
+        for number in found:
+            position = value.find(number.raw, cursor)
+            positions.append(position)
+            cursor = position + len(number.raw)
+        contexts = []
+        for index, number in enumerate(found):
+            end = positions[index] + len(number.raw)
+            limit = positions[index + 1] if index + 1 < len(positions) else len(value)
+            clause = re.search(r"[,;.!?\n]", value[end:limit])
+            if clause:
+                limit = end + clause.start()
+            contexts.append((number, value[end:limit]))
+        return contexts
+
+    source = number_contexts(quote)
+    compare_period = bool(
+        re.search(
+            r"\b(?:в|за)\s+(?:день|недел\w*|месяц\w*|год\w*)\b|"
+            r"\b(?:дневн|недельн|месячн|годов|годичн)\w*",
+            text,
+        )
+    )
+    return [
+        n.raw
+        for n, n_context in number_contexts(text)
+        if not any(
+            round(m.value, n.decimals) == round(n.value, n.decimals)
+            and unit(n, n_context, compare_period) == unit(m, m_context, compare_period)
+            for m, m_context in source
+        )
+    ]
+
+
 def quote_in(quote: str, text: str) -> bool:
     q = normalize(quote).strip(" .,;:\"'…")
     return len(q) >= QUOTE_MIN and q in normalize(text)
@@ -473,8 +654,7 @@ class Checker:
                     bad("bank_quotes", f"дата материала {wrong[0]} не совпадает с процитированным ({known})")
             # число — в цитируемом фрагменте, а не в материале целиком: «7,0 %» из другой строки не подходит
             cited = NumberBank()
-            for r in cited_refs:
-                cited.add_text(self.number_text(r))
+            cited.add_text(s.quote)
             missing = cited.unsupported(s.text)
             if missing:
                 bad(check, f"чисел нет в источнике: {', '.join(missing[:4])}")

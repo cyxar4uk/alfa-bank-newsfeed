@@ -9,6 +9,7 @@
 import datetime as dt
 from typing import Literal, Protocol
 
+from ingest.structured_event import StructuredEvent
 from pydantic import BaseModel, Field
 
 from api.contract import CompanyProfile, Persona, Relevance, Source
@@ -53,6 +54,9 @@ class Channel(BaseModel):
 
 
 class Chain(BaseModel):
+    indirect: list[str] = Field(
+        default_factory=list, description="Гипотезы второго шага; не канал и не подтверждённый факт"
+    )
     channels: list[Channel] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list, description="чего не хватает: нет платежей, мало покрытие")
 
@@ -85,6 +89,8 @@ class CompanyData(Protocol):
 
     def counterparty_chain(self, company_id: str, event: Source) -> Chain: ...
 
+    def indirect_chain(self, company_id: str, event: Source) -> list[str]: ...
+
     def group_impact(self, company_id: str, event: Source) -> GroupImpact | None: ...
 
     def relevance(self, persona: Persona, event: Source) -> Relevance | None: ...
@@ -114,6 +120,7 @@ class Event(BaseModel):
     """Событие с разметкой парсера: материал из контракта + факторы, отрасли, ожидания рынка."""
 
     source: Source
+    structured_event: StructuredEvent | None = None
     factors: list[FactorTag] = Field(default_factory=list)
     sectors: list[SectorTag] = Field(default_factory=list)
     expectations: list[Expectation] = Field(default_factory=list)
