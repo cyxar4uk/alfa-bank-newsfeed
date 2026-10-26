@@ -101,10 +101,7 @@ export function outdatedSignals(map: RiskMap | null, lead: Insight | null): Outd
   for (const f of map?.factors ?? []) {
     if (f.bank?.outdated) out.push({ topic: f.label, text: f.bank.outdated_note || `${f.bank.text} — прогноз устарел` });
   }
-  const bp = lead?.bank_position;
-  if (bp?.outdated) {
-    const text = bp.outdated_note || `${bp.statement} — прогноз устарел`;
-    if (!out.some((o) => o.text === text)) out.push({ topic: lead?.event.title ?? 'Главное событие', text });
-  }
+  // Разбор агента говорит только о более свежем материале банка, не о расхождении с фактом — в баннер не идёт.
+  void lead;
   return out.slice(0, 3);
 }

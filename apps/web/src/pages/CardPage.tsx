@@ -221,7 +221,7 @@ function Card({
             <div className="verdict__bank">
               <p>
                 {bank.statement}
-                {insight.bank_position?.outdated && <b className="verdict__outdated"> — прогноз устарел</b>}
+                {insight.bank_position?.outdated && <b className="verdict__outdated"> — есть более свежий материал банка</b>}
               </p>
               {insight.bank_position?.outdated && insight.bank_position.outdated_note && (
                 <p className="verdict__outdated-note">{capitalize(insight.bank_position.outdated_note)}</p>
