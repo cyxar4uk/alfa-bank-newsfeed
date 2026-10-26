@@ -860,6 +860,17 @@ class RiskFactor(BaseModel):
     news_count: int
 
 
+class Indicator(BaseModel):
+    """Показатель компании из её платежей (api.indicators): число, фраза, формула, оценка ли."""
+
+    code: str
+    label: str
+    value: float = Field(description="доля 0–1 или сумма в рублях — см. code")
+    text: str = Field(description="фраза с числом для экрана и агента")
+    formula: str = Field(description="как считается — без кодов")
+    is_estimate: bool = Field(default=False, description="число опирается на допущение (см. formula)")
+
+
 class RiskMap(BaseModel):
     """К чему уязвима компания — 5–7 факторов в порядке, важном для роли."""
 
@@ -868,6 +879,10 @@ class RiskMap(BaseModel):
     week: list[dt.date] = Field(description="дни для week_counts: от 6 дней назад до сегодня")
     factors: list[RiskFactor]
     limits: list[str] = Field(description="чего не оцениваем и почему — с числом покрытия данных")
+    indicators: list[Indicator] = Field(
+        default_factory=list,
+        description="показатели из платежей: концентрация, отрасли, группа, госзаказчики, курс (оценка)",
+    )
 
 
 # --- Трасса ---------------------------------------------------------------------------------------

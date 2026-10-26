@@ -22,6 +22,7 @@ from api.coverage import coverage_in, event_coverage
 from api.exposure import build_exposure
 from api.group import group_context
 from api.images import proxied
+from api.indicators import company_indicators
 from api.levels import LEVELS
 from api.news import NewsProvider
 from api.personas import parse_persona_id
@@ -277,8 +278,14 @@ def company_risk_map(
     ]
     profile = company_profile(repo, company_id)
     coverage = profile.payments.revenue_coverage if profile and profile.payments else None
+    company = repo.get_company(company_id)
     return RiskMap(
-        company_id=company_id, role=role, week=days, factors=factors, limits=limits(exposure, coverage)
+        company_id=company_id,
+        role=role,
+        week=days,
+        factors=factors,
+        limits=limits(exposure, coverage),
+        indicators=company_indicators(company, repo.flows(company_id)) if company else [],
     )
 
 
