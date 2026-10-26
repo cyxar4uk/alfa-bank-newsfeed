@@ -8,12 +8,17 @@
 """
 
 import hashlib
+import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from pydantic import BaseModel, Field
+
 from api.agent.bridges import optional
-from api.agent.checks import CHECKS, Checker, Report, quote_in
+from api.agent.checks import CHECKS, Checker, Issue, Report, quote_in
+from api.agent.claims import verify as verify_claims
 from api.agent.context import AgentContext, coverage_fact
 from api.agent.drafts import Draft, Plan, cited, to_statement
 from api.agent.forecasts import FORECASTS, TOPICS_BY_FACTOR
@@ -26,9 +31,10 @@ from api.agent.relevance import formula as relevance_formula
 from api.agent.relevance import terms_for as relevance_terms
 from api.agent.scenarios import saved_inputs
 from api.agent.tools import BANK_RATE, Tools, event_factor_codes
-from api.agent.topics import TOPIC_LABELS, TOPIC_QUERIES, event_topics, on_topic
+from api.agent.topics import TOPIC_LABELS, TOPIC_QUERIES, event_topics, on_topic, topic_hits
 from api.agent.trace import TOOL_STAGES, ProgressStep, TraceRecorder
 from api.contract import (
+    SOURCED_ORIGINS,
     Action,
     BankPosition,
     Consequences,
@@ -39,6 +45,7 @@ from api.contract import (
     Quote,
     Relevance,
     Source,
+    Statement,
     Trace,
     TraceSummary,
     Verdict,
@@ -50,6 +57,7 @@ MAX_REVISIONS = 2
 MAX_ANALYTICS_QUERIES = 4
 # рассуждения DeepSeek занимают 4–7 тыс. токенов до ответа; меньший предел обрезает JSON и стоит лишней
 # попытки
+log = logging.getLogger("api.agent.loop")  # метрики проверки утверждений — для замеров качества
 DRAFT_MAX_TOKENS = 8000  # без рассуждений черновик — 3–5 тыс. токенов
 
 
@@ -100,6 +108,8 @@ class Agent:
         ctx = AgentContext(persona=persona, profile=profile, event=event)
         ctx.feed_level = feed_level(persona.id, event.id)
         ctx.user_inputs = saved_inputs(persona.id)  # «мои числа»: рубли разбора — на них
+        ctx.market = market_lines()  # курс, ставка, нефть из официальных рядов
+        ctx.indicators = getattr(self.company, "indicator_texts", lambda _: [])(profile.id)
         if event.warnings:
             # например, в тексте своей новости фразы, похожие на команды модели: это данные, их не выполняем
             ctx.warnings += event.warnings
@@ -108,7 +118,10 @@ class Agent:
         tools.exposure_map(ctx)
         return ctx, tools
 
-    def plan(self, ctx: AgentContext, trace: TraceRecorder) -> Plan:
+    def plan(self, ctx: AgentContext, trace: TraceRecorder, tools: Tools | None = None) -> Plan:
+        if tools is not None:
+            # что у банка есть по заголовку события: по найденным материалам модель выберет запросы
+            tools.search_alfa_analytics(ctx, ctx.event.source.title[:160], None)
         completion = self.llm.complete("plan", plan_messages(ctx), schema=Plan, max_tokens=1500)
         trace.llm("plan", completion.calls)
         plan = completion.value
@@ -117,7 +130,7 @@ class Agent:
         trace.plan(
             "факторы: "
             + ", ".join(f"{f.code} — {f.why}" for f in plan.factors)
-            + f"; каналы: {', '.join(plan.channels) or 'нет'}; аналитика: {'; '.join(plan.analytics_queries)}"
+            + f"; аналитика: {'; '.join(plan.analytics_queries)}"
             + (f"; новости: {'; '.join(plan.news_queries)}" if plan.news_queries else "")
             + f"; роль: {plan.role_focus}"
         )
@@ -161,20 +174,69 @@ class Agent:
 
     def check(self, ctx: AgentContext, draft: Draft, trace: TraceRecorder) -> Report:
         report = Checker(ctx).run(draft)
+        problem, risks = self.judge_direction(ctx, draft, trace)
+        if problem:
+            report.issues.append(Issue("verdict", f"знак события: {problem}", "verdict", 0, True))
+            for i in risks:  # противоречащий риск убираем сам, а не весь итог
+                report.issues.append(Issue("verdict", f"знак события: {problem}", "risks", i, True))
         trace.check(report.ok, report.summary())
         return report
+
+    def judge_direction(
+        self, ctx: AgentContext, draft: Draft, trace: TraceRecorder
+    ) -> tuple[str | None, list[int]]:
+        """Дешёвый судья (~0,005 ₽): итог, риски и шаги согласованы со знаком события? Без знака не зовём."""
+        d, v = draft.event_direction, draft.verdict
+        if d is None or v is None:
+            return None, []
+        text = "\n".join(
+            [
+                f"Итог: {v.headline}. {v.why}",
+                *(f"Риск {i}: {s.text}" for i, s in enumerate(draft.risks)),
+                *(a.text for a in v.actions),
+            ]
+        )
+        messages = [
+            {"role": "system", "content": DIRECTION_JUDGE},
+            {
+                "role": "user",
+                "content": (
+                    f"Событие: {d.what}; куда: {d.direction};"
+                    f" кому выгодно: {d.beneficiary or 'не указано'}\n{text}"
+                ),
+            },
+        ]
+        try:
+            completion = self.llm.complete("check", messages, schema=DirectionVerdict, max_tokens=300)
+        except (LlmError, BudgetExceeded):
+            trace.check(True, "судья знака недоступен — согласованность со знаком события не проверена")
+            return None, []  # судья — страховка: без него карточка собирается как раньше
+        trace.llm("check", completion.calls)
+        j = completion.value
+        if j.consistent:
+            return None, []
+        bad = [i for i in j.risk_indexes if 0 <= i < len(draft.risks)]
+        return (j.problem or "вывод противоречит направлению события"), bad
 
     def dig(self, ctx: AgentContext, tools: Tools, report: Report, plan: Plan) -> str:
         """Доискать, если не хватает данных: позиции банка или второго фактора."""
         notes = []
         checks = {i.check for i in report.issues}
-        if "bank_quotes" in checks and not ctx.analytics:
+        topics = event_topics(ctx.event)
+        topical = [
+            h for h in ctx.analytics if not h.stale and topic_hits(h.source.fragment or "", topics) >= 2
+        ]
+        if checks & {"bank_quotes", "on_topic"} and not topical:
+            # аналитика есть, но не по теме события («нет найденного по теме», а не «пусто вообще»)
             codes = [f.code for f in plan.factors] or event_factor_codes(ctx.event)
-            query = ctx.event.source.title[:120]
-            added = tools.search_alfa_analytics(ctx, query, codes)
+            added = 0
+            for topic in sorted(topics):
+                if topic in TOPIC_QUERIES:
+                    added += tools.search_alfa_analytics(ctx, TOPIC_QUERIES[topic], codes)
+            added += tools.search_alfa_analytics(ctx, ctx.event.source.title[:120], codes)
             if added:
                 tools.load_pages(ctx, {h.page_ref for h in ctx.analytics})
-                notes.append(f"Доискал аналитику банка по заголовку события: +{added} фрагментов.")
+                notes.append(f"Доискал аналитику банка по теме события: +{added} фрагментов.")
         if "multi_factor" in checks and not ctx.news:
             codes = [f.code for f in plan.factors] or event_factor_codes(ctx.event)
             tools.search_news(ctx, ctx.event.source.title[:120], codes)
@@ -214,7 +276,7 @@ class Agent:
     def _run(self, persona: Persona, event: Event, trace: TraceRecorder) -> Result:
         ctx, tools = self.gather(persona, event, trace)
         trace.stage("Решаю, что проверить в первую очередь")
-        plan = self.plan(ctx, trace)
+        plan = self.plan(ctx, trace, tools)
         trace.found(plan.role_focus)
         self.execute(ctx, tools, plan)
         trace.stage("Формулирую вывод: важно ли это вам и что делать")
@@ -222,6 +284,7 @@ class Agent:
         trace.stage("Сверяю каждую цифру и цитату с источниками")
         report = self.check(ctx, draft, trace)
         trace.found(_check_found(report))
+        first_hard = len(report.hard_at())  # сколько утверждений первого черновика не подтвердилось
         best = (draft, report)
         for n in range(1, MAX_REVISIONS + 1):
             if not _worth_revising(ctx, report, n):
@@ -249,10 +312,12 @@ class Agent:
             if _badness(report) <= _badness(best[1]):
                 best = (draft, report)
             draft, report = best
-        insight = self.assemble(ctx, draft, report, trace)
+        insight = self.assemble(ctx, draft, report, trace, first_hard=first_hard)
         return Result(insight=insight, trace=trace.trace, context=ctx, cost=trace.cost)
 
-    def assemble(self, ctx: AgentContext, draft: Draft, report: Report, trace: TraceRecorder) -> Insight:
+    def assemble(
+        self, ctx: AgentContext, draft: Draft, report: Report, trace: TraceRecorder, first_hard: int = 0
+    ) -> Insight:
         clean = _without(draft, report)
         dropped = len(draft.statements()) - len(clean.statements()) + len(draft.actions) - len(clean.actions)
         final = Checker(ctx).run(clean)
@@ -261,6 +326,13 @@ class Agent:
         checker = Checker(ctx)
         terms = relevance_terms(ctx, checker.covered_factors(clean), checker.stated_factors(clean))
         score, basis = relevance_combine(formal, terms)
+        own_news = ctx.event.id.startswith("src:news:user")
+        if own_news and score > OWN_NEWS_CAP:
+            # источник не проверить: выше «Стоит следить» не поднимаем, как бы ни была высока оценка
+            score, basis = (
+                OWN_NEWS_CAP,
+                "новость пользователя: источник не проверен — не выше «Стоит следить»",
+            )
         trace.tool(
             "relevance",
             {"formal": formal.score},
@@ -372,13 +444,39 @@ class Agent:
             bank_position=_bank_position(ctx, clean),
             quotes=_quotes(ctx, clean),
         )
+        # битые ссылки не показываем: убираем, предупреждаем и чуть понижаем значимость
+        cut = prune_refs(insight)
+        if cut:
+            trace.check(False, f"убраны ссылки без источника: {', '.join(sorted(cut)[:5])}")
+            insight.quality.warnings.append("часть ссылок на источники не удалось проверить — они убраны")
+            insight.relevance.score = round(insight.relevance.score * 0.85, 2)
+            if insight.verdict and insight.verdict.level == "act" and insight.relevance.score < 0.5:
+                insight.verdict = _with_level(insight.verdict, "watch", insight.actions)
+            if insight.unresolved_refs():  # должно быть пусто: финальная страховка
+                log.warning(
+                    "после чистки остались ссылки без источника: %s", sorted(insight.unresolved_refs())
+                )
+        if own_news and insight.verdict and insight.verdict.level == "act":
+            insight.verdict = _with_level(insight.verdict, "watch", insight.actions)
+        # каждое утверждение вывода — с опорой; ненайденное число без опоры — убрать
+        trace.stage("Сверяю каждое утверждение с опорой")
+        claims = verify_claims(ctx, insight, rewritten=max(0, first_hard - dropped), dropped=dropped)
+        trace.found(f"Подтверждено {claims.verified_count} из {claims.total}")
+        # шаг-инструмент, а не проверка: итог самопроверки в трассе остаётся прежним
+        trace.tool(
+            "verify_claims",
+            {"total": claims.total},
+            [s.ref for c in insight.claims for s in c.support],
+            f"Проверка утверждений: подтверждено {claims.verified_count} из {claims.total};"
+            f" предположений {claims.hypothesis_count}; не подтверждено {claims.partly_count};"
+            f" переписано {claims.rewritten}, убрано {claims.removed}",
+        )
+        log.info("claims %s", json.dumps({"insight": insight.id, **claims.model_dump()}, ensure_ascii=False))
         trace.trace.summary = _trace_summary(ctx, final, dropped)
-        missing = insight.unresolved_refs()
-        if missing:
-            # не должно случаться после самопроверки; если случилось — не отдаём битые ссылки молча
-            trace.check(False, f"ссылки без источника: {', '.join(sorted(missing)[:5])}")
-            insight.quality.warnings.append("часть ссылок на источники не удалось проверить")
-            insight.quality.checks_passed = [c for c in insight.quality.checks_passed if c != "refs"]
+        trace.trace.summary.checked.append(
+            f"Утверждения вывода: подтверждено {claims.verified_count} из {claims.total}"
+            + (f", предположений — {claims.hypothesis_count}" if claims.hypothesis_count else "")
+        )
         return insight
 
 
@@ -394,7 +492,86 @@ NO_BANK_POSITION = (
 UNCONFIRMED_BANK_POSITION = "Позицию Альфа-Банка по этой теме подтвердить материалом не удалось"
 
 
+OWN_NEWS_CAP = 0.49  # «Стоит следить»: порог «важно» — 0,5
+
+
+class DirectionVerdict(BaseModel):
+    consistent: bool = Field(description="итог, риски и шаги согласованы со знаком события")
+    problem: str = Field(default="", description="если нет — в чём противоречие, одна фраза")
+    risk_indexes: list[int] = Field(
+        default_factory=list, description="номера рисков («Риск N»), которые противоречат знаку события"
+    )
+
+
+DIRECTION_JUDGE = (
+    "Ты проверяешь согласованность знака. Дано событие (что изменилось, куда, кому выгодно) и вывод для"
+    " компании. Верни consistent=false, если в выводе есть противоположное направление (например, событие —"
+    " доллар упал, рубль крепче, а в выводе «ослабление рубля»; или риск «крепкий рубль удешевляет закупку»"
+    " рядом с итогом «рубль слабеет»). Иначе consistent=true. problem — одна короткая фраза."
+)
+
+
+def prune_refs(insight: Insight) -> set[str]:
+    """Убрать ссылки без источника и утверждения, оставшиеся без обязательных ссылок; вернуть убранные."""
+    source_ids = {s.id for s in insight.sources}
+    features = set(insight.features_used)
+
+    def ok(ref: str) -> bool:
+        if ref.startswith("feat:"):
+            return ref in features
+        return ref in source_ids or ref.split("#", 1)[0] in source_ids
+
+    cut: set[str] = set()
+
+    def clean(refs: list[str]) -> list[str]:
+        cut.update(r for r in refs if not ok(r))
+        return [r for r in refs if ok(r)]
+
+    def statements(items: list[Statement]) -> list[Statement]:
+        kept = []
+        for s in items:
+            s.refs = clean(s.refs)
+            if s.bank_conflict:
+                s.bank_conflict.refs = clean(s.bank_conflict.refs)
+            if s.origin in SOURCED_ORIGINS and not s.refs:
+                continue  # факт, позиция банка или данные без источника в карточку не идут
+            kept.append(s)
+        return kept
+
+    insight.what_happened = statements(insight.what_happened)
+    insight.why_it_matters = statements(insight.why_it_matters)
+    insight.bank_view = statements(insight.bank_view)
+    c = insight.consequences
+    c.risks, c.opportunities, c.factors = (
+        statements(c.risks),
+        statements(c.opportunities),
+        statements(c.factors),
+    )
+    for a in insight.actions:
+        a.refs = clean(a.refs)
+    insight.relevance.refs = clean(insight.relevance.refs)
+    if insight.verdict:
+        insight.verdict.refs = clean(insight.verdict.refs)
+    bp = insight.bank_position
+    if bp and bp.source_id and not ok(bp.source_id):
+        cut.add(bp.source_id)
+        bp.source_id = None
+    insight.quotes = [q for q in insight.quotes if ok(q.source_id) or cut.add(q.source_id)]
+    return cut
+
+
 LEADS = {"act": "Для вас важно", "watch": "Стоит следить", "info": "На вашу компанию почти не влияет"}
+
+
+def market_lines() -> list[str]:
+    """Рыночные цифры из официальных рядов (`api.market.market_facts`); модуля или рядов нет — пусто."""
+    fn = optional("api.market", "market_facts")
+    if fn is None:
+        return []
+    try:
+        return [str(x) for x in fn()]
+    except Exception:
+        return []
 
 
 def feed_level(persona_id: str, event_id: str) -> str | None:
@@ -506,7 +683,10 @@ def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
     else:
         return BankPosition(found=False, statement=NO_BANK_POSITION)
     cited, hit = _cited_hit(ctx, refs, quote)
+    outdated, note = _outdated(ctx, hit)
     return BankPosition(
+        outdated=outdated,
+        outdated_note=note,
         found=True,
         statement=ru_decimals(statement),
         # имени аналитика в распознанных материалах нет — не выдумываем
@@ -515,6 +695,28 @@ def _bank_position(ctx: AgentContext, draft: Draft) -> BankPosition:
         date=hit.material_date if hit else None,
         source_id=cited or (hit.source.id if hit else None),
         url=hit.source.url if hit else None,
+    )
+
+
+def _outdated(ctx: AgentContext, hit) -> tuple[bool, str | None]:
+    """Позиция банка устарела, если по теме события есть более свежий материал банка."""
+    if hit is None or hit.material_date is None:
+        return False, None
+    topics = event_topics(ctx.event)
+    newer = [
+        h
+        for h in ctx.analytics
+        if h.material_date
+        and h.material_date > hit.material_date
+        and h.source.id.split("#", 1)[0] != hit.source.id.split("#", 1)[0]
+        and topic_hits(h.source.fragment or "", topics) >= 2
+    ]
+    if not newer:
+        return False, None
+    latest = max(newer, key=lambda h: h.material_date)
+    return True, (
+        f"Материал банка от {hit.material_date:%d.%m.%Y}; по теме есть более свежий —"
+        f" «{latest.source.title[:80]}» от {latest.material_date:%d.%m.%Y}"
     )
 
 

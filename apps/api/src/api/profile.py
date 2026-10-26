@@ -361,7 +361,8 @@ def _side_features(side: PaymentSide, name: str, label: str, of_what: str, b: _B
         ["payments", "feat:MAINOKVED_CODE"],
         display=(
             f"{format_rub(side.amount)} от {side.counterparties} контрагентов;"
-            f" отрасль известна у {format_share(side.coverage)} суммы"
+            f" отрасль известна у {format_share(side.coverage)} суммы;"
+            " доли — от внешних платежей без компаний группы"
         ),
     )
 
@@ -480,7 +481,7 @@ def _counterparties(
             structure.intra_group_share,
             ["payments", "feat:GROUP_ID"],
             display=(
-                f"{format_share(intra / turnover)} платёжного оборота"
+                f"{format_share(intra / turnover)} всего платёжного оборота (с группой)"
                 " — в отрасли покупателей и поставщиков не входит"
             ),
         )

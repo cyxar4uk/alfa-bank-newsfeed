@@ -189,7 +189,7 @@ def test_bank_position_cites_the_checked_page():
 
 BUDGET_FRAGMENT = "src:alfa:tactics-2026-07#p3-2"
 BUDGET_TEXT = (
-    "При слабой цене на нефть бюджету приходится менять правила: обсуждалось снижение цены отсечения."
+    "Мы считаем, что при слабой цене на нефть бюджету приходится менять правила: обсуждалось снижение цены."
 )
 
 
@@ -310,7 +310,9 @@ def test_failed_revision_keeps_the_best_draft():
     from api.llm import TransportResponse
 
     error = TransportResponse(400, {"error": "x"}, '{"error": "x"}')
-    agent, _ = make_agent(reply(GOOD_PLAN), reply(good_draft(what_happened=[fact(refs=[]), fact()])), error)
+    agent, _ = make_agent(
+        reply(GOOD_PLAN), reply(good_draft(what_happened=[fact(refs=[]), fact()])), error, error
+    )
     insight = agent.run(PERSONA, make_event()).insight  # доработка упала — карточка всё равно есть
     assert insight.verdict is not None and all(s.refs for s in insight.what_happened)
 

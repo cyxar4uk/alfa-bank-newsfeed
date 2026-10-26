@@ -84,6 +84,8 @@ function AnalyzeForm() {
 
   const urlError = url.trim() && !validUrl(url.trim()) ? 'Ссылка должна начинаться с http:// или https://' : null;
   const empty = !url.trim() && !text.trim();
+  // Текст короче ~40 знаков («привет») — не новость: полный разбор на него не запускаем.
+  const tooShort = !url.trim() && text.trim().length > 0 && text.trim().length < 40;
 
   async function run() {
     controller.current?.abort();
@@ -114,7 +116,7 @@ function AnalyzeForm() {
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     setTouched(true);
-    if (empty || urlError) return;
+    if (empty || urlError || tooShort) return;
     void run();
   }
 
@@ -191,6 +193,11 @@ function AnalyzeForm() {
           {touched && empty && (
             <p className="analyze__error" role="alert">
               Вставьте ссылку или текст — без них разбирать нечего.
+            </p>
+          )}
+          {touched && tooShort && (
+            <p className="analyze__error" role="alert">
+              Вставьте текст новости: хотя бы пару предложений или ссылку на неё.
             </p>
           )}
           <button type="submit" className="btn btn--primary">

@@ -177,7 +177,7 @@ def test_model_does_not_write_rubles():
 
 
 def test_rubles_in_action():
-    actions = [DraftAction(text="Заложить резерв 100 млн ₽ на проценты.", kind="scenario")]
+    actions = [DraftAction(text="Заложить резерв 777 млн ₽ на проценты.", kind="scenario")]
     report = run(good_draft(actions=actions))
     assert ("actions", 0) in report.hard_at()
 

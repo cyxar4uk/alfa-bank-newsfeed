@@ -75,7 +75,8 @@ def test_happy_path_builds_insight_by_contract():
     assert result.cost == pytest.approx(0.51)
     # план и вызовы инструментов видны в трассе
     steps = kinds(result.trace)
-    assert steps[:3] == ["tool", "tool", "llm"] and "plan" in steps and steps[-1] == "check"
+    assert steps[:2] == ["tool", "tool"] and "llm" in steps[:5] and "plan" in steps and "check" in steps
+    assert result.trace.steps[-1].tool == "verify_claims"  # последний шаг — проверка утверждений карточки
     tools = [s.tool for s in result.trace.steps if s.kind == "tool"]
     for name in ("get_profile", "get_exposure_map", "get_counterparty_chain", "search_alfa_analytics"):
         assert name in tools

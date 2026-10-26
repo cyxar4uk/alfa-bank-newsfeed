@@ -1,6 +1,7 @@
 """Командная строка: `ingest all` — новости и аналитика за один запуск; `ingest load` — загрузить готовое в БД;
 `ingest serve` — загрузить и дальше обновлять новости по расписанию (сервис в compose); `ingest classify` — спросить
-модель о новостях, которые словари не отнесли ни к деловым, ни к прочим.
+модель о новостях, которые словари не отнесли ни к деловым, ни к прочим; `ingest market` — дозагрузить рыночные ряды
+(курсы и ключевая ставка ЦБ, Brent), `serve` делает это каждый круг.
 
 Раскладка каталога данных (--data):
   raw/alfa_analytics/*.pdf          вход: аналитика банка (материалы кейса, не в git)
@@ -198,6 +199,25 @@ def run_classify(conn, data: Path, limit: int = 200) -> dict | None:
     return asdict(stats)
 
 
+def run_market(url: str) -> dict | None:
+    """Рыночные ряды (курсы и ключевая ставка ЦБ, Brent) — дозагрузить недостающие дни. Сбой не мешает новостям."""
+
+    from ingest.market import update_market
+
+    print("Рыночные ряды:")
+    try:
+        with connect_db(url, attempts=3) as conn:
+            report = update_market(conn)
+    except Exception as exc:  # noqa: BLE001 — курсы и ставка не должны останавливать сбор новостей
+        print(f"  рыночные ряды: сбой {exc!r} — повтор на следующем круге")
+        return None
+    loaded = " · ".join(f"{code} {n}" for code, n in report.loaded.items())
+    print(f"  загружено точек: {loaded or 'нет'}")
+    for code, error in report.errors.items():
+        print(f"  {code}: ошибка — {error}")
+    return asdict(report)
+
+
 def run_serve(data: Path, url: str, every: float, iterations: int | None = None) -> None:
     """Загрузить снимок и готовые файлы, затем собирать новости из лент каждые `every` минут — сразу в БД.
 
@@ -244,6 +264,7 @@ def run_serve(data: Path, url: str, every: float, iterations: int | None = None)
                 print("  ленты не ответили — в базе остаётся загруженное")
         except (psycopg.Error, OSError) as exc:
             print(f"  сбой: {exc} — повтор через {every:g} мин")
+        run_market(url)
         if iterations is not None and n >= iterations:
             return
         time.sleep(every * 60)
@@ -253,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(prog="ingest", description="Сбор новостей и аналитики Альфа-Банка")
-    parser.add_argument("command", choices=["all", "news", "analytics", "load", "serve", "classify"])
+    parser.add_argument("command", choices=["all", "news", "analytics", "load", "serve", "classify", "market"])
     parser.add_argument("--data", type=Path, default=Path("data"), help="каталог данных (по умолчанию ./data)")
     parser.add_argument("--engine", default="tesseract", help="основное распознавание: tesseract | qwen3-vl-mock")
     parser.add_argument(
@@ -271,6 +292,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "load":
         print("Загрузка в БД:")
         run_load(args.data, url)
+        return 0
+    if args.command == "market":
+        run_market(url)
         return 0
     if args.command == "classify":
         with connect_db(url) as conn:

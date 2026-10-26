@@ -31,7 +31,7 @@ function BackButton() {
   ) : (
     <Link to="/radar" className="back-link">
       <Icon name="chevronLeft" size={16} />
-      Брифинг
+      Новости
     </Link>
   );
 }
@@ -109,12 +109,15 @@ function TraceView({ trace, company }: { trace: Trace; company: CompanyProfile }
   const cost = llm.reduce((sum, s) => sum + (s.cost_rub ?? 0), 0);
   const tokens = llm.reduce((sum, s) => sum + (s.tokens_in ?? 0) + (s.tokens_out ?? 0), 0);
   const retries = trace.steps.filter((s) => s.kind === 'retry').length;
-  const checks = trace.steps.filter((s) => s.kind === 'check' && s.verdict);
-  const failed = checks.filter((s) => s.verdict === 'fail').length;
-  const checkText =
-    checks.length === 0 ? 'не выполнялась' : failed > 0 ? `не пройдена: ${failed} из ${checks.length}` : 'пройдена';
-
   const story = traceStory(trace);
+  // Итог — по последней содержательной проверке, а не по всем промежуточным: «пройдена после 1 исправления».
+  const checkText = !story.check.ran
+    ? 'не выполнялась'
+    : story.check.passed
+      ? retries > 0
+        ? `пройдена после ${retries} ${plural(retries, ['исправления', 'исправлений', 'исправлений'])}`
+        : 'пройдена'
+      : 'не пройдена';
   const done = trace.summary && trace.summary.length > 0 ? trace.summary : story.done;
 
   return (
@@ -197,7 +200,6 @@ function TraceView({ trace, company }: { trace: Trace; company: CompanyProfile }
           <dt>Самопроверка</dt>
           <dd>
             {checkText}
-            {retries > 0 ? `, повторов: ${retries}` : ''}
           </dd>
         </div>
       </dl>
