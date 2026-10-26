@@ -186,11 +186,13 @@ def test_gives_up_after_max_attempts(tmp_path):
 
 
 def test_client_error_is_not_retried(tmp_path):
-    transport = FakeTransport(TransportResponse(400, {"error": {"message": "bad model"}}, '{"error": "bad"}'))
+    bad = TransportResponse(400, {"error": {"message": "bad model"}}, '{"error": "bad"}')
+    transport = FakeTransport(bad, bad)
     client = make_client(transport, tmp_path)
     with pytest.raises(LlmUnavailable, match="400"):
         client.complete("draft", MESSAGES)
-    assert len(transport.bodies) == 1
+    # один повтор без нестандартных параметров (reasoning), дальше ошибка клиента не повторяется
+    assert len(transport.bodies) == 2 and "reasoning" not in transport.bodies[1]
 
 
 def test_gateway_budget_error_stops_calls(tmp_path):
