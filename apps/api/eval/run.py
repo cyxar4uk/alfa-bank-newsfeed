@@ -32,7 +32,9 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 CASES = HERE / "cases.json"
 RESULTS = HERE / "results" / "latest.json"
-PARTIAL = HERE / "results" / "partial.json"  # разборы по ходу прогона — переживают обрыв, после прогона удаляется
+PARTIAL = (
+    HERE / "results" / "partial.json"
+)  # разборы по ходу прогона — переживают обрыв, после прогона удаляется
 FRAGMENTS = ROOT / "data" / "raw" / "derived" / "alfa_fragments.jsonl"
 MINOR = 0.3  # ниже веб сворачивает событие в «ещё N меньшей значимости» (apps/web/src/state/screens.ts)
 ROLE_RU = {
@@ -195,7 +197,9 @@ def statement_refs(insight: dict) -> set[str]:
     return refs
 
 
-def gather_pool(api: Api, item: dict, profiles: dict, exposures: dict, personas: dict, feed_items: dict) -> None:
+def gather_pool(
+    api: Api, item: dict, profiles: dict, exposures: dict, personas: dict, feed_items: dict
+) -> None:
     """Всё, что сервис знает о паре «событие × пользователь» и отдаёт через API, — для проверки чисел."""
     insight = item.get("insight")
     if not insight:
@@ -221,7 +225,9 @@ def gather_pool(api: Api, item: dict, profiles: dict, exposures: dict, personas:
         pool["feed_item"] = feed_items.get((item["persona"], event_id))
     code, risk = api.get(f"/api/companies/{cid}/risk-map", persona=item["persona"])
     pool["risk_map"] = risk if code == 200 else None
-    pool["sources"] = {ref: api.source(ref) for ref in sorted(statement_refs(insight)) if ref.startswith("src:")}
+    pool["sources"] = {
+        ref: api.source(ref) for ref in sorted(statement_refs(insight)) if ref.startswith("src:")
+    }
     item["pool"] = pool
 
 
@@ -266,8 +272,15 @@ def fragments_by_factor() -> list[dict]:
         for line in f:
             row = json.loads(line)
             codes = {x["code"] for x in (row.get("tags") or {}).get("factors") or []}
-            rows.append({"id": row["id"], "title": row["title"], "date": row["published_at"][:10],
-                         "fragment": row["fragment"], "factors": codes})
+            rows.append(
+                {
+                    "id": row["id"],
+                    "title": row["title"],
+                    "date": row["published_at"][:10],
+                    "fragment": row["fragment"],
+                    "factors": codes,
+                }
+            )
     return rows
 
 
@@ -290,8 +303,11 @@ def judge_bank(judge: Judge, item: dict, fragments: list[dict]) -> dict:
         return {
             "found": True,
             "items": [
-                {"text": s["text"], "on_topic": bool((rows.get(n) or {}).get("on_topic")),
-                 "why": (rows.get(n) or {}).get("why", "")}
+                {
+                    "text": s["text"],
+                    "on_topic": bool((rows.get(n) or {}).get("on_topic")),
+                    "why": (rows.get(n) or {}).get("why", ""),
+                }
                 for n, s in enumerate(statements, 1)
             ],
         }
@@ -304,14 +320,25 @@ def judge_bank(judge: Judge, item: dict, fragments: list[dict]) -> dict:
     candidates.sort(key=lambda f: f["date"], reverse=True)
     candidates = candidates[:8]
     if not candidates:
-        return {"found": False, "exists": False, "why": "у события нет факторов, по которым есть материалы банка"}
+        return {
+            "found": False,
+            "exists": False,
+            "why": "у события нет факторов, по которым есть материалы банка",
+        }
     listing = "\n".join(
         f"{n}. {f['title']} ({f['date']}): {f['fragment'][:450]}" for n, f in enumerate(candidates, 1)
     )
-    answer = judge.ask(BANK_FIND_SYSTEM, f"Событие:\n<<<\n{event_text(item)}\n>>>\n\nФрагменты банка:\n{listing}")
+    answer = judge.ask(
+        BANK_FIND_SYSTEM, f"Событие:\n<<<\n{event_text(item)}\n>>>\n\nФрагменты банка:\n{listing}"
+    )
     n = answer.get("n")
     match = candidates[int(n) - 1]["id"] if isinstance(n, int) and 1 <= n <= len(candidates) else None
-    return {"found": False, "exists": bool(answer.get("exists")), "match": match, "why": answer.get("why", "")}
+    return {
+        "found": False,
+        "exists": bool(answer.get("exists")),
+        "match": match,
+        "why": answer.get("why", ""),
+    }
 
 
 def card_text(insight: dict) -> str:
@@ -320,25 +347,37 @@ def card_text(insight: dict) -> str:
     if verdict:
         parts.append(f"Итог ({verdict.get('level')}): {verdict.get('headline')} {verdict.get('why')}")
         parts += [f"Шаг: {s['text']}" for s in verdict.get("steps") or []]
-    for block, label in (("what_happened", "Что произошло"), ("why_it_matters", "Почему важно"),
-                         ("bank_view", "Позиция банка")):
+    for block, label in (
+        ("what_happened", "Что произошло"),
+        ("why_it_matters", "Почему важно"),
+        ("bank_view", "Позиция банка"),
+    ):
         parts += [f"{label} [{s['origin']}]: {s['text']}" for s in insight.get(block) or []]
     for block, label in (("risks", "Риск"), ("opportunities", "Возможность"), ("factors", "Следить")):
-        parts += [f"{label} [{s['origin']}]: {s['text']}" for s in (insight.get("consequences") or {}).get(block) or []]
+        parts += [
+            f"{label} [{s['origin']}]: {s['text']}"
+            for s in (insight.get("consequences") or {}).get(block) or []
+        ]
     parts += [f"Действие ({a['kind']}): {a['text']}" for a in insight.get("actions") or []]
     bp = insight.get("bank_position") or {}
     if bp:
-        parts.append(f"Позиция банка одной фразой: {bp.get('statement')} ({bp.get('material')}, {bp.get('date')})")
+        parts.append(
+            f"Позиция банка одной фразой: {bp.get('statement')} ({bp.get('material')}, {bp.get('date')})"
+        )
     parts += [f"Предупреждение: {w}" for w in (insight.get("quality") or {}).get("warnings") or []]
     return "\n".join(parts)
 
 
 def judge_checklist(judge: Judge, item: dict, checklist: list[str]) -> list[dict]:
     listing = "\n".join(f"{n}. {c}" for n, c in enumerate(checklist, 1))
-    answer = judge.ask(CHECK_SYSTEM, f"Карточка:\n<<<\n{card_text(item['insight'])}\n>>>\n\nЧек-лист:\n{listing}")
+    answer = judge.ask(
+        CHECK_SYSTEM, f"Карточка:\n<<<\n{card_text(item['insight'])}\n>>>\n\nЧек-лист:\n{listing}"
+    )
     rows = {int(r["n"]): r for r in answer.get("items", []) if str(r.get("n", "")).isdigit()}
-    return [{"item": c, "ok": bool((rows.get(n) or {}).get("ok")), "why": (rows.get(n) or {}).get("why", "")}
-            for n, c in enumerate(checklist, 1)]
+    return [
+        {"item": c, "ok": bool((rows.get(n) or {}).get("ok")), "why": (rows.get(n) or {}).get("why", "")}
+        for n, c in enumerate(checklist, 1)
+    ]
 
 
 def read_journal(container: str | None) -> list[dict]:
@@ -348,7 +387,9 @@ def read_journal(container: str | None) -> list[dict]:
     try:
         out = subprocess.run(
             ["docker", "exec", container, "cat", "/cache/llm_calls.jsonl"],
-            capture_output=True, timeout=30, check=True,
+            capture_output=True,
+            timeout=30,
+            check=True,
         ).stdout.decode("utf-8")
     except (OSError, subprocess.SubprocessError):
         return []
@@ -370,7 +411,9 @@ def collect(args, cases: dict) -> dict:
     if code != 200:
         raise SystemExit(f"API {args.api} не отвечает: {code}")
     personas = {p["id"]: p for p in personas_list}
-    missing = [p for p in cases["personas"] + [r["persona"] for r in cases["references"]] if p not in personas]
+    missing = [
+        p for p in cases["personas"] + [r["persona"] for r in cases["references"]] if p not in personas
+    ]
     if missing:
         raise SystemExit(f"на стенде нет пользователей: {missing}")
     if not cases["news"]:
@@ -388,8 +431,11 @@ def collect(args, cases: dict) -> dict:
     print(f"новостей набора на стенде: {sum(n['found'] for n in news)} из {len(news)}")
 
     profiles, exposures, feeds, feed_items, selection = {}, {}, {}, {}, {}
-    all_personas = sorted(set(cases["personas"]) | {r["persona"] for r in cases["references"]}
-                          | {u["persona"] for u in cases["unseen"]})
+    all_personas = sorted(
+        set(cases["personas"])
+        | {r["persona"] for r in cases["references"]}
+        | {u["persona"] for u in cases["unseen"]}
+    )
     for pid in all_personas:
         cid = personas[pid]["company_id"]
         if cid not in profiles:
@@ -438,8 +484,16 @@ def collect(args, cases: dict) -> dict:
             spent += old.get("cost_rub") or 0
             return
         if spent >= args.build_budget:
-            builds.append({"kind": kind, "persona": persona, "event_id": event_id, "status": "skipped",
-                           "error": f"лимит замера {args.build_budget} ₽", **(extra or {})})
+            builds.append(
+                {
+                    "kind": kind,
+                    "persona": persona,
+                    "event_id": event_id,
+                    "status": "skipped",
+                    "error": f"лимит замера {args.build_budget} ₽",
+                    **(extra or {}),
+                }
+            )
             return
         item = build(api, kind, persona, event_id=event_id, text=text)
         item.update(extra or {})
@@ -448,13 +502,19 @@ def collect(args, cases: dict) -> dict:
         spent += cost
         builds.append(item)
         PARTIAL.write_text(json.dumps({"builds": builds}, ensure_ascii=False), encoding="utf-8")
-        print(f"  {kind} {persona} {event_id or extra.get('case')}: {item['status']}, {item['seconds']} с, "
-              f"{cost:.2f} ₽")
+        print(
+            f"  {kind} {persona} {event_id or extra.get('case')}: {item['status']}, {item['seconds']} с, "
+            f"{cost:.2f} ₽"
+        )
 
     print("разборы событий из ленты:")
     for pid in cases["personas"]:
         top = sorted(
-            ((v["system_score"], eid) for eid, v in selection[pid].items() if (v["system_score"] or 0) >= MINOR),
+            (
+                (v["system_score"], eid)
+                for eid, v in selection[pid].items()
+                if (v["system_score"] or 0) >= MINOR
+            ),
             reverse=True,
         )[: cases["feed_insights_per_persona"]]
         for _, eid in top:
@@ -463,8 +523,13 @@ def collect(args, cases: dict) -> dict:
     texts = {r["id"]: r.get("text") for r in cases["references"]}
     for ref in cases["references"]:
         text = ref.get("text") or texts.get(ref.get("text_from"))
-        run("reference", ref["persona"], event_id=ref.get("event_id"), text=None if ref.get("event_id") else text,
-            extra={"case": ref["id"], "text": text})
+        run(
+            "reference",
+            ref["persona"],
+            event_id=ref.get("event_id"),
+            text=None if ref.get("event_id") else text,
+            extra={"case": ref["id"], "text": text},
+        )
     print("новые новости:")
     for case in cases["unseen"]:
         run("unseen", case["persona"], text=case["text"], extra={"case": case["id"], "text": case["text"]})
@@ -487,9 +552,24 @@ def collect(args, cases: dict) -> dict:
         "personas": {p: personas[p] for p in all_personas},
         "news": news,
         "selection": selection,
-        "feeds": {p: [{k: it.get(k) for k in ("event_id", "relevance", "takeaway", "short", "group_impact",
-                                               "factors", "channel")}
-                      for it in (f or {}).get("items", [])] for p, f in feeds.items()},
+        "feeds": {
+            p: [
+                {
+                    k: it.get(k)
+                    for k in (
+                        "event_id",
+                        "relevance",
+                        "takeaway",
+                        "short",
+                        "group_impact",
+                        "factors",
+                        "channel",
+                    )
+                }
+                for it in (f or {}).get("items", [])
+            ]
+            for p, f in feeds.items()
+        },
         "builds": builds,
         "journal": read_journal(args.container),
         "judge": {"calls": judge.calls, "cached": judge.cached, "spent_rub": round(judge.spent, 4)},
@@ -501,10 +581,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--api", default="http://127.0.0.1:8010", help="адрес API стенда замера")
     parser.add_argument("--env-file", default=str(ROOT / ".env"), help="откуда взять ключ моделей для судьи")
-    parser.add_argument("--container", default="eval-api-1", help="контейнер API — для журнала вызовов моделей")
+    parser.add_argument(
+        "--container", default="eval-api-1", help="контейнер API — для журнала вызовов моделей"
+    )
     parser.add_argument("--judge-budget", type=float, default=6.0, help="лимит судьи, ₽")
     parser.add_argument("--build-budget", type=float, default=22.0, help="лимит на сборку разборов, ₽")
-    parser.add_argument("--offline", action="store_true", help="только пересчитать таблицу из results/latest.json")
+    parser.add_argument(
+        "--offline", action="store_true", help="только пересчитать таблицу из results/latest.json"
+    )
     parser.add_argument("--rebuild", action="store_true", help="не брать разборы из прошлого прогона")
     args = parser.parse_args()
     cases = json.loads(CASES.read_text(encoding="utf-8"))

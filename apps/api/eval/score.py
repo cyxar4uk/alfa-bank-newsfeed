@@ -92,23 +92,39 @@ def statements(insight: dict) -> list[dict]:
     out = []
     for block in ("what_happened", "why_it_matters", "bank_view"):
         for s in insight.get(block) or []:
-            out.append({"block": block, "origin": s["origin"], "text": s["text"], "refs": s.get("refs") or []})
+            out.append(
+                {"block": block, "origin": s["origin"], "text": s["text"], "refs": s.get("refs") or []}
+            )
     for block in ("risks", "opportunities", "factors"):
         for s in (insight.get("consequences") or {}).get(block) or []:
-            out.append({"block": block, "origin": s["origin"], "text": s["text"], "refs": s.get("refs") or []})
+            out.append(
+                {"block": block, "origin": s["origin"], "text": s["text"], "refs": s.get("refs") or []}
+            )
     verdict = insight.get("verdict") or {}
     for key in ("headline", "why"):
         if verdict.get(key):
-            out.append({"block": f"verdict.{key}", "origin": "verdict", "text": verdict[key],
-                        "refs": verdict.get("refs") or []})
+            out.append(
+                {
+                    "block": f"verdict.{key}",
+                    "origin": "verdict",
+                    "text": verdict[key],
+                    "refs": verdict.get("refs") or [],
+                }
+            )
     for step in verdict.get("steps") or []:
         out.append({"block": "verdict.steps", "origin": "action", "text": step["text"], "refs": []})
     for a in insight.get("actions") or []:
         out.append({"block": "actions", "origin": "action", "text": a["text"], "refs": a.get("refs") or []})
     bp = insight.get("bank_position") or {}
     if bp.get("found") and bp.get("statement"):
-        out.append({"block": "bank_position", "origin": "bank", "text": bp["statement"],
-                    "refs": [bp["source_id"]] if bp.get("source_id") else []})
+        out.append(
+            {
+                "block": "bank_position",
+                "origin": "bank",
+                "text": bp["statement"],
+                "refs": [bp["source_id"]] if bp.get("source_id") else [],
+            }
+        )
     for q in insight.get("quotes") or []:
         out.append({"block": "quotes", "origin": "quote", "text": q["text"], "refs": [q["source_id"]]})
     return out
@@ -166,15 +182,53 @@ def check_statement(s: dict, pool: dict, item: dict) -> dict:
     if s["origin"] == "quote":
         quote_ok = any(norm(s["text"]) in norm(" ".join(x or "" for x in m)) for m in materials)
     ok = bool(s["refs"]) and not missing and not unfounded and quote_ok
-    return {"ok": ok, "no_refs": not s["refs"], "missing_refs": missing, "unfounded": unfounded,
-            "quote_ok": quote_ok}
+    return {
+        "ok": ok,
+        "no_refs": not s["refs"],
+        "missing_refs": missing,
+        "unfounded": unfounded,
+        "quote_ok": quote_ok,
+    }
 
 
-NAME = re.compile(r"(?<![.!?:]\s)(?<!^)(?<![«\"])\b([A-ZА-ЯЁ][a-zа-яё]+(?:[- ][A-ZА-ЯЁ][a-zа-яё]+)*|[A-Z]{2,})")
+NAME = re.compile(
+    r"(?<![.!?:]\s)(?<!^)(?<![«\"])\b([A-ZА-ЯЁ][a-zа-яё]+(?:[- ][A-ZА-ЯЁ][a-zа-яё]+)*|[A-Z]{2,})"
+)
 COMMON = {
-    "альфа-банк", "альфа", "банк", "банка", "россии", "россия", "рф", "цб", "минфин", "росстат", "фнс", "фтс",
-    "мосбиржа", "мосбирже", "вэд", "ндс", "ип", "ооо", "оао", "рко", "ofz", "офз", "ввп", "ес", "сша", "usd",
-    "eur", "cny", "brent", "urals", "forex", "минэк", "госдума", "правительство",
+    "альфа-банк",
+    "альфа",
+    "банк",
+    "банка",
+    "россии",
+    "россия",
+    "рф",
+    "цб",
+    "минфин",
+    "росстат",
+    "фнс",
+    "фтс",
+    "мосбиржа",
+    "мосбирже",
+    "вэд",
+    "ндс",
+    "ип",
+    "ооо",
+    "оао",
+    "рко",
+    "ofz",
+    "офз",
+    "ввп",
+    "ес",
+    "сша",
+    "usd",
+    "eur",
+    "cny",
+    "brent",
+    "urals",
+    "forex",
+    "минэк",
+    "госдума",
+    "правительство",
 }
 
 
@@ -239,16 +293,34 @@ def selection_metrics(results: dict, cases: dict) -> dict:
                 else:
                     in_feed_fp += 1
             if key in ("fp", "fn"):
-                errors.append({"persona": pid, "event_id": eid, "title": titles.get(eid, ""), "kind": key,
-                               "score": r["system_score"], "why": r["judge"].get("why", "")})
+                errors.append(
+                    {
+                        "persona": pid,
+                        "event_id": eid,
+                        "title": titles.get(eid, ""),
+                        "kind": key,
+                        "score": r["system_score"],
+                        "why": r["judge"].get("why", ""),
+                    }
+                )
         per[pid] = p
         tp, fp, tn, fn = tp + p["tp"], fp + p["fp"], tn + p["tn"], fn + p["fn"]
     manual = cases.get("manual_check") or []
     agree = sum(1 for m in manual if m.get("judge") is not None and m["judge"] == m["label"])
     system_ok = sum(1 for m in manual if m.get("system") is not None and m["system"] == m["label"])
-    return {"tp": tp, "fp": fp, "tn": tn, "fn": fn, "per": per, "errors": errors, "manual": len(manual),
-            "manual_agree": agree, "manual_system_ok": system_ok, "in_feed_tp": in_feed_tp,
-            "in_feed_fp": in_feed_fp}
+    return {
+        "tp": tp,
+        "fp": fp,
+        "tn": tn,
+        "fn": fn,
+        "per": per,
+        "errors": errors,
+        "manual": len(manual),
+        "manual_agree": agree,
+        "manual_system_ok": system_ok,
+        "in_feed_tp": in_feed_tp,
+        "in_feed_fp": in_feed_fp,
+    }
 
 
 def coverage_check(item: dict) -> dict | None:
@@ -262,16 +334,19 @@ def coverage_check(item: dict) -> dict | None:
     card_level = (insight.get("verdict") or {}).get("level")
     gi = feed_item.get("group_impact") or {}
     profile = pool.get("profile") or {}
-    allowed = {gi.get(k) for k in ("affected_count", "affected_with_credit", "major_count", "companies_total",
-                                   "others_total")}
+    allowed = {
+        gi.get(k)
+        for k in ("affected_count", "affected_with_credit", "major_count", "companies_total", "others_total")
+    }
     allowed.add((profile.get("group") or {}).get("size"))
     exposure_text = json.dumps(pool.get("exposure") or {}, ensure_ascii=False)
     allowed |= {int(v) for v, d, _ in numbers(exposure_text) if not d}
     allowed.discard(None)
     pattern = re.compile(r"(\d+)\s+(?:из\s+(\d+)\s+)?(?:других\s+|крупных\s+|дочерних\s+)?компани", re.I)
     card = " ".join(s["text"] for s in statements(insight))
-    feed_text = " ".join(filter(None, [(feed_item.get("takeaway") or {}).get("text"), feed_item.get("short"),
-                                       gi.get("text")]))
+    feed_text = " ".join(
+        filter(None, [(feed_item.get("takeaway") or {}).get("text"), feed_item.get("short"), gi.get("text")])
+    )
     bad = []
     for where, text in (("карточка", card), ("лента", feed_text)):
         for m in pattern.finditer(text):
@@ -282,10 +357,21 @@ def coverage_check(item: dict) -> dict | None:
     card_pool = Pool([card])
     lost = [raw for v, d, raw in feed_numbers if not card_pool.has(v, d)]
     compared = bool(pattern.search(card))
-    return {"event_id": item["event_id"], "persona": item["persona"], "title": insight["event"]["title"],
-            "feed_level": feed_level, "card_level": card_level, "level_ok": feed_level == card_level,
-            "compared": compared, "counts_ok": not bad or not compared, "bad": bad, "feed_numbers": [r for _, _, r in feed_numbers],
-            "feed_numbers_in_card": not lost, "lost": lost, "feed_text": feed_text}
+    return {
+        "event_id": item["event_id"],
+        "persona": item["persona"],
+        "title": insight["event"]["title"],
+        "feed_level": feed_level,
+        "card_level": card_level,
+        "level_ok": feed_level == card_level,
+        "compared": compared,
+        "counts_ok": not bad or not compared,
+        "bad": bad,
+        "feed_numbers": [r for _, _, r in feed_numbers],
+        "feed_numbers_in_card": not lost,
+        "lost": lost,
+        "feed_text": feed_text,
+    }
 
 
 def report(results: dict, cases: dict, root: Path) -> None:
@@ -307,13 +393,18 @@ def report(results: dict, cases: dict, root: Path) -> None:
     lost_ok = sum(c["feed_numbers_in_card"] for c in cov if c["feed_numbers"])
     lost_n = sum(1 for c in cov if c["feed_numbers"])
 
-    bank_items = [(b, s) for b in builds if (b.get("bank_judge") or {}).get("found")
-                  for s in b["bank_judge"]["items"]]
+    bank_items = [
+        (b, s) for b in builds if (b.get("bank_judge") or {}).get("found") for s in b["bank_judge"]["items"]
+    ]
     on_topic = sum(1 for _, s in bank_items if s["on_topic"])
     no_bank = [b for b in builds if b.get("bank_judge") and not b["bank_judge"]["found"]]
     no_bank_ok = sum(1 for b in no_bank if not b["bank_judge"]["exists"])
-    cards_off = sum(1 for b in builds if (b.get("bank_judge") or {}).get("found")
-                    and not all(s["on_topic"] for s in b["bank_judge"]["items"]))
+    cards_off = sum(
+        1
+        for b in builds
+        if (b.get("bank_judge") or {}).get("found")
+        and not all(s["on_topic"] for s in b["bank_judge"]["items"])
+    )
     cards_found = sum(1 for b in builds if (b.get("bank_judge") or {}).get("found"))
 
     checked = [(b, s) for b, sc in scored for s in sc["statements"] if "fabricated_numbers" in s]
@@ -366,23 +457,31 @@ def report(results: dict, cases: dict, root: Path) -> None:
         f"числа выводов, которых нет ни в данных компании, ни в источниках (кроме расчётов «оценка») |",
         f"| Выдумки: имена | **{sum(len(s['unknown_names']) for _, s in unknown)}** | названия и имена, "
         f"которых нет в данных (кандидаты; вручную не разобраны, метрика шумная) |",
-        f"| Время разбора | **медиана {sec(quantile(secs, .5))}, p90 {sec(quantile(secs, .9))}** | {len(secs)} "
+        f"| Время разбора | **медиана {sec(quantile(secs, 0.5))}, p90 {sec(quantile(secs, 0.9))}** | {len(secs)} "
         f"новых сборок, от запроса до готовой карточки |",
-        f"| Стоимость разбора | **медиана {money(quantile(costs, .5))}, p90 {money(quantile(costs, .9))}** | "
+        f"| Стоимость разбора | **медиана {money(quantile(costs, 0.5))}, p90 {money(quantile(costs, 0.9))}** | "
         f"по трассе (журналу вызовов моделей) каждой сборки |",
         f"| Новые новости | **{unseen_ok} из {len(unseen)}** разобраны | своя новость, которой нет в базе: "
         f"отрасль клиента, не по теме, английский, инструкция в тексте, шум |",
         f"| Эталоны | **{ref_ok} из {ref_all}** пунктов чек-листа | {len(refs)} эталонов, судья по чек-листу |",
     ]
-    stamp = (f"Прогон {results['started_at'][:16].replace('T', ' ')} МСК: {len(results['selection'])} "
-             f"пользователей, {len(results['news'])} новостей из базы, {len(builds)} карточек; расход — "
-             f"{money(results['build_spent_rub'])} на разборы и {money(results['judge']['spent_rub'])} на судью.")
+    stamp = (
+        f"Прогон {results['started_at'][:16].replace('T', ' ')} МСК: {len(results['selection'])} "
+        f"пользователей, {len(results['news'])} новостей из базы, {len(builds)} карточек; расход — "
+        f"{money(results['build_spent_rub'])} на разборы и {money(results['judge']['spent_rub'])} на судью."
+    )
     table_md = "\n".join([stamp, "", *table])
 
-    details = [details_selection(sel), details_sources(sourced, sourced_ok, no_refs, bad_refs, bad_nums,
-                                                       bad_quotes),
-               details_coverage(cov), details_bank(bank_items, no_bank), details_fab(fab, unknown, with_numbers),
-               details_time(fresh, journal), details_unseen(unseen, scored), details_refs(refs)]
+    details = [
+        details_selection(sel),
+        details_sources(sourced, sourced_ok, no_refs, bad_refs, bad_nums, bad_quotes),
+        details_coverage(cov),
+        details_bank(bank_items, no_bank),
+        details_fab(fab, unknown, with_numbers),
+        details_time(fresh, journal),
+        details_unseen(unseen, scored),
+        details_refs(refs),
+    ]
     for path in (root / "docs" / "quality.md", root / "README.md"):
         replace_block(path, TABLE_START, TABLE_END, table_md)
     replace_block(root / "docs" / "quality.md", DETAILS_START, DETAILS_END, "\n\n".join(details))
@@ -408,25 +507,44 @@ def cut(text: str, n: int = 140) -> str:
 
 
 def details_selection(sel: dict) -> str:
-    lines = ["### 1. Отбор — по пользователям", "",
-             "| Пользователь | касается: верно / ошибочно | не касается: верно / пропущено |", "|---|---|---|"]
+    lines = [
+        "### 1. Отбор — по пользователям",
+        "",
+        "| Пользователь | касается: верно / ошибочно | не касается: верно / пропущено |",
+        "|---|---|---|",
+    ]
     for pid, p in sel["per"].items():
         lines.append(f"| `{pid}` | {p['tp']} / {p['fp']} | {p['tn']} / {p['fn']} |")
-    lines += ["", f"Из событий, попавших в ленту хоть с какой оценкой, судья считает касающимися {sel['in_feed_tp']}"
-              f", не касающимися — {sel['in_feed_fp']}.", "", "Расхождения с судьёй (до 25):", ""]
+    lines += [
+        "",
+        f"Из событий, попавших в ленту хоть с какой оценкой, судья считает касающимися {sel['in_feed_tp']}"
+        f", не касающимися — {sel['in_feed_fp']}.",
+        "",
+        "Расхождения с судьёй (до 25):",
+        "",
+    ]
     for e in sel["errors"][:25]:
-        kind = "лента показала, судья — не касается" if e["kind"] == "fp" else "судья — касается, лента скрыла"
+        kind = (
+            "лента показала, судья — не касается" if e["kind"] == "fp" else "судья — касается, лента скрыла"
+        )
         score = "нет в ленте" if e["score"] is None else f"{e['score']:.2f}".replace(".", ",")
-        lines.append(f"- `{e['persona']}` · {cut(e['title'], 90)} — {kind} (оценка {score}); судья: {cut(e['why'])}")
+        lines.append(
+            f"- `{e['persona']}` · {cut(e['title'], 90)} — {kind} (оценка {score}); судья: {cut(e['why'])}"
+        )
     return "\n".join(lines)
 
 
 def details_sources(sourced, ok, no_refs, bad_refs, bad_nums, bad_quotes) -> str:
-    lines = ["### 2. Опора на источники", "",
-             f"Проверено {len(sourced)} утверждений с меткой «факт», «банк», «данные» и цитат; подтверждено {ok}. "
-             f"Без ссылок — {no_refs}, со ссылкой, которая не находится, — {bad_refs}, с числом, которого нет в "
-             f"источнике по ссылке, — {bad_nums}, цитат, которых нет во фрагменте дословно, — {bad_quotes}.", "",
-             "Примеры неподтверждённых (до 15):", ""]
+    lines = [
+        "### 2. Опора на источники",
+        "",
+        f"Проверено {len(sourced)} утверждений с меткой «факт», «банк», «данные» и цитат; подтверждено {ok}. "
+        f"Без ссылок — {no_refs}, со ссылкой, которая не находится, — {bad_refs}, с числом, которого нет в "
+        f"источнике по ссылке, — {bad_nums}, цитат, которых нет во фрагменте дословно, — {bad_quotes}.",
+        "",
+        "Примеры неподтверждённых (до 15):",
+        "",
+    ]
     shown = 0
     for b, s in sourced:
         c = s["check"]
@@ -447,16 +565,21 @@ def details_sources(sourced, ok, no_refs, bad_refs, bad_nums, bad_quotes) -> str
 
 
 def details_coverage(cov) -> str:
-    lines = ["### 3. Числа охвата и уровень: лента и карточка", "",
-             "| Событие | Пользователь | Уровень в ленте → в карточке | Счёт компаний | Числа ленты в карточке |",
-             "|---|---|---|---|---|"]
+    lines = [
+        "### 3. Числа охвата и уровень: лента и карточка",
+        "",
+        "| Событие | Пользователь | Уровень в ленте → в карточке | Счёт компаний | Числа ленты в карточке |",
+        "|---|---|---|---|---|",
+    ]
     for c in cov:
         counts = "сходится" if c["counts_ok"] else "; ".join(cut(x, 60) for x in c["bad"][:3])
         lost = "все" if c["feed_numbers_in_card"] else "нет: " + ", ".join(c["lost"][:4])
         if not c["feed_numbers"]:
             lost = "в выводе ленты чисел нет"
-        lines.append(f"| {cut(c['title'], 70)} | `{c['persona']}` | {LEVEL_RU.get(c['feed_level'])} → "
-                     f"{LEVEL_RU.get(c['card_level'])} | {counts} | {lost} |")
+        lines.append(
+            f"| {cut(c['title'], 70)} | `{c['persona']}` | {LEVEL_RU.get(c['feed_level'])} → "
+            f"{LEVEL_RU.get(c['card_level'])} | {counts} | {lost} |"
+        )
     return "\n".join(lines)
 
 
@@ -464,24 +587,34 @@ def details_bank(bank_items, no_bank) -> str:
     lines = ["### 4. Позиция банка", "", "Не по теме события (по мнению судьи):", ""]
     off = [(b, s) for b, s in bank_items if not s["on_topic"]]
     for b, s in off[:15]:
-        lines.append(f"- {cut(b['insight']['event']['title'], 80)} · `{b['persona']}` — «{cut(s['text'], 120)}»; "
-                     f"{cut(s['why'], 100)}")
+        lines.append(
+            f"- {cut(b['insight']['event']['title'], 80)} · `{b['persona']}` — «{cut(s['text'], 120)}»; "
+            f"{cut(s['why'], 100)}"
+        )
     if not off:
         lines.append("- нет")
     lines += ["", "Карточки, где сказано «позиции банка нет»:", ""]
     for b in no_bank:
         j = b["bank_judge"]
         verdict = "верно" if not j["exists"] else f"позиция была: `{j.get('match')}`"
-        lines.append(f"- {cut(b['insight']['event']['title'], 80)} · `{b['persona']}` — {verdict}; {cut(j['why'], 100)}")
+        lines.append(
+            f"- {cut(b['insight']['event']['title'], 80)} · `{b['persona']}` — {verdict}; {cut(j['why'], 100)}"
+        )
     return "\n".join(lines)
 
 
 def details_fab(fab, unknown, with_numbers) -> str:
-    lines = ["### 5. Выдумки — кандидаты", "",
-             f"Утверждений с числами — {len(with_numbers)}, из них с числом, которого нет в данных, — {len(fab)}:", ""]
+    lines = [
+        "### 5. Выдумки — кандидаты",
+        "",
+        f"Утверждений с числами — {len(with_numbers)}, из них с числом, которого нет в данных, — {len(fab)}:",
+        "",
+    ]
     for b, s in fab[:25]:
-        lines.append(f"- `{b['persona']}` · {s['block']} · {s['origin']} · «{cut(s['text'])}» — "
-                     f"{', '.join(s['fabricated_numbers'][:5])}")
+        lines.append(
+            f"- `{b['persona']}` · {s['block']} · {s['origin']} · «{cut(s['text'])}» — "
+            f"{', '.join(s['fabricated_numbers'][:5])}"
+        )
     if not fab:
         lines.append("- нет")
     lines += ["", "Названия и имена, которых нет в данных:", ""]
@@ -493,45 +626,66 @@ def details_fab(fab, unknown, with_numbers) -> str:
 
 
 def details_time(fresh, journal) -> str:
-    lines = ["### 6. Время и стоимость", "",
-             "| Вид разбора | Сборок | Время: медиана / p90 | Стоимость: медиана / p90 | Всего |", "|---|---|---|---|---|"]
+    lines = [
+        "### 6. Время и стоимость",
+        "",
+        "| Вид разбора | Сборок | Время: медиана / p90 | Стоимость: медиана / p90 | Всего |",
+        "|---|---|---|---|---|",
+    ]
     for kind, label in (("feed", "событие из ленты"), ("reference", "эталон"), ("unseen", "новая новость")):
         rows = [b for b in fresh if b["kind"] == kind]
         if not rows:
             continue
         s = [b["seconds"] for b in rows]
         c = [b["cost_rub"] for b in rows]
-        lines.append(f"| {label} | {len(rows)} | {quantile(s, .5):.0f} / {quantile(s, .9):.0f} с | "
-                     f"{quantile(c, .5):.2f} / {quantile(c, .9):.2f} ₽ | {sum(c):.2f} ₽ |".replace(".", ","))
+        lines.append(
+            f"| {label} | {len(rows)} | {quantile(s, 0.5):.0f} / {quantile(s, 0.9):.0f} с | "
+            f"{quantile(c, 0.5):.2f} / {quantile(c, 0.9):.2f} ₽ | {sum(c):.2f} ₽ |".replace(".", ",")
+        )
     if journal:
-        lines += ["", "Журнал вызовов моделей стенда замера (оплаченные вызовы):", "",
-                  "| Шаг | Модель | Вызовов | Время: медиана / p90 | Стоимость: медиана / сумма |", "|---|---|---|---|---|"]
+        lines += [
+            "",
+            "Журнал вызовов моделей стенда замера (оплаченные вызовы):",
+            "",
+            "| Шаг | Модель | Вызовов | Время: медиана / p90 | Стоимость: медиана / сумма |",
+            "|---|---|---|---|---|",
+        ]
         groups: dict[tuple, list] = {}
         for j in journal:
             groups.setdefault((j["step"], j["model"]), []).append(j)
         for (step, model), rows in sorted(groups.items()):
             s = [r["seconds"] for r in rows]
             c = [r["cost"] for r in rows]
-            lines.append(f"| {step} | {model} | {len(rows)} | {quantile(s, .5):.1f} / {quantile(s, .9):.1f} с | "
-                         f"{statistics.median(c):.3f} / {sum(c):.2f} ₽ |".replace(".", ","))
+            lines.append(
+                f"| {step} | {model} | {len(rows)} | {quantile(s, 0.5):.1f} / {quantile(s, 0.9):.1f} с | "
+                f"{statistics.median(c):.3f} / {sum(c):.2f} ₽ |".replace(".", ",")
+            )
     return "\n".join(lines)
 
 
 def details_unseen(unseen, scored) -> str:
     by_id = {id(b): sc for b, sc in scored}
-    lines = ["### 7. Новые новости", "", "| Случай | Пользователь | Ответ | Итог карточки | Чисел без опоры |",
-             "|---|---|---|---|---|"]
+    lines = [
+        "### 7. Новые новости",
+        "",
+        "| Случай | Пользователь | Ответ | Итог карточки | Чисел без опоры |",
+        "|---|---|---|---|---|",
+    ]
     for b in unseen:
         insight = b.get("insight")
         if not insight:
-            lines.append(f"| {b.get('case')} | `{b['persona']}` | {b.get('status')}: {cut(b.get('error') or '', 80)} "
-                         f"| — | — |")
+            lines.append(
+                f"| {b.get('case')} | `{b['persona']}` | {b.get('status')}: {cut(b.get('error') or '', 80)} "
+                f"| — | — |"
+            )
             continue
         verdict = insight.get("verdict") or {}
         sc = by_id.get(id(b)) or {"statements": []}
         fab = sum(len(s.get("fabricated_numbers") or []) for s in sc["statements"])
-        lines.append(f"| {b.get('case')} | `{b['persona']}` | {b['status']}, {b['seconds']:.0f} с | "
-                     f"{LEVEL_RU.get(verdict.get('level'))}: {cut(verdict.get('headline') or '', 110)} | {fab} |")
+        lines.append(
+            f"| {b.get('case')} | `{b['persona']}` | {b['status']}, {b['seconds']:.0f} с | "
+            f"{LEVEL_RU.get(verdict.get('level'))}: {cut(verdict.get('headline') or '', 110)} | {fab} |"
+        )
     return "\n".join(lines)
 
 
