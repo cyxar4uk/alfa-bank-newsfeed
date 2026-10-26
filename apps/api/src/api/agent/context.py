@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from api.agent.numbers import NumberBank
 from api.agent.ports import LEVEL_RANK, AnalyticsHit, Chain, Event, ExposureFactor, GroupImpact
+from api.agent.scenarios import user_lines
 from api.agent.topics import TOPIC_LABELS, event_topics, today, ved_direction
 from api.contract import CompanyProfile, Persona, Source, Statement
 from api.contract import GroupImpact as Coverage
@@ -256,7 +257,7 @@ class AgentContext:
             c = self.coverage
             bank.add_value([c.affected_count, c.companies_total, c.affected_revenue, c.affected_share])
             bank.add_text(coverage_fact(c))
-        for line in self.indicators:
+        for line in [*self.indicators, *user_lines(self.user_inputs)]:
             bank.add_text(line)
         if self.profile.industry:
             i = self.profile.industry
@@ -300,6 +301,8 @@ class AgentContext:
             "Признаки компании (id · название · значение):",
         ]
         lines.insert(2, self.render_rate_type())
+        for i, line in enumerate(user_lines(self.user_inputs)):
+            lines.insert(3 + i, line)
         for f in p.features:
             value = f.display if f.display is not None else f.value
             if isinstance(value, list):

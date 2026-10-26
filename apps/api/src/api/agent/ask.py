@@ -13,7 +13,9 @@ from api.agent.checks import Checker
 from api.agent.context import AgentContext, as_data, dumps
 from api.agent.drafts import AskAnswer, cited, to_statement
 from api.agent.prompts import ASK_SYSTEM
+from api.agent.scenarios import SCENARIO_PREFIXES
 from api.agent.tools import Tools
+from api.agent.topics import RELATED, text_topics
 from api.agent.trace import TraceRecorder
 from api.contract import DISCLAIMER, Insight, Source, Statement
 from api.llm import LlmClient
@@ -44,6 +46,29 @@ OFF_TOPIC = "Я отвечаю только на вопросы об этом с
 NO_ANSWER = "Не нашёл, чем подтвердить ответ в данных компании и материалах по событию."
 
 
+def _only_question(ctx: AgentContext, card: dict, question: str) -> None:
+    """Ответ только на вопрос: расчёты и «мои числа» про другую тему модели не показываем."""
+    asked = text_topics(question)
+    for t in list(asked):
+        asked |= RELATED.get(t, set())
+    if not asked:
+        return
+
+    def related(text: str) -> bool:
+        return bool(text_topics(text) & asked)
+
+    ctx.estimates = [e for e in ctx.estimates if related(e.statement.text)]
+    if not asked & {"rate", "deposit"}:
+        ctx.user_inputs = None
+    for place, items in card.get("consequences", {}).items():
+        card["consequences"][place] = [
+            st
+            for st in items
+            if not (st.get("origin") == "estimate" and st.get("text", "").startswith(SCENARIO_PREFIXES))
+            or related(st.get("text", ""))
+        ]
+
+
 def answer(llm: LlmClient, tools: Tools, ctx: AgentContext, insight: Insight, question: str) -> AskOut:
     trace: TraceRecorder = tools.trace
     trace.plan(
@@ -54,6 +79,7 @@ def answer(llm: LlmClient, tools: Tools, ctx: AgentContext, insight: Insight, qu
     card = insight.model_dump(
         mode="json", include={"what_happened", "why_it_matters", "consequences", "bank_view"}
     )
+    _only_question(ctx, card, question)
     messages = [
         {"role": "system", "content": ASK_SYSTEM},
         {

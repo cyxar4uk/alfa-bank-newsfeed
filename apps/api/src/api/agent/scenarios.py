@@ -107,12 +107,13 @@ def rate(debt: float | None = None, refs: list[str] | None = None, rate_type: st
             refs=refs or [],
             confidence="medium",
         )
+    cheaper = fmt_number((RATE_NOW - RATE_2027) / RATE_NOW * 100, 0)
     return Statement(
         text=(
             f"Проценты {label} долга, если ставка по кредиту идёт за ключевой:"
             f" при {fmt_number(RATE_NOW)} % — {fmt_rub(now)} в год,"
             f" при {fmt_number(RATE_2027)} % (прогноз Альфа-Банка на конец 2027 г.) — {fmt_rub(later)};"
-            f" разница {fmt_rub(now - later)} в год."
+            f" разница {fmt_rub(now - later)} в год — примерно на {cheaper} % меньше текущих выплат."
         ),
         origin="estimate",
         refs=refs or [],
@@ -197,6 +198,62 @@ def oil(
         refs=refs or [],
         confidence="low",
     )
+
+
+# расчёты карточки, которые заменяются на числах пользователя (старые тексты «на каждый 1 млрд» — тоже)
+SCENARIO_PREFIXES = (
+    "Проценты на",
+    "Ставка по долгу фиксированная",
+    "Если курс дойдёт",
+    "Допущение сервиса",
+    "На каждый 1 млрд",
+    "На каждые 100 млн ₽ валютных",
+)
+ASK_RATES = (12.0, 14.0, 16.0)  # ставки, на которых заранее считаем проценты по долгу пользователя в чате
+
+
+def user_lines(saved) -> list[str]:
+    """Что пользователь сообщил о себе («мои числа») — модели в контекст; рубли по ставкам уже посчитаны."""
+    inputs = Inputs.from_user(saved)
+    if saved is None or not (inputs.any() or inputs.rate_type):
+        return []
+    kind = {"floating": "плавающая (идёт за ключевой)", "fixed": "фиксированная"}.get(
+        inputs.rate_type or "", ""
+    )
+    lines = []
+    if inputs.debt:
+        table = "; ".join(
+            f"при {fmt_number(r)} % — {fmt_rub(inputs.debt * r / 100)} в год" for r in ASK_RATES
+        )
+        lines.append(
+            f"Ваш долг по вашим данным — {fmt_rub(inputs.debt)}"
+            + (f", ставка {kind}" if kind else "")
+            + f". Проценты на него: {table}. Называй это «по вашим данным {fmt_rub(inputs.debt)}»."
+        )
+    elif kind:
+        lines.append(f"Тип ставки по вашим данным: {kind}.")
+    if inputs.fx:
+        lines.append(f"Валютные закупки по вашим данным — {fmt_rub(inputs.fx)} в год.")
+    if inputs.fuel_t:
+        lines.append(f"Закупка топлива по вашим данным — {fmt_number(inputs.fuel_t, 0)} т в месяц.")
+    return lines
+
+
+def reprice(insight, ctx):
+    """Копия карточки с рублями на «моих числах» (без модели): сценарии вместо старых текстов."""
+    fresh = for_context(ctx)
+    out = insight.model_copy(deep=True)
+    c = out.consequences
+    for place in ("risks", "opportunities", "factors"):
+        items = getattr(c, place)
+        setattr(
+            c,
+            place,
+            [s for s in items if not (s.origin == "estimate" and s.text.startswith(SCENARIO_PREFIXES))],
+        )
+    for _, statement, place, _ in fresh:
+        getattr(c, place).append(statement)
+    return out
 
 
 _TRADE = re.compile(r"торговл", re.IGNORECASE)

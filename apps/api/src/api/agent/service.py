@@ -177,7 +177,9 @@ class AgentService:
         with self._lock(key):
             active = self.jobs.get(key)
             if active is None or active.status not in ("queued", "running"):
-                stored = None if refresh else self.cached(key, persona.id)
+                stored = (
+                    None if refresh else self.cached(key, persona.id) or self._reprice(event_id, persona.id)
+                )
                 if stored is not None:
                     return stored.insight
                 event = self.library.get_event(event_id)
@@ -255,13 +257,40 @@ class AgentService:
         ctx.user_inputs = saved_inputs(ctx.persona.id)
         return [statement for _, statement, _, _ in for_context(ctx, inputs)]
 
+    def _reprice(self, event_id: str, persona_id: str) -> StoredInsight | None:
+        """Карточка собрана до «моих чисел» пользователя: пересчитать только рубли, без модели."""
+        from api.agent.claims import verify as verify_claims
+        from api.agent.scenarios import reprice, saved_inputs
+
+        key = insight_id(event_id, persona_id)
+        stored = self.store.get_insight(key)
+        if stored is None or stored.version.split(":", 1)[0] != self.version:
+            return None  # логика агента другая — нужна полная сборка
+        ctx = from_snapshot(stored.context)
+        ctx.user_inputs = saved_inputs(persona_id)
+        insight = reprice(stored.insight, ctx)
+        verify_claims(ctx, insight)
+        fresh = StoredInsight(
+            insight=insight,
+            context=ctx.snapshot(),
+            cost_rub=stored.cost_rub,
+            version=self.version_for(persona_id),
+        )
+        self.store.save_insight(event_id, persona_id, fresh)
+        return fresh
+
     def ask(self, insight_id_: str, question: str) -> AskOut:
+        from api.agent.scenarios import reprice, saved_inputs
+
         stored = self.cached(insight_id_)
         if stored is None:
             raise NotFound(f"инсайт {insight_id_} не найден — откройте карточку события заново")
         if self.llm is None:
             raise AgentError("модели не настроены: нет LLM_API_KEY или LLM_BASE_URL")
         ctx = from_snapshot(stored.context)
+        # «мои числа», сохранённые после сборки карточки: чат знает о них, рубли в карточке — на них же
+        ctx.user_inputs = saved_inputs(ctx.persona.id)
+        stored = stored.model_copy(update={"insight": reprice(stored.insight, ctx)})
         recorder = TraceRecorder()
         recorder.trace.insight_id = insight_id_
         tools = Tools(self.company, self.library, recorder)
