@@ -88,7 +88,9 @@ class PgMarket:
                     (series, since),
                 ).fetchall()
         except Exception:  # таблицы ещё нет (парсер не обновлён) — цифр нет, лента работает
-            log.debug("рыночный ряд %s не прочитан", series, exc_info=True)
+            log.warning(
+                "рыночный ряд %s не прочитан (market_series: series, day, value)", series, exc_info=True
+            )
             rows = []
         points = [Point(series, r[0], float(r[1]), SOURCES.get(series, "ЦБ РФ")) for r in rows]
         with self._lock:
@@ -139,13 +141,16 @@ def market_line(series: str, today: dt.date | None = None) -> str | None:
     line = f"{name} {_value(series, now.value)} ({now.source} на {now.date:%d.%m})"
     change = market_change(series, days, today)
     if change is not None:
-        delta = change[0].value - change[1].value
-        sign = "+" if delta > 0 else "−" if delta < 0 else "±"
+        delta = round(change[0].value - change[1].value, 1)
+        sign = "+" if delta > 0 else "−"
         shown = fmt_number(abs(delta), 1)
-        line += (
-            f", {PERIOD_WORDS.get(days, f'за {days} дн.')} {sign}{'$' if delta_unit == '$' else ''}{shown}"
-        )
-        line += "" if delta_unit == "$" else f" {delta_unit}"
+        period = PERIOD_WORDS.get(days, f"за {days} дн.")
+        if delta == 0:
+            line += f", {period} без изменений"
+        elif delta_unit == "$":
+            line += f", {period} {sign}${shown}"
+        else:
+            line += f", {period} {sign}{shown} {delta_unit}"
     return line
 
 
@@ -161,6 +166,14 @@ def gap_to_bank(series: str, bank_value: float, today: dt.date | None = None) ->
     if now is None or not now.value or series not in SERIES:
         return None
     gap = bank_value / now.value - 1
+    if abs(gap) > 0.5:  # прогноз в полтора раза от рынка — скорее изменение («+5 руб.»), а не уровень
+        return None
+    if SERIES[series][1] == "%":  # ставка — разница в п.п., а не проценты от процентов
+        diff = bank_value - now.value
+        if abs(diff) < 0.05:
+            return f"банк ждёт {_value(series, bank_value)} — столько же, сколько сейчас"
+        where = "выше" if diff > 0 else "ниже"
+        return f"банк ждёт {_value(series, bank_value)} — на {fmt_number(abs(diff), 1)} п.п. {where} нынешних"
     if abs(gap) < 0.005:
         return f"банк ждёт {_value(series, bank_value)} — столько же, сколько сейчас"
     where = "выше" if gap > 0 else "ниже"

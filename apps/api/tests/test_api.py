@@ -1,3 +1,5 @@
+import types
+
 import pytest
 from factories import make_company
 from fastapi.testclient import TestClient
@@ -369,13 +371,19 @@ def test_feed_marks_ready_insights(client):
         def ready_events(self, event_ids, persona_id):
             return {e for e in event_ids if e == "src:news:rate"}
 
+        class jobs:  # noqa: N801 — как у AgentService: очередь сборок
+            @staticmethod
+            def get(key):
+                return types.SimpleNamespace(status="running")  # остальные собираются заранее
+
     app.dependency_overrides[news_provider] = FakeNews
     app.state.agent = Agent()
     try:
         items = client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"]
     finally:
         del app.state.agent
-    assert items[0]["insight_ready"] is True
+    assert items[0]["insight_ready"] is True and items[0]["insight_state"] == "ready"
+    assert all(i["insight_state"] == "queued" for i in items[1:])
     # агента нет — неизвестно
     assert client.get("/api/feed", params={"persona": "p-u1-cfo"}).json()["items"][0]["insight_ready"] is None
 
@@ -743,4 +751,9 @@ def test_related_endpoint(client):
     assert "src:news:r0" not in ids and set(ids) <= {"src:news:r1", "src:news:r2"} and ids
     assert all(i["takeaway"] for i in body["items"])
     assert client.get("/api/events/src:news:нет/related", params={"persona": "p-u1-cfo"}).status_code == 404
-    assert client.get("/api/events/src:news:r0", params={}).status_code in (200, 404)  # старый путь цел
+    assert client.get("/api/events/src:news:r0").status_code == 200  # старый путь цел
+
+
+def test_precompute_status_without_scheduler(client):
+    body = client.get("/api/precompute/status").json()
+    assert body["running"] is False and body["spent_rub"] == 0 and body["budget_rub"] > 0
