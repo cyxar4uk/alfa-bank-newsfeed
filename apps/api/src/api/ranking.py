@@ -53,6 +53,13 @@ class Scoring(BaseModel):
     min_score: float = Field(default=0.03, ge=0, le=1)
     # каждое следующее событие с той же главной причиной — оценка × repeat_factor (разнообразие ленты)
     repeat_factor: float = Field(default=0.9, gt=0, le=1)
+    # после стольких повторов штраф не растёт (0 — без предела): десятое событие темы не хуже четвёртого
+    repeat_max: int = Field(default=0, ge=0)
+    # повтор переупорядочивает ленту, но не делает событие «не касается»: оценка от repeat_floor и выше после
+    # штрафа не ниже repeat_floor. 0 — штраф без нижней границы
+    repeat_floor: float = Field(default=0.0, ge=0, le=1)
+    # ...но только для профильной темы: чувствительность компании к главному фактору события не ниже этой
+    repeat_floor_exposure: float = Field(default=0.6, ge=0, le=1)
     # второе по силе слагаемое события — × next_term, третье — × next_term², …
     next_term: float = Field(default=1.0, gt=0, le=1)
     # событие за рубежом без связи компании с этими странами: внутренние факторы — × foreign_factor
@@ -565,18 +572,35 @@ def rank(
         if item:
             items.append(item)
     items.sort(key=lambda i: (-i.relevance.score, -_published(i), i.event_id))
-    return _diversify(items, config.scoring.repeat_factor)
+    scoring = config.scoring
+    return _diversify(
+        items, scoring.repeat_factor, scoring.repeat_floor, scoring.repeat_floor_exposure, scoring.repeat_max
+    )
 
 
 def _main_term(item: FeedItem) -> str:
     return next((t.code for t in item.relevance.breakdown if t.kind != "bank"), "")
 
 
-def _diversify(items: list[FeedItem], repeat: float) -> list[FeedItem]:
+def _steps(times: int, cap: int) -> int:
+    return min(times, cap) if cap else times
+
+
+def _core_theme(item: FeedItem, min_exposure: float) -> bool:
+    """Главная причина — фактор, к которому компания сильно чувствительна (нефть у топливного холдинга)."""
+    term = next((t for t in item.relevance.breakdown if t.kind not in ("bank", "repeat")), None)
+    return term is not None and term.kind == "factor" and (term.exposure or 0) >= min_exposure
+
+
+def _diversify(
+    items: list[FeedItem], repeat: float, floor: float = 0.0, floor_exposure: float = 0.0, cap: int = 0
+) -> list[FeedItem]:
     """Лента не из одной темы: k-е повторение главной причины — оценка × repeat^k.
 
     Снижение — отдельное слагаемое разложения «повтор темы», сумма слагаемых по-прежнему равна оценке.
-    Жадно: на каждом шаге берётся событие с наибольшей оценкой с учётом уже взятых.
+    Жадно: на каждом шаге берётся событие с наибольшей оценкой с учётом уже взятых. Порядок — по штрафованной
+    оценке, а сама оценка касающегося события профильной темы (от `floor`) не опускается ниже `floor`: у
+    компании, для которой тема профильная (нефть у топливного холдинга), каждое событие темы касается её.
     """
     if repeat >= 1 or not items:
         return items
@@ -585,13 +609,21 @@ def _diversify(items: list[FeedItem], repeat: float) -> list[FeedItem]:
     result: list[FeedItem] = []
     while pending:
         best = max(
-            pending, key=lambda i: (i.relevance.score * repeat ** seen.get(_main_term(i), 0), _published(i))
+            pending,
+            key=lambda i: (
+                i.relevance.score * repeat ** _steps(seen.get(_main_term(i), 0), cap),
+                _published(i),
+            ),
         )
         pending.remove(best)
         key = _main_term(best)
         times = seen.get(key, 0)
         if times:
-            penalty = round(best.relevance.score * (1 - repeat**times), 4)
+            score = best.relevance.score
+            penalty = round(score * (1 - repeat**times), 4)
+            if score >= floor and _core_theme(best, floor_exposure):
+                # касающееся событие профильной темы не уходит ниже порога; остальные штрафуются как раньше
+                penalty = min(penalty, round(score - floor, 4))
             best.relevance.breakdown.append(
                 ScoreTerm(
                     kind="repeat",

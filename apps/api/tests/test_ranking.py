@@ -337,3 +337,24 @@ def test_bank_view_only_for_the_events_own_topic():
     assert item.has_bank_view is False
     topical = news("topical", factors=[("consumer", 0.9)], title="Потребительский спрос в России вырос")
     assert feed([topical], "cfo", bank_view=lambda codes: True)[0].has_bank_view is True
+
+
+def test_repeat_penalty_never_hides_a_core_theme_event_and_stops_growing():
+    # топливный холдинг: нефть — профильная тема (чувствительность 0,8); десять нефтяных новостей подряд
+    oil = [news(f"oil{n}", factors=[("commodity_oil_gas", 1.0)], days=1) for n in range(10)]
+    items = feed(oil, "owner")
+    assert len(items) == 10
+    assert all(
+        i.relevance.score >= 0.3 for i in items
+    )  # каждое касается компании, штраф только сдвигает вниз
+    scores = [i.relevance.score for i in items]
+    assert scores[0] > scores[-1] and scores[-1] == pytest.approx(0.3, abs=0.001)
+    for i in items:  # сумма слагаемых по-прежнему равна оценке
+        assert sum(t.value for t in i.relevance.breakdown) == pytest.approx(i.relevance.score, abs=1e-3)
+
+
+def test_repeat_penalty_keeps_pushing_down_weak_themes():
+    # ВЭД для общепита — не профильная тема (чувствительность низкая): повторы по-прежнему уходят ниже порога
+    trade = [news(f"v{n}", factors=[("ved_logistics", 1.0)], days=1) for n in range(8)]
+    scores = [i.relevance.score for i in feed(trade, "ceo", company=CAFE, flows=[])]
+    assert scores == sorted(scores, reverse=True)
