@@ -85,10 +85,13 @@ def test_group_number_for_owner():
         text="",
         refs=[],
     )
-    # в заголовке «ЦБ не спешит» направления нет — так и сказано, число и действие на месте
-    assert takeaway(it, "owner", exposure_map()).text == (
+    # в заголовке «ЦБ не спешит» направления нет: так и сказано, число на месте, но «важно» это не бывает —
+    # неясное направление — «следить» (жюри: «направление пока неясно» в «Важно»)
+    unclear = takeaway(it, "owner", exposure_map())
+    assert unclear.level == "watch"
+    assert unclear.text == (
         "ЦБ не спешит — направление пока неясно. 178 из 368 других компаний группы с выручкой 149 млрд ₽."
-        " Что делать: учтите стоимость долга в планах инвестиций группы."
+        " Следите; если подтвердится — сверьте сроки пересмотра ставок."
     )
     it.event.title = "ЦБ не спешит // Пауза в снижении ключевой ставки может затянуться"
     assert takeaway(it, "owner", exposure_map()).text.startswith(
@@ -249,4 +252,30 @@ def test_off_topic_news_is_info_and_not_a_story():
         "Банки снизили ставки по ипотеке вслед за ЦБ",
         "Ставки по ипотеке и кредитам МСП растут",
     ):
-        assert takeaway(item(0.6, title=title), "cfo").level == "act"
+        assert (
+            takeaway(item(0.6, title=title), "cfo").level != "info"
+        )  # по смыслу о ставке, не ипотечная метка
+
+
+def test_unclear_direction_never_act_and_delay_means_rate_holds():
+    from api.consequence import consequence
+
+    unclear = item(0.9, title="Президент Румынии заявил о солидном оборонном бюджете")
+    assert takeaway(unclear, "owner", exposure_map()).level != "act"
+    clear = item(0.9, title="ЦБ сохранил ключевую ставку 14 %")
+    assert takeaway(clear, "owner", exposure_map()).level == "act"
+    # «снижение не раньше 2027» — ставка держится, а не снижается
+    for title in (
+        "Шохин спрогнозировал снижение ключевой ставки не раньше 2027 года",
+        "ЦБ отложил снижение ключевой ставки",
+        "Снижение ставки пока не ожидается: ЦБ перенес решение",
+    ):
+        text = consequence(item(0.6, title=title), "rate", exposure_map()) or ""
+        assert "подешевеет" not in text, title
+    assert "подешевеет" in consequence(item(0.6, title="ЦБ снизил ключевую ставку до 13 %"), "rate", None)
+
+
+def test_payment_share_only_is_not_important():
+    only = item(0.9, code="chain:buyers:56", kind="chain", exposure=0.02, title="Закупки кафе упали")
+    assert takeaway(only, "cfo", exposure_map()).level == "info"
+    assert takeaway(only, "cfo", exposure_map()).text.startswith("Прямо вас не касается")

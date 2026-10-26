@@ -362,6 +362,7 @@ def score_event(
     abroad_note = f" (событие за рубежом: {', '.join(sorted(foreign))})" if discount < 1 else ""
     terms: list[_Term] = []
     matched: list[FeedFactor] = []
+    strong: list[str] = []  # факторы, о которых новость по-настоящему (метка от 0,5)
 
     # факторы события × чувствительность компании × вес роли
     for code, strength, _name in event.factors:
@@ -381,6 +382,8 @@ def score_event(
         if raw <= 0:
             continue
         matched.append(FeedFactor(code=code, label=factor.label))
+        if strength >= BANK_TAG_MIN:
+            strong.append(code)
         text = factor.channel.text if factor.channel else factor.label
         terms.append(
             _Term(
@@ -464,7 +467,9 @@ def score_event(
     if base < config.scoring.min_score:
         return None
     codes = list(dict.fromkeys(f.code for f in matched))
-    has_bank_view = bool(codes and bank_view and bank_view(codes))
+    # позиция банка — только по теме события, а не по любому слабо связанному фактору
+    topics = bank_topics(event.title, strong)
+    has_bank_view = bool(topics and bank_view and bank_view(topics))
     bonus = min(config.scoring.bank_view_bonus, 1.0 - base) if has_bank_view else 0.0
 
     breakdown = []
@@ -510,6 +515,18 @@ def score_event(
 
 def _published(item: FeedItem) -> float:
     return item.source.published_at.timestamp() if item.source.published_at else 0.0
+
+
+BANK_TAG_MIN = 0.5
+
+
+def bank_topics(title: str, strong: list[str]) -> list[str]:
+    """Факторы, по которым у события может быть позиция банка: метка сильная, тема есть у банка (api.bankview)
+    и заголовок о ней же («ставк» — у ставки). «Дайджест ритейла» со слабой меткой спроса — не тема банка."""
+    from api.bankview import TOPICS  # bankview импортирует ranking — здесь, а не наверху
+
+    low = title.casefold()
+    return [c for c in dict.fromkeys(strong) if c in TOPICS and any(s in low for s in TOPICS[c][1])]
 
 
 def rank(
