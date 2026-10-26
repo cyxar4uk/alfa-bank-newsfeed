@@ -279,3 +279,34 @@ def test_payment_share_only_is_not_important():
     only = item(0.9, code="chain:buyers:56", kind="chain", exposure=0.02, title="Закупки кафе упали")
     assert takeaway(only, "cfo", exposure_map()).level == "info"
     assert takeaway(only, "cfo", exposure_map()).text.startswith("Прямо вас не касается")
+
+
+def test_products_named_for_the_event():
+    from factories import make_company
+
+    from api.contract import ExposureChannel
+    from api.products import products_for
+
+    expo = exposure_map()
+    fx = expo.factors[0].model_copy(
+        update={
+            "code": "fx",
+            "label": "Курс валют",
+            "level": "high",
+            "channel": ExposureChannel(kind="direct", text="ВЭД: Китай; направление — экспорт"),
+        }  # fmt: skip
+    )
+    expo = expo.model_copy(update={"factors": [fx, *expo.factors]})
+    it = item(0.9, code="fx", title="Рубль крепнет")
+    it.takeaway = takeaway(it, "cfo", expo)
+    found = products_for(it, "cfo", make_company(), expo)
+    assert [p.name for p in found] == ["Форвард на валютную выручку"] and found[0].link.startswith("https://")
+    assert products_for(it, "chief_accountant", make_company(), expo) == []  # главбуху не предлагаем
+    quiet = item(0.05, code="fx", title="Рубль")
+    quiet.takeaway = takeaway(quiet, "cfo", expo)
+    assert quiet.takeaway.level == "info" and products_for(quiet, "cfo", make_company(), expo) == []
+    rate = item(0.9, title="ЦБ сохранил ключевую ставку 14 %")
+    rate.takeaway = takeaway(rate, "cfo", expo)
+    assert (
+        products_for(rate, "cfo", make_company(credit=False), expo) == []
+    )  # кредита нет — нечего реструктурировать

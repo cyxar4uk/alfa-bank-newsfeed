@@ -44,6 +44,7 @@ from api.news import FallbackNews, NewsProvider, SearchNews, SnapshotNews
 from api.okved import sector_for
 from api.personas import DEMO_PERSONAS, parse_persona_id, persona_id, personas_for
 from api.precompute import Precompute, PrecomputeStatus
+from api.products import attach_products
 from api.profile import LARGE_REVENUE, display_name
 from api.ranking import MSK
 from api.repo import CompanyRepo, PgCompanyRepo
@@ -533,6 +534,7 @@ def build_feed(
             feed = write_top(feed, agent.llm, exposure, ROLE_LABELS.get(feed.role, ""))
     # уровень, однажды показанный, — тот же в дне, неделе и карточке (api.levels); сюжеты недели берут его же
     feed = LEVELS.pin(feed, exposure)
+    attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
     if events is not None:
         feed = finish_week(feed, events, news, now, limit, exposure)
     return feed
@@ -604,7 +606,10 @@ def search_feed(
             status_code=404, detail=f"пользователь {persona} не найден или его компания не действующий клиент"
         )
     _mark_ready(getattr(request.app.state, "agent", None), feed)
-    return LEVELS.pin(feed, company_exposure(repo, feed.company_id), remember=False)
+    exposure = company_exposure(repo, feed.company_id)
+    feed = LEVELS.pin(feed, exposure, remember=False)
+    attach_products(feed.items, feed.role, repo.get_company(feed.company_id), exposure)
+    return feed
 
 
 @app.get("/api/events/{event_id:path}", response_model=EventDetail, tags=["лента"])
